@@ -1,0 +1,26 @@
+# Security baseline
+
+## Local command execution
+
+TOML CLI commands are launched as an executable plus separate arguments. The
+executor no longer invokes `cmd /C` or `sh -c`, so command arguments are not
+reparsed as shell syntax. Existing Lua and AutoHotkey command packs remain a
+trusted local extension surface and require a separate hardening audit before
+third-party packs are accepted.
+
+Commands use `safe`, `confirmation_required`, or `forbidden` risk levels. A
+confirmation expires after 15 seconds and releases only the stored command ID.
+`browser_close` is the first existing command marked as confirmation-required.
+
+## AI boundary
+
+AI providers are chat-only. They must not receive a shell, arbitrary code
+runner, clipboard contents, files, notes, Vault data, passwords, API keys, or
+system diagnostics without an explicit feature-specific user request. A future
+tool call must be schema-validated, allow-listed, and passed through SafetyGate.
+
+## Known risks
+
+`Cargo.toml` declares GPL-3.0-only while `LICENSE.txt` and README describe
+CC-BY-NC-SA-4.0. This licensing conflict must be resolved by the copyright
+holder before distribution. It was recorded, not changed.

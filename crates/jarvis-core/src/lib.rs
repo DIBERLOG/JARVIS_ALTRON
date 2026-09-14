@@ -11,6 +11,8 @@ pub mod time;
 
 pub mod audio;
 pub mod commands;
+pub mod safety;
+pub mod ai;
 pub mod config;
 pub mod db;
 pub mod i18n;

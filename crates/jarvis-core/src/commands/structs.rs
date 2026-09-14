@@ -22,6 +22,10 @@ pub struct JCommand {
     
     #[serde(default)]
     pub description: String,
+
+    /// Explicit local-action policy, stored with the command definition.
+    #[serde(default)]
+    pub risk_level: crate::safety::RiskLevel,
     
     // for "ahk" type
     #[serde(default)]
@@ -79,6 +83,7 @@ impl Clone for JCommand {
 
             cmd_type: self.cmd_type.clone(),
             description: self.description.clone(),
+            risk_level: self.risk_level,
 
             exe_path: self.exe_path.clone(),
             exe_args: self.exe_args.clone(),

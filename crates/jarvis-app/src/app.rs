@@ -1,10 +1,16 @@
 use std::sync::mpsc::Receiver;
+use std::time::Instant;
 use std::time::SystemTime;
 
 use jarvis_core::{audio_buffer::AudioRingBuffer, audio_processing, commands, config, listener, recorder, stt, COMMANDS_LIST, intent, voices, ipc::{self, IpcEvent}, i18n, slots};
 use rand::seq::SliceRandom;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+use jarvis_core::safety::{ConfirmationResult, GateDecision, SafetyGate};
 
 use crate::should_stop;
+
+static SAFETY_GATE: Lazy<Mutex<SafetyGate>> = Lazy::new(|| Mutex::new(SafetyGate::default()));
 
 // VAD state machine
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -350,6 +356,30 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
             return false;
         }
     };
+
+    match text {
+        "отмена" | "cancel" => {
+            let message = if matches!(SAFETY_GATE.lock().cancel(), ConfirmationResult::Cancelled) { "Действие отменено" } else { "Нет действия для отмены" };
+            ipc::send(IpcEvent::Error { message: message.into() });
+            ipc::send(IpcEvent::Idle);
+            return false;
+        }
+        "подтверждаю" | "подтверждаю действие" | "confirm" => {
+            let result = SAFETY_GATE.lock().confirm(Instant::now());
+            if let ConfirmationResult::Confirmed { command_id } = result {
+                if let Some((path, command)) = commands_list.iter().find_map(|list| list.commands.iter().find(|command| command.id == command_id).map(|command| (&list.path, command))) {
+                    return execute_resolved_command(path, command, text, None);
+                }
+                ipc::send(IpcEvent::Error { message: "Подтверждённая команда больше недоступна".into() });
+            } else {
+                let message = if matches!(result, ConfirmationResult::Expired) { "Время подтверждения истекло" } else { "Нет действия для подтверждения" };
+                ipc::send(IpcEvent::Error { message: message.into() });
+            }
+            ipc::send(IpcEvent::Idle);
+            return false;
+        }
+        _ => {}
+    }
     
     let cmd_result = if let Some((intent_id, confidence)) = 
         rt.block_on(intent::classify(text)) 
@@ -363,6 +393,19 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
     
     if let Some((cmd_path, cmd_config)) = cmd_result {
         info!("Command found: {:?}", cmd_path);
+        match SAFETY_GATE.lock().request(&cmd_config.id, cmd_config.risk_level, Instant::now()) {
+            GateDecision::Approved => {}
+            GateDecision::AwaitingConfirmation { .. } => {
+                ipc::send(IpcEvent::Error { message: "Это действие требует подтверждения. Скажите «подтверждаю» в течение 15 секунд или «отмена».".into() });
+                ipc::send(IpcEvent::Idle);
+                return false;
+            }
+            GateDecision::RejectedForbidden => {
+                ipc::send(IpcEvent::Error { message: "Это действие запрещено политикой безопасности".into() });
+                ipc::send(IpcEvent::Idle);
+                return false;
+            }
+        }
         
         // extract slots if needed
         let extracted_slots = if !cmd_config.slots.is_empty() {
@@ -375,7 +418,23 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
             None
         };
 
-        match commands::execute_command(&cmd_path, &cmd_config, Some(&text), extracted_slots.as_ref()) {
+        return execute_resolved_command(&cmd_path, &cmd_config, text, extracted_slots.as_ref());
+    } else {
+        info!("No command found for: {}", text);
+        voices::play_not_found();
+        ipc::send(IpcEvent::Error { message: format!("Command not found: {}", text) });
+    }
+    ipc::send(IpcEvent::Idle);
+    false
+}
+
+fn execute_resolved_command(
+    cmd_path: &std::path::PathBuf,
+    cmd_config: &jarvis_core::commands::JCommand,
+    text: &str,
+    slots: Option<&std::collections::HashMap<String, jarvis_core::slots::SlotValue>>,
+) -> bool {
+        match commands::execute_command(cmd_path, cmd_config, Some(text), slots) {
             Ok(chain) => {
                 info!("Command executed successfully");
                 // voices::play_ok();
@@ -397,14 +456,6 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
                 ipc::send(IpcEvent::Error { message: msg.to_string() });
             }
         }
-    } else {
-        info!("No command found for: {}", text);
-        voices::play_not_found();
-        ipc::send(IpcEvent::Error { 
-            message: format!("Command not found: {}", text) 
-        });
-    }
-    
     ipc::send(IpcEvent::Idle);
     false // no chain on error or not found
 }

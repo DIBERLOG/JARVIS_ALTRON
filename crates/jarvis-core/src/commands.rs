@@ -183,13 +183,13 @@ pub fn execute_exe(exe: &str, args: &[String]) -> std::io::Result<Child> {
 }
 
 pub fn execute_cli(cmd: &str, args: &[String]) -> std::io::Result<Child> {
-    debug!("Spawning: cmd /C {} {:?}", cmd, args);
-
-    if cfg!(target_os = "windows") {
-        Command::new("cmd").arg("/C").arg(cmd).args(args).spawn()
-    } else {
-        Command::new("sh").arg("-c").arg(cmd).args(args).spawn()
+    // A shell would reinterpret command-pack content and interpolated arguments.
+    // Packs must name an executable and provide each argument separately.
+    if cmd.trim().is_empty() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "CLI executable cannot be empty"));
     }
+    debug!("Spawning approved executable: {} ({} arguments)", cmd, args.len());
+    Command::new(cmd).args(args).spawn()
 }
 
 pub fn execute_command(cmd_path: &PathBuf, cmd_config: &JCommand, phrase: Option<&str>, slots: Option<&HashMap<String, SlotValue>>) -> Result<bool, String> {
