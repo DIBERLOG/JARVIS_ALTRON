@@ -13,6 +13,7 @@ pub mod audio;
 pub mod commands;
 pub mod safety;
 pub mod ai;
+pub mod sync;
 pub mod config;
 pub mod db;
 pub mod i18n;

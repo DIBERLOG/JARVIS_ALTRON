@@ -48,6 +48,7 @@ ort = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 tokenizers = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
+uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winrt-notification = { workspace = true, optional = true }

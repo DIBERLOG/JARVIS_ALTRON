@@ -52,4 +52,5 @@ ndarray = "0.17"
 tokenizers = { version = "0.22", default-features = false }
 regex = "1"
 sys-locale = "0.3"
+uuid = { version = "1", features = ["v4", "serde"] }
 
