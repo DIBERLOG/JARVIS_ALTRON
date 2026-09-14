@@ -10,7 +10,10 @@ third-party packs are accepted.
 
 Commands use `safe`, `confirmation_required`, or `forbidden` risk levels. A
 confirmation expires after 15 seconds and releases only the stored command ID.
-`browser_close` is the first existing command marked as confirmation-required.
+Voice confirmation is not authentication, so destructive and elevated actions
+need a future GUI confirmation flow. `browser_close` is currently `forbidden`:
+its AutoHotkey implementation elevates, closes applications, and restarts
+JARVIS.
 
 ## AI boundary
 
