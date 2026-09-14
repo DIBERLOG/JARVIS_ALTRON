@@ -15,6 +15,16 @@ need a future GUI confirmation flow. `browser_close` is currently `forbidden`:
 its AutoHotkey implementation elevates, closes applications, and restarts
 JARVIS.
 
+## Planned GUI confirmation contract
+
+The confirmation dialog will show the action name, target program, normalized
+arguments, consequence, and an expiry countdown, with **Cancel** and
+**Confirm** controls. Confirming must release an immutable prepared-action ID;
+the UI must not accept a replacement executable or argument list. Voice is not
+an acceptable confirmation channel for application termination, elevation,
+reboot/shutdown, file deletion, system-settings changes, passwords, or data
+transmission.
+
 ## AI boundary
 
 AI providers are chat-only. They must not receive a shell, arbitrary code

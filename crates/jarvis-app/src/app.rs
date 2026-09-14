@@ -432,7 +432,7 @@ fn execute_resolved_command(
     cmd_path: &std::path::PathBuf,
     cmd_config: &jarvis_core::commands::JCommand,
     text: &str,
-    slots: Option<&std::collections::HashMap<String, jarvis_core::slots::SlotValue>>,
+    slots: Option<&std::collections::HashMap<String, jarvis_core::commands::SlotValue>>,
 ) -> bool {
         match commands::execute_command(cmd_path, cmd_config, Some(text), slots) {
             Ok(chain) => {
