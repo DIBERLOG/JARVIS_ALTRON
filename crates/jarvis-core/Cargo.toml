@@ -49,9 +49,15 @@ ndarray = { workspace = true, optional = true }
 tokenizers = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 uuid.workspace = true
+rusqlite.workspace = true
+argon2.workspace = true
+chacha20poly1305.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winrt-notification = { workspace = true, optional = true }
+windows-sys.workspace = true
 
 [features]
 default = ["jarvis_app"]

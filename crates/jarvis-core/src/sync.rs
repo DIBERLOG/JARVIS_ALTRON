@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
+pub mod crypto;
+pub mod sqlite;
+
 const MAX_DEVICE_ID_LEN: usize = 128;
 const MAX_PAGE_SIZE: usize = 100;
 const MAX_ENCRYPTED_PAYLOAD_BYTES: usize = 1024 * 1024;
@@ -36,7 +39,7 @@ pub enum SyncOperationKind {
     Delete,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct DeviceId(String);
 
 impl DeviceId {
@@ -72,6 +75,14 @@ impl fmt::Debug for EncryptedPayload {
 }
 
 impl EncryptedPayload {
+    pub(crate) fn from_opaque_bytes(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    pub(crate) fn as_opaque_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
     #[cfg(test)]
     fn new(bytes: Vec<u8>) -> Self {
         Self(bytes)
@@ -133,6 +144,69 @@ pub struct SyncOperation {
     pub encrypted_payload: Option<EncryptedPayload>,
 }
 
+/// A client-originated request. It deliberately cannot carry server-assigned
+/// entity revisions or journal positions.
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SyncMutation {
+    pub operation_id: Uuid,
+    pub entity_id: Uuid,
+    pub entity_type: SyncEntityType,
+    pub device_id: DeviceId,
+    pub device_sequence: u64,
+    pub base_revision: u64,
+    pub kind: SyncOperationKind,
+    pub timestamp: String,
+    pub schema_version: u32,
+    pub encrypted_payload: Option<EncryptedPayload>,
+}
+
+impl fmt::Debug for SyncMutation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SyncMutation")
+            .field("operation_id", &self.operation_id)
+            .field("entity_id", &self.entity_id)
+            .field("entity_type", &self.entity_type)
+            .field("device_id", &self.device_id)
+            .field("device_sequence", &self.device_sequence)
+            .field("base_revision", &self.base_revision)
+            .field("kind", &self.kind)
+            .field("timestamp", &self.timestamp)
+            .field("schema_version", &self.schema_version)
+            .field(
+                "encrypted_payload",
+                &self.encrypted_payload.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct SyncCursor(pub u64);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredSyncOperation {
+    pub mutation: SyncMutation,
+    pub entity_revision: u64,
+    pub server_sequence: SyncCursor,
+    pub outcome: StoredOperationOutcome,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MutationConflict {
+    pub id: Uuid,
+    pub current: Option<SyncRecord>,
+    pub incoming: SyncMutation,
+    pub entity_revision: u64,
+    pub server_sequence: SyncCursor,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StoredOperationOutcome {
+    Applied,
+    Conflict,
+}
+
 impl fmt::Debug for SyncOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -168,6 +242,7 @@ pub enum ApplyOutcome {
     Applied { cursor: u64 },
     AlreadyApplied { cursor: u64 },
     Conflict { conflict_id: Uuid },
+    Rejected,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -192,6 +267,11 @@ pub enum SyncAuditOutcome {
 }
 
 pub trait SyncRepository {
+    /// Repositories with durable storage override this as one transaction. The
+    /// legacy granular methods remain temporarily for the stage-1 engine.
+    fn apply_operation(&mut self, _mutation: SyncMutation) -> Result<ApplyOutcome, SyncError> {
+        Ok(ApplyOutcome::Rejected)
+    }
     fn record(&self, entity_id: Uuid) -> Option<SyncRecord>;
     fn save_record(&mut self, record: SyncRecord);
     fn applied_outcome(&self, operation_id: Uuid) -> Option<ApplyOutcome>;
@@ -297,6 +377,7 @@ impl<R: SyncRepository, C: CryptoProvider> SyncEngine<R, C> {
                     ApplyOutcome::AlreadyApplied { cursor }
                 }
                 conflict @ ApplyOutcome::Conflict { .. } => conflict,
+                ApplyOutcome::Rejected => ApplyOutcome::Rejected,
             });
         }
 
@@ -413,6 +494,8 @@ pub enum SyncError {
     PayloadTooLarge,
     CryptoUnavailable,
     TestPayloadMalformed,
+    StorageUnavailable,
+    UnsupportedSchemaVersion,
 }
 
 impl fmt::Display for SyncError {
@@ -427,6 +510,10 @@ impl fmt::Display for SyncError {
             Self::PayloadTooLarge => formatter.write_str("encrypted sync payload exceeds limit"),
             Self::CryptoUnavailable => formatter.write_str("sync crypto provider unavailable"),
             Self::TestPayloadMalformed => formatter.write_str("malformed test-only sync payload"),
+            Self::StorageUnavailable => formatter.write_str("sync storage is unavailable"),
+            Self::UnsupportedSchemaVersion => {
+                formatter.write_str("unsupported sync storage schema")
+            }
         }
     }
 }
@@ -445,9 +532,91 @@ mod tests {
         changes: Vec<SyncOperation>,
         conflicts: Vec<SyncConflict>,
         audit: Vec<SyncAuditEntry>,
+        operations_by_id: HashMap<Uuid, ApplyOutcome>,
+        operations_by_device_sequence: HashMap<(DeviceId, u64), Uuid>,
+        journal_by_server_sequence: Vec<StoredSyncOperation>,
+        mutation_conflicts: Vec<MutationConflict>,
+        next_server_sequence: u64,
     }
 
     impl SyncRepository for InMemorySyncRepository {
+        fn apply_operation(&mut self, mutation: SyncMutation) -> Result<ApplyOutcome, SyncError> {
+            if let Some(outcome) = self.operations_by_id.get(&mutation.operation_id) {
+                return Ok(match outcome {
+                    ApplyOutcome::Applied { cursor } | ApplyOutcome::AlreadyApplied { cursor } => {
+                        ApplyOutcome::AlreadyApplied { cursor: *cursor }
+                    }
+                    outcome => outcome.clone(),
+                });
+            }
+            let pair = (mutation.device_id.clone(), mutation.device_sequence);
+            if self.operations_by_device_sequence.contains_key(&pair) {
+                return Ok(ApplyOutcome::Rejected);
+            }
+            let current = self.records.get(&mutation.entity_id).cloned();
+            let current_revision = current
+                .as_ref()
+                .map(|record| record.metadata.revision)
+                .unwrap_or(0);
+            self.next_server_sequence += 1;
+            let cursor = SyncCursor(self.next_server_sequence);
+            if current_revision != mutation.base_revision {
+                let conflict = MutationConflict {
+                    id: Uuid::new_v4(),
+                    current,
+                    incoming: mutation.clone(),
+                    entity_revision: current_revision,
+                    server_sequence: cursor,
+                };
+                let outcome = ApplyOutcome::Conflict {
+                    conflict_id: conflict.id,
+                };
+                self.mutation_conflicts.push(conflict);
+                self.operations_by_id
+                    .insert(mutation.operation_id, outcome.clone());
+                self.operations_by_device_sequence
+                    .insert(pair, mutation.operation_id);
+                return Ok(outcome);
+            }
+            if current
+                .as_ref()
+                .is_some_and(|record| record.metadata.tombstone)
+                && !matches!(mutation.kind, SyncOperationKind::Delete)
+            {
+                return Ok(ApplyOutcome::Rejected);
+            }
+            let revision = current_revision + 1;
+            let tombstone = matches!(mutation.kind, SyncOperationKind::Delete);
+            let record = SyncRecord {
+                metadata: SyncRecordMetadata {
+                    id: mutation.entity_id,
+                    entity_type: mutation.entity_type.clone(),
+                    revision,
+                    device_id: mutation.device_id.clone(),
+                    updated_at: mutation.timestamp.clone(),
+                    tombstone,
+                },
+                content: if tombstone {
+                    None
+                } else {
+                    mutation.encrypted_payload.clone()
+                },
+            };
+            self.records.insert(mutation.entity_id, record);
+            let stored = StoredSyncOperation {
+                mutation: mutation.clone(),
+                entity_revision: revision,
+                server_sequence: cursor,
+                outcome: StoredOperationOutcome::Applied,
+            };
+            self.journal_by_server_sequence.push(stored);
+            let outcome = ApplyOutcome::Applied { cursor: cursor.0 };
+            self.operations_by_id
+                .insert(mutation.operation_id, outcome.clone());
+            self.operations_by_device_sequence
+                .insert(pair, mutation.operation_id);
+            Ok(outcome)
+        }
         fn record(&self, entity_id: Uuid) -> Option<SyncRecord> {
             self.records.get(&entity_id).cloned()
         }
@@ -735,5 +904,146 @@ mod tests {
         assert!(!audit.contains(fake_password));
         assert!(!operation_debug.contains(secret_note));
         assert!(!operation_debug.contains(fake_password));
+    }
+
+    fn mutation(operation_id: Uuid, entity_id: Uuid, sequence: u64) -> SyncMutation {
+        SyncMutation {
+            operation_id,
+            entity_id,
+            entity_type: SyncEntityType::Note,
+            device_id: DeviceId::new("desktop").unwrap(),
+            device_sequence: sequence,
+            base_revision: 0,
+            kind: SyncOperationKind::Create,
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            schema_version: 1,
+            encrypted_payload: Some(EncryptedPayload::new(b"SUPER_SECRET_SYNC_PAYLOAD".to_vec())),
+        }
+    }
+
+    #[test]
+    fn mutation_separates_client_identity_from_entity_and_server_fields() {
+        let mutation = mutation(Uuid::new_v4(), Uuid::new_v4(), 1);
+        assert_ne!(mutation.operation_id, mutation.entity_id);
+        let stored = StoredSyncOperation {
+            mutation: mutation.clone(),
+            entity_revision: 1,
+            server_sequence: SyncCursor(42),
+            outcome: StoredOperationOutcome::Applied,
+        };
+        assert_eq!(stored.entity_revision, 1);
+        assert_eq!(stored.server_sequence, SyncCursor(42));
+        assert!(!format!("{mutation:?}").contains("SUPER_SECRET_SYNC_PAYLOAD"));
+    }
+
+    #[test]
+    fn cursor_is_distinct_from_entity_revision_and_timestamp() {
+        let first = StoredSyncOperation {
+            mutation: mutation(Uuid::new_v4(), Uuid::new_v4(), 1),
+            entity_revision: 9,
+            server_sequence: SyncCursor(1),
+            outcome: StoredOperationOutcome::Applied,
+        };
+        let second = StoredSyncOperation {
+            mutation: SyncMutation {
+                timestamp: "2000-01-01T00:00:00Z".into(),
+                ..mutation(Uuid::new_v4(), Uuid::new_v4(), 2)
+            },
+            entity_revision: 1,
+            server_sequence: SyncCursor(2),
+            outcome: StoredOperationOutcome::Applied,
+        };
+        assert!(first.server_sequence < second.server_sequence);
+        assert_ne!(first.entity_revision, first.server_sequence.0);
+    }
+
+    #[test]
+    fn atomic_mutations_assign_revisions_sequences_and_are_idempotent() {
+        let mut repository = InMemorySyncRepository::default();
+        let entity_id = Uuid::new_v4();
+        let first = mutation(Uuid::new_v4(), entity_id, 1);
+        assert_eq!(
+            repository.apply_operation(first.clone()).unwrap(),
+            ApplyOutcome::Applied { cursor: 1 }
+        );
+        assert_eq!(repository.records[&entity_id].metadata.revision, 1);
+        assert_eq!(
+            repository.apply_operation(first).unwrap(),
+            ApplyOutcome::AlreadyApplied { cursor: 1 }
+        );
+        assert_eq!(repository.next_server_sequence, 1);
+        let second = SyncMutation {
+            operation_id: Uuid::new_v4(),
+            device_sequence: 2,
+            base_revision: 1,
+            kind: SyncOperationKind::Update,
+            ..mutation(Uuid::new_v4(), entity_id, 2)
+        };
+        assert_eq!(
+            repository.apply_operation(second).unwrap(),
+            ApplyOutcome::Applied { cursor: 2 }
+        );
+        assert_eq!(repository.records[&entity_id].metadata.revision, 2);
+    }
+
+    #[test]
+    fn atomic_mutation_conflicts_and_tombstones_do_not_resurrect_records() {
+        let mut repository = InMemorySyncRepository::default();
+        let entity_id = Uuid::new_v4();
+        repository
+            .apply_operation(mutation(Uuid::new_v4(), entity_id, 1))
+            .unwrap();
+        let stale = SyncMutation {
+            operation_id: Uuid::new_v4(),
+            device_sequence: 2,
+            base_revision: 0,
+            ..mutation(Uuid::new_v4(), entity_id, 2)
+        };
+        assert!(matches!(
+            repository.apply_operation(stale.clone()).unwrap(),
+            ApplyOutcome::Conflict { .. }
+        ));
+        assert_eq!(repository.records[&entity_id].metadata.revision, 1);
+        assert!(matches!(
+            repository.apply_operation(stale).unwrap(),
+            ApplyOutcome::Conflict { .. }
+        ));
+        let delete = SyncMutation {
+            operation_id: Uuid::new_v4(),
+            device_sequence: 3,
+            base_revision: 1,
+            kind: SyncOperationKind::Delete,
+            encrypted_payload: None,
+            ..mutation(Uuid::new_v4(), entity_id, 3)
+        };
+        repository.apply_operation(delete).unwrap();
+        assert!(repository.records[&entity_id].metadata.tombstone);
+        let resurrect = SyncMutation {
+            operation_id: Uuid::new_v4(),
+            device_sequence: 4,
+            base_revision: 2,
+            kind: SyncOperationKind::Update,
+            ..mutation(Uuid::new_v4(), entity_id, 4)
+        };
+        assert_eq!(
+            repository.apply_operation(resurrect).unwrap(),
+            ApplyOutcome::Rejected
+        );
+    }
+
+    #[test]
+    fn duplicate_device_sequence_with_a_new_operation_is_rejected() {
+        let mut repository = InMemorySyncRepository::default();
+        let entity_id = Uuid::new_v4();
+        repository
+            .apply_operation(mutation(Uuid::new_v4(), entity_id, 1))
+            .unwrap();
+        assert_eq!(
+            repository
+                .apply_operation(mutation(Uuid::new_v4(), Uuid::new_v4(), 1))
+                .unwrap(),
+            ApplyOutcome::Rejected
+        );
+        assert_eq!(repository.next_server_sequence, 1);
     }
 }
