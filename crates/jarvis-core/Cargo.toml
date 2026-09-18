@@ -59,6 +59,7 @@ hkdf.workspace = true
 [target.'cfg(windows)'.dependencies]
 winrt-notification = { workspace = true, optional = true }
 windows-sys.workspace = true
+clipboard-win.workspace = true
 
 [features]
 default = ["jarvis_app"]

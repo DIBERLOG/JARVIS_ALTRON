@@ -59,5 +59,6 @@ chacha20poly1305 = { version = "0.11", features = ["getrandom"] }
 getrandom = "0.4"
 zeroize = { version = "1.8", features = ["derive"] }
 hkdf = "0.12"
+clipboard-win = { version = "5", features = ["std"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 

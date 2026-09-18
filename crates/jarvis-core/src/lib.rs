@@ -15,6 +15,7 @@ pub mod safety;
 pub mod ai;
 pub mod sync;
 pub mod notes;
+pub mod vault;
 pub mod config;
 pub mod db;
 pub mod i18n;
