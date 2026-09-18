@@ -44,6 +44,36 @@ password, or any plaintext record.
 * Restore is impossible without the master password. Losing it means the data is
   unrecoverable; JARVIS has no recovery key and no backdoor.
 
+## Restore procedure
+
+Implemented for the notes storage (`crates/jarvis-core/src/notes/vault.rs`):
+
+1. Install JARVIS on the new machine. On first start the storage is
+   `uninitialized`, so no key file exists yet.
+2. Copy the encrypted database (`sync.sqlite3`) if the notes are being moved, or
+   start empty to restore only the key.
+3. Open the notes page. Because the database has entities but no key file, the
+   storage reports `key_missing` and refuses to create a new key: generating one
+   would orphan the existing ciphertext.
+4. Import the portable backup, either from a file (`Import backup file`) or by
+   pasting the envelope into the form, and supply the original master password.
+   The master key is unwrapped in memory and both local key files are re-created:
+   a fresh DPAPI blob for this machine plus a copy of the envelope.
+5. Existing encrypted payloads now decrypt, because they were encrypted under the
+   restored master key. The previous machine's local blob is irrelevant and cannot
+   unlock them.
+
+A wrong password changes nothing: the import fails before any file is rewritten.
+
+## Saving a portable copy from the interface
+
+`Save a backup copy` re-wraps the in-memory master key with a password of the
+user's choice and writes a new envelope to a chosen file. It needs the storage to
+be unlocked, because the master key must be in memory, but it never stores or
+returns the master password. The locally stored envelope can also be copied
+verbatim (`copy_local_backup_to`), which needs no key material because the file is
+already password-protected.
+
 ## DPAPI is not a backup
 
 Windows DPAPI protection (`crates/jarvis-core/src/sync/crypto.rs`) exists so the
@@ -57,17 +87,3 @@ every start. The resulting blob is:
 The DPAPI blob and the portable backup are separate Rust types
 (`DpapiProtectedKey` and `PortableKeyBackup`), so the two cannot be confused at
 compile time.
-
-## Restore procedure (intended flow)
-
-1. Install JARVIS on the new machine and let it create its own local DPAPI blob.
-2. Import the portable envelope and supply the original master password; the
-   master key is unwrapped in memory.
-3. Replace the new local DPAPI blob with a fresh protection of the restored
-   master key (`dpapi_protect`).
-4. Existing encrypted payloads now decrypt, because they were encrypted under the
-   restored master key; the previous machine's local blob is irrelevant and
-   cannot unlock them.
-
-Importing a backup does not modify or delete the existing local blob until step 3
-succeeds, so a wrong password leaves the current installation untouched.

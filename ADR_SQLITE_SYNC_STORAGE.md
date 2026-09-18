@@ -69,6 +69,11 @@ Additional invariants:
   discarded as malformed.
 * `page_after` returns applied entries only. Conflicts consume a server sequence
   and advance `next_cursor`, but they are never replicated to peers.
+* A retained conflict is resolved by an explicit operator action
+  (`discard_conflict` after keeping the current version, accepting the incoming
+  one, or storing it as a second note). Only the pending conflict row is removed:
+  the journal entry and its payload survive, so a version is never destroyed
+  silently. Notes use this in `crates/jarvis-core/src/notes/`; see `NOTES.md`.
 
 ### Schema
 

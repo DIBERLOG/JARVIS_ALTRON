@@ -74,14 +74,44 @@ key does not expose the master key or the password.
   to opaque `SyncError` variants, and tests assert that fictional note and vault
   markers do not appear in the database file or in `Debug` output.
 
+## Notes on Windows
+
+The notes feature (`crates/jarvis-core/src/notes/`) is the first consumer of this
+layer. It stores each note and folder as an encrypted entity payload, so title,
+body, tags, and folder names exist in plaintext only in memory.
+
+* Key material lives beside the database in the application data directory:
+  `key.backup.json` (portable envelope) and `key.dpapi` (DPAPI blob for the
+  current Windows user). The master password is never stored.
+* Locking the storage drops the master key, and while locked the interface shows
+  no note content and the backend refuses every content read with
+  `StorageLocked`.
+* If the database survives but the key files do not, the storage reports
+  `key_missing` and refuses to generate a new key, because that would orphan the
+  existing ciphertext. Recovery is only possible through a portable backup.
+* Content never reaches a log line or an error message: `NoteError` carries
+  stable, content-free text, and `Debug` redacts titles, bodies, tags, folder
+  names, and excerpts.
+* Search runs in memory over decrypted notes; no plaintext index or plaintext
+  search column exists. The cost of that choice is documented in `NOTES.md`.
+* The only temporary file the notes layer writes is the staging file used for
+  atomic key-file replacement, and it contains ciphertext only.
+* Notes are not sent to the AI layer, and this stage has no network path.
+
 ## What this layer does not do
 
 * It does not hide *existence* or *shape*: metadata listed in
   `ADR_SQLITE_SYNC_STORAGE.md` (entity IDs, entity types, device IDs, revisions,
-  cursors, timestamps, ciphertext lengths) is stored in the clear.
+  cursors, timestamps, ciphertext lengths) is stored in the clear. For notes that
+  means the number of notes, their approximate size, and their edit times are
+  visible without the key.
 * It does not protect against an attacker who already runs code as the logged-in
-  Windows user; DPAPI-protected keys are recoverable by that user by design.
+  Windows user; DPAPI-protected keys are recoverable by that user by design, and
+  decrypted notes live in that user's process memory while unlocked.
 * It does not implement its own ciphers, KDFs, or randomness. Only audited crates
   (`argon2`, `chacha20poly1305`, `getrandom`) and the OS API are used.
 * It does not yet cover key rotation or password change; changing the master
   password means exporting a new backup envelope.
+* It does not scrub the decrypted note set from memory when locking beyond
+  dropping the key and the cache: process memory that held plaintext is reused,
+  not explicitly wiped.
