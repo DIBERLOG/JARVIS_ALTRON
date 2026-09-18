@@ -67,6 +67,10 @@
     </div>
     
     <div class="header-right">
+        <button class="header-btn" on:click={() => $goto('/notes')}>
+            <span class="btn-text">{t('header-notes')}</span>
+        </button>
+
         <button class="header-btn" on:click={() => $goto('/commands')}>
             <span class="btn-text">{t('header-commands')}</span>
             <span class="btn-badge purple">{commandsCount}+</span>
