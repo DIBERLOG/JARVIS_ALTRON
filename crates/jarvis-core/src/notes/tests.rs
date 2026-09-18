@@ -4,8 +4,8 @@ use super::model::*;
 use super::store::NoteStore;
 use crate::sync::crypto::{random_master_key, MasterKey, MasterKeyCryptoProvider};
 use crate::sync::{
-    ApplyOutcome, CryptoProvider, DeviceId, InMemorySyncRepository, PayloadContext,
-    SyncEntityType, SyncMutation, SyncOperationKind, SyncRepository,
+    ApplyOutcome, CryptoProvider, DeviceId, EncryptedPayload, InMemorySyncRepository,
+    PayloadContext, SyncEntityType, SyncMutation, SyncOperationKind, SyncRepository,
 };
 use uuid::Uuid;
 
@@ -26,6 +26,59 @@ fn draft(title: &str, body: &str) -> NoteDraft {
         folder_id: None,
         tags: Vec::new(),
     }
+}
+
+fn hex_to_bytes(hex: &str) -> Vec<u8> {
+    (0..hex.len() / 2)
+        .map(|index| u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap())
+        .collect()
+}
+
+/// A note record produced by the release *before* key separation was
+/// introduced: format version 1 envelope, encrypted with the raw master key and
+/// no domain label. Captured byte for byte from that build.
+const LEGACY_NOTE_FIXTURE_KEY: [u8; 32] = [0x2a; 32];
+const LEGACY_NOTE_FIXTURE_ENTITY: &str = "11111111-2222-3333-4444-555555555555";
+const LEGACY_NOTE_FIXTURE_HEX: &str = "016bc8a61f7a6c51834cf456b1c877d110653a36494d53aebfc29bf8f180e11263fa8ca77049917174f3338b5c43a048012de2ca9cbe1a67c35fcd1ddab3937722d9e218faaf8e684c6415da3b31511de7592cb229a53c10f80563af55b465fe35a97b363b1f1cc3e69012a2b4a857ecf37bea2f5cef72aa89df18abc3a7af89f34b948b6a29d4953a0050bd58a583ac3d908c84e0ca2b241d55a5cb7348cb49fb766c6742ea0f1f1d24081acab5f5411b024f29e853f7ab0cedcb720d25721db734c999d4f38352b357d48a2c69dab11c25ddc67a0939c47c26213c1222a9ea8f1c1a672a1977742389fbaa92d836d79f396d8dedefedbd849de8577eab0aea539106cb989b8d76daffb28965533769943fef";
+
+#[test]
+fn notes_written_before_key_separation_still_decrypt() {
+    let entity = Uuid::parse_str(LEGACY_NOTE_FIXTURE_ENTITY).unwrap();
+    let context = PayloadContext::new(SyncEntityType::Note, entity);
+    let payload = EncryptedPayload::from_opaque_bytes(hex_to_bytes(LEGACY_NOTE_FIXTURE_HEX));
+
+    // The provider keeps the master key for exactly this case.
+    let provider = MasterKeyCryptoProvider::new(MasterKey::from_bytes(LEGACY_NOTE_FIXTURE_KEY));
+    let plaintext = provider.decrypt(&context, &payload).unwrap();
+    let note = NotePayload::from_bytes(&plaintext).unwrap();
+    assert_eq!(note.title, "FICTIONAL_LEGACY_TITLE");
+    assert_eq!(note.body, "FICTIONAL_LEGACY_BODY");
+    assert_eq!(note.tags, vec!["legacy".to_string()]);
+
+    // Rewriting the note upgrades it to the current envelope version, and the
+    // upgraded record no longer needs the legacy fallback.
+    let upgraded = provider.encrypt(&context, &plaintext).unwrap();
+    assert_ne!(upgraded.as_opaque_bytes(), payload.as_opaque_bytes());
+    assert_eq!(
+        provider.decrypt(&context, &upgraded).unwrap(),
+        plaintext
+    );
+
+    // A vault-purpose provider keeps no master key at all, so it cannot reach a
+    // pre-separation note even when handed its ciphertext.
+    let vault_provider = crate::sync::crypto::PurposeKeyProvider::derive(
+        &MasterKey::from_bytes(LEGACY_NOTE_FIXTURE_KEY),
+        crate::sync::crypto::KeyPurpose::Vault,
+    )
+    .unwrap();
+    assert_eq!(
+        vault_provider.decrypt(&context, &payload),
+        Err(crate::sync::SyncError::CryptoRejected)
+    );
+    assert_eq!(
+        vault_provider.decrypt(&context, &upgraded),
+        Err(crate::sync::SyncError::CryptoRejected)
+    );
 }
 
 #[test]
