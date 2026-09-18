@@ -26,6 +26,7 @@ serde_json.workspace = true
 platform-dirs.workspace = true
 parking_lot.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

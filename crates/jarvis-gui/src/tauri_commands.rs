@@ -42,3 +42,7 @@ pub use voices::*;
 // import notes commands (encrypted local notes)
 mod notes;
 pub use notes::*;
+
+// import vault commands (encrypted password vault)
+mod vault;
+pub use vault::*;

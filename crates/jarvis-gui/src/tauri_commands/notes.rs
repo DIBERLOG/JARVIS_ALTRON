@@ -16,61 +16,106 @@ use jarvis_core::notes::{
     ConflictResolutionOutcome, Note, NoteConflictResolution, NoteConflictView, NoteDraft,
     NoteError, NoteFolder, NoteList, NoteQuery, NotesVault, StorageStatus,
 };
+use jarvis_core::vault::{VaultError, VaultSession};
 
 use crate::AppState;
 
-/// Lazily opened vault shared by every notes command.
+/// Lazily opened encrypted storage shared by every notes and vault command.
 ///
-/// The vault owns the database connection and, while unlocked, the master key.
-/// Cloning the handle shares the same vault, which is what the managed
-/// application state needs.
+/// One session owns the database connections and, while unlocked, the master
+/// key. Notes and the password vault derive separate working keys from that
+/// master key, so sharing the session does not share a key. Cloning the handle
+/// shares the same session, which is what the managed application state needs.
 #[derive(Clone, Default)]
 pub struct NotesHandle {
-    vault: Arc<Mutex<Option<NotesVault>>>,
+    session: Arc<Mutex<Option<VaultSession>>>,
 }
 
 impl NotesHandle {
     pub fn new() -> Self {
         Self {
-            vault: Arc::new(Mutex::new(None)),
+            session: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Opens the vault during application start.
+    /// Opens the storage during application start.
     ///
     /// Doing this eagerly means the storage status is ready for the first notes
     /// page and key-file problems surface in the log immediately. A failure is
     /// only logged: the interface still shows the storage gate, and every
     /// command retries the open on demand.
     pub fn preload(&self) {
-        let mut guard = self.vault.lock();
+        let mut guard = self.session.lock();
         if guard.is_some() {
             return;
         }
-        match NotesVault::open_production() {
-            Ok(vault) => *guard = Some(vault),
-            Err(error) => log::warn!("notes: vault unavailable at startup: {}", error),
+        match VaultSession::open_production() {
+            Ok(session) => *guard = Some(session),
+            Err(error) => log::warn!("storage: unavailable at startup: {}", error),
         }
     }
 
-    /// Runs `action` against the vault, opening the production vault on first
-    /// use. The lock is held for the whole operation so commands serialize.
+    /// Runs `action` against the shared key lifecycle, opening the production
+    /// storage on first use. The lock is held for the whole operation so
+    /// commands serialize.
     pub fn with<T>(
         &self,
         action: impl FnOnce(&mut NotesVault) -> Result<T, NoteError>,
     ) -> Result<T, String> {
-        let mut guard = self.vault.lock();
+        let mut guard = self.session.lock();
         if guard.is_none() {
-            *guard = Some(NotesVault::open_production().map_err(describe)?);
+            *guard = Some(VaultSession::open_production().map_err(describe_vault)?);
         }
-        let vault = guard.as_mut().ok_or_else(|| describe(NoteError::VaultIo))?;
-        action(vault).map_err(describe)
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| describe_vault(VaultError::StorageLocked))?;
+        session.with_storage(action).map_err(describe)
     }
 
-    /// Forgets the opened vault, for example when its directory is unreachable.
-    pub fn reset(&self) {
-        *self.vault.lock() = None;
+    /// Runs `action` against the shared session, for vault commands.
+    pub fn with_session<T>(
+        &self,
+        action: impl FnOnce(&mut VaultSession) -> Result<T, VaultError>,
+    ) -> Result<T, String> {
+        let mut guard = self.session.lock();
+        if guard.is_none() {
+            *guard = Some(VaultSession::open_production().map_err(describe_vault)?);
+        }
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| describe_vault(VaultError::StorageLocked))?;
+        action(session).map_err(describe_vault)
     }
+
+    /// Whether the shared encrypted storage is currently unlocked.
+    pub fn is_unlocked(&self) -> bool {
+        let guard = self.session.lock();
+        guard
+            .as_ref()
+            .map(|session| session.is_unlocked())
+            .unwrap_or(false)
+    }
+
+    /// Locks the shared storage, dropping the master key and every derived key.
+    pub fn lock(&self) {
+        let mut guard = self.session.lock();
+        if let Some(session) = guard.as_mut() {
+            session.lock();
+        }
+    }
+
+    /// Forgets the opened storage, for example when its directory is
+    /// unreachable.
+    pub fn reset(&self) {
+        *self.session.lock() = None;
+    }
+}
+
+/// Turns a vault error into a message safe to show and to log.
+fn describe_vault(error: VaultError) -> String {
+    let message = error.to_string();
+    log::warn!("vault: {}", message);
+    message
 }
 
 /// Turns a notes error into a message safe to show and to log.

@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use jarvis_core::{config, db, i18n, voices, DB, SettingsManager};
+use tauri::Manager;
 
 #[macro_use]
 extern crate simple_log;
@@ -14,6 +15,7 @@ mod tauri_commands;
 pub struct AppState {
     pub settings: SettingsManager,
     pub notes: tauri_commands::NotesHandle,
+    pub vault: tauri_commands::VaultHandle,
 }
 
 fn main() {
@@ -46,11 +48,15 @@ fn main() {
     // notes page can still show the storage gate
     let notes = tauri_commands::NotesHandle::new();
     notes.preload();
+    // the password vault shares that key session, and adds its own idle timer
+    // (which also cancels clipboard timers) and its own derived working key
+    let vault = tauri_commands::VaultHandle::new(notes.clone());
 
     tauri::Builder::default()
         .manage(AppState {
             settings: manager,
             notes,
+            vault,
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -137,7 +143,53 @@ fn main() {
             tauri_commands::notes_tags,
             tauri_commands::notes_conflicts,
             tauri_commands::notes_resolve_conflict,
+
+            // password vault (encrypted local storage)
+            tauri_commands::vault_status,
+            tauri_commands::vault_initialize,
+            tauri_commands::vault_unlock_password,
+            tauri_commands::vault_unlock_dpapi,
+            tauri_commands::vault_lock,
+            tauri_commands::vault_import_backup,
+            tauri_commands::vault_import_backup_file,
+            tauri_commands::vault_export_backup_file,
+            tauri_commands::vault_change_master_password,
+            tauri_commands::vault_set_idle_timeout,
+            tauri_commands::vault_idle_status,
+            tauri_commands::vault_touch,
+            tauri_commands::vault_list,
+            tauri_commands::vault_get,
+            tauri_commands::vault_create,
+            tauri_commands::vault_update,
+            tauri_commands::vault_update_metadata,
+            tauri_commands::vault_update_secrets,
+            tauri_commands::vault_set_favorite,
+            tauri_commands::vault_trash,
+            tauri_commands::vault_restore,
+            tauri_commands::vault_purge,
+            tauri_commands::vault_tags,
+            tauri_commands::vault_reveal,
+            tauri_commands::vault_copy_username,
+            tauri_commands::vault_copy_password,
+            tauri_commands::vault_clipboard_status,
+            tauri_commands::vault_clipboard_clear,
+            tauri_commands::vault_generate_password,
+            tauri_commands::vault_generate_and_copy,
+            tauri_commands::vault_conflicts,
+            tauri_commands::vault_resolve_conflict,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Lock the encrypted storage when the application is closing, so the
+            // master key and the clipboard timer never outlive the window.
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.vault.lock_for_exit();
+                }
+            }
+        });
 }
