@@ -2,7 +2,8 @@
 
 Scope: the local encrypted storage layer (`crates/jarvis-core/src/sync/crypto.rs`)
 and the durable sync repository that stores its output. There is no network
-transport in this layer and none is planned for this stage.
+transport in this layer and none is planned for this stage. The password vault
+built on top of it has its own document: `VAULT.md`.
 
 ## Key hierarchy
 
@@ -11,27 +12,39 @@ master password
   -> Argon2id (random 16-byte salt)
   -> password-derived KEK
   -> unwraps the random 256-bit master key
-  -> master key encrypts individual records
+  -> HKDF-SHA256 per purpose (JARVIS/notes/v1, JARVIS/vault/v1, JARVIS/ai-memory/v1)
+  -> the purpose key encrypts the records of that feature
 ```
 
-The master password is never used as a record-encryption key, and a leaked record
-key does not expose the master key or the password.
+The master password is never used as a record-encryption key, no feature encrypts
+with the raw master key, and no two features share a working key. A leaked notes
+key does not expose the vault key or the master key, and vice versa.
 
 * KDF: Argon2id, `Variant` from the `argon2` crate (no custom construction).
 * Default parameters: 19 MiB memory, 2 iterations, parallelism 1, 32-byte output.
   They are stored in every backup envelope so a different machine can restore.
+* Purpose keys: HKDF-SHA256 (`hkdf` crate, RFC 5869) with a fixed application salt
+  and a versioned domain label. Derived in memory on unlock; never written to
+  disk. Labels are part of the on-disk contract and must never be reused.
 * Master passwords shorter than `MIN_PASSWORD_BYTES` (8) are refused with a
   controlled error.
 * Parameters read from an untrusted backup are bounded (memory 8 MiB..1 GiB,
   iterations 1..16, parallelism 1..8) so a hostile envelope cannot demand
   unbounded memory or CPU.
+* The vault store accepts only `PurposeKeyProvider`, which holds a derived key and
+  has no accessor for the master key; the notes store uses
+  `MasterKeyCryptoProvider`, which also keeps the master key so that records
+  written before key separation still decrypt.
 
 ## Record encryption
 
 * AEAD: XChaCha20-Poly1305 with a fresh 24-byte system-RNG nonce per record.
   Nonces are never reused for the same key.
 * Every record carries an explicit `format_version`; unknown versions are
-  rejected before any decryption is attempted.
+  rejected before any decryption is attempted. Version 2 records are encrypted
+  with a purpose key; version 1 records predate key separation and are opened
+  with the raw master key so existing notes keep working. The version byte is
+  authenticated, so it cannot be downgraded by tampering.
 * Authenticated associated data binds the record to its version **and** to its
   logical location (entity type plus entity ID). Moving a ciphertext to another
   entity or another entity type makes decryption fail instead of silently
@@ -67,12 +80,34 @@ key does not expose the master key or the password.
 * Intermediate plaintext buffers (for example the unwrapped master key during
   backup import) are zeroized as soon as they are copied.
 * `Debug` is manually implemented for `EncryptedRecord`, `DpapiProtectedKey`,
-  `PortableKeyBackup`, `MasterKeyCryptoProvider`, `EncryptedPayload`,
-  `SyncMutation`, and `SyncRecord` so accidental diagnostics can never print
-  metadata, ciphertext, or payload bytes.
+  `PortableKeyBackup`, `MasterKeyCryptoProvider`, `PurposeKeyProvider`,
+  `EncryptedPayload`, `SyncMutation`, `SyncRecord`, the vault DTOs, the vault
+  payload, the clipboard guard, and the generator policy so accidental
+  diagnostics can never print metadata, ciphertext, keys, or secrets.
 * Payload bytes never reach `log` output: the storage layer maps SQLite failures
   to opaque `SyncError` variants, and tests assert that fictional note and vault
   markers do not appear in the database file or in `Debug` output.
+* Known gap: the `hkdf`/`hmac` crates do not zeroize their internal PRK on drop.
+  Our own keys, the clipboard value, and temporary plaintext buffers are
+  zeroized; that intermediate hash state is not.
+
+## Password vault
+
+The password vault (`crates/jarvis-core/src/vault/`, interface in
+`frontend/src/routes/vault/`) is built on this layer with a derived working key of
+its own. `VAULT.md` describes it in full; the security-relevant points are:
+
+* its database (`vault.sqlite3`) is separate from the notes database, and its
+  payload cipher is `PurposeKeyProvider` for `JARVIS/vault/v1`, which never holds
+  the master key;
+* lists and detail payloads cannot carry a password, and a metadata-only save
+  cannot erase a secret that was never revealed;
+* copying a secret happens in Rust, the command returns clipboard state only, and
+  the timed wipe clears the clipboard only while it still holds our own value;
+* the generator uses the system CSPRNG with rejection sampling, never
+  `Math.random`, and never folds bytes with a modulo;
+* the vault is unreachable from the AI, voice, and scripting surfaces, which a
+  source-scanning test enforces.
 
 ## Notes on Windows
 

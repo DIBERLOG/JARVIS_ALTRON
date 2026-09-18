@@ -67,12 +67,31 @@ A wrong password changes nothing: the import fails before any file is rewritten.
 
 ## Saving a portable copy from the interface
 
-`Save a backup copy` re-wraps the in-memory master key with a password of the
-user's choice and writes a new envelope to a chosen file. It needs the storage to
-be unlocked, because the master key must be in memory, but it never stores or
-returns the master password. The locally stored envelope can also be copied
-verbatim (`copy_local_backup_to`), which needs no key material because the file is
-already password-protected.
+Both the notes page and the vault page offer `Save a backup copy`. It re-wraps the
+in-memory master key with a password of the user's choice and writes a new
+envelope to a chosen file. It needs the storage to be unlocked, because the master
+key must be in memory, but it never stores or returns the master password. The
+locally stored envelope can also be copied verbatim
+(`copy_local_backup_to`), which needs no key material because the file is already
+password-protected.
+
+## One envelope covers notes and passwords
+
+Notes and the password vault share one master key and therefore one portable
+envelope. Restoring it recovers both databases: each derives its own working key
+(`JARVIS/notes/v1`, `JARVIS/vault/v1`) from the restored master key. Copy both
+`sync.sqlite3` and `vault.sqlite3` to move the data; the envelope alone is not
+enough without the ciphertext, and the ciphertext is useless without the
+envelope.
+
+## Changing the master password
+
+Changing the master password rewrites this envelope with a new wrapper around the
+**same** master key, and refreshes the local DPAPI blob. Stored data is not
+re-encrypted and keeps its revisions fine. The replacement is atomic (temporary
+file plus rename), so a failure leaves the previous envelope usable — that
+behaviour is covered by an integration test. Rotating the master key itself is not
+implemented yet; see `VAULT.md`.
 
 ## DPAPI is not a backup
 
