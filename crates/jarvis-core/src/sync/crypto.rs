@@ -400,6 +400,12 @@ impl MasterKeyCryptoProvider {
     pub fn new(key: MasterKey) -> Self {
         Self { key }
     }
+
+    /// Borrows the master key so it can be re-wrapped into a new portable
+    /// backup envelope. The key is never rendered or copied out.
+    pub fn key(&self) -> &MasterKey {
+        &self.key
+    }
 }
 
 impl core::fmt::Debug for MasterKeyCryptoProvider {

@@ -404,6 +404,13 @@ pub trait SyncRepository {
 
     /// Highest device sequence already used by this device, or 0.
     fn last_device_sequence(&self, device: &DeviceId) -> Result<u64, SyncError>;
+
+    /// Forgets a retained conflict after an operator resolved it.
+    ///
+    /// Returns whether the conflict existed. The journal entry is deliberately
+    /// kept, so the incoming version is still auditable afterwards: resolving a
+    /// conflict never destroys a version silently.
+    fn discard_conflict(&mut self, conflict_id: Uuid) -> Result<bool, SyncError>;
 }
 
 /// Ephemeral repository used by tests and by short-lived, non-persistent flows.
@@ -599,6 +606,12 @@ impl SyncRepository for InMemorySyncRepository {
             .copied()
             .unwrap_or(0))
     }
+
+    fn discard_conflict(&mut self, conflict_id: Uuid) -> Result<bool, SyncError> {
+        let before = self.conflicts.len();
+        self.conflicts.retain(|conflict| conflict.id != conflict_id);
+        Ok(self.conflicts.len() != before)
+    }
 }
 
 impl InMemorySyncRepository {
@@ -635,6 +648,14 @@ impl<R: SyncRepository, C: CryptoProvider> SyncEngine<R, C> {
 
     pub fn repository(&self) -> &R {
         &self.repository
+    }
+
+    pub fn repository_mut(&mut self) -> &mut R {
+        &mut self.repository
+    }
+
+    pub fn crypto(&self) -> &C {
+        &self.crypto
     }
 
     pub fn into_repository(self) -> R {
@@ -694,6 +715,28 @@ impl<R: SyncRepository, C: CryptoProvider> SyncEngine<R, C> {
             base_revision,
             SyncOperationKind::Delete,
             None,
+        )
+    }
+
+    /// Submits a mutation whose payload is already encrypted.
+    ///
+    /// Used when replaying a stored version (for example accepting the incoming
+    /// side of a conflict) so the ciphertext is not needlessly decrypted and
+    /// re-encrypted. The payload context still binds it to `entity_id`.
+    pub fn submit_encrypted(
+        &mut self,
+        entity_type: SyncEntityType,
+        entity_id: Uuid,
+        base_revision: u64,
+        kind: SyncOperationKind,
+        encrypted_payload: Option<EncryptedPayload>,
+    ) -> Result<SyncMutation, SyncError> {
+        self.submit_local(
+            entity_type,
+            entity_id,
+            base_revision,
+            kind,
+            encrypted_payload,
         )
     }
 
@@ -762,6 +805,18 @@ impl<R: SyncRepository, C: CryptoProvider> SyncEngine<R, C> {
         };
         let context = PayloadContext::new(record.metadata.entity_type.clone(), record.metadata.id);
         self.crypto.decrypt(&context, payload).map(Some)
+    }
+
+    /// Decrypts a payload that is not attached to a stored record, for example
+    /// the retained incoming side of a conflict.
+    pub fn decrypt_payload(
+        &self,
+        entity_type: &SyncEntityType,
+        entity_id: Uuid,
+        payload: &EncryptedPayload,
+    ) -> Result<Vec<u8>, SyncError> {
+        let context = PayloadContext::new(entity_type.clone(), entity_id);
+        self.crypto.decrypt(&context, payload)
     }
 }
 

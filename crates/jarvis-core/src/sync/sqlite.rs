@@ -419,6 +419,20 @@ impl SqliteSyncRepository {
             .map_err(storage_error)
     }
 
+    /// Forgets a retained conflict after an operator resolved it.
+    ///
+    /// The journal row is kept, so the incoming version stays auditable.
+    pub fn discard_conflict(&mut self, conflict_id: Uuid) -> Result<bool, SyncError> {
+        let removed = self
+            .connection
+            .execute(
+                "DELETE FROM sync_conflicts WHERE conflict_id = ?1",
+                [conflict_id.to_string()],
+            )
+            .map_err(storage_error)?;
+        Ok(removed > 0)
+    }
+
     /// Flushes the write-ahead log and closes the connection cleanly.
     pub fn checkpoint_and_close(self) -> Result<(), SyncError> {
         self.connection
@@ -490,6 +504,10 @@ impl SyncRepository for SqliteSyncRepository {
 
     fn last_device_sequence(&self, device: &DeviceId) -> Result<u64, SyncError> {
         SqliteSyncRepository::last_device_sequence(self, device)
+    }
+
+    fn discard_conflict(&mut self, conflict_id: Uuid) -> Result<bool, SyncError> {
+        SqliteSyncRepository::discard_conflict(self, conflict_id)
     }
 }
 
