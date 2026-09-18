@@ -38,3 +38,7 @@ pub use commands::*;
 // import voices commands
 mod voices;
 pub use voices::*;
+
+// import notes commands (encrypted local notes)
+mod notes;
+pub use notes::*;

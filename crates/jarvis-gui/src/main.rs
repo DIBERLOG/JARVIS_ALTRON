@@ -13,6 +13,7 @@ mod tauri_commands;
 #[derive(Clone)]
 pub struct AppState {
     pub settings: SettingsManager,
+    pub notes: tauri_commands::NotesHandle,
 }
 
 fn main() {
@@ -42,7 +43,10 @@ fn main() {
             .expect("DB already initialized");
 
     tauri::Builder::default()
-        .manage(AppState { settings: manager })
+        .manage(AppState {
+            settings: manager,
+            notes: tauri_commands::NotesHandle::new(),
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -99,6 +103,35 @@ fn main() {
             tauri_commands::list_voices,
             tauri_commands::get_voice,
             tauri_commands::preview_voice,
+
+            // notes (encrypted local storage)
+            tauri_commands::notes_status,
+            tauri_commands::notes_initialize,
+            tauri_commands::notes_unlock_dpapi,
+            tauri_commands::notes_unlock_password,
+            tauri_commands::notes_lock,
+            tauri_commands::notes_import_backup,
+            tauri_commands::notes_import_backup_file,
+            tauri_commands::notes_export_backup,
+            tauri_commands::notes_export_backup_file,
+            tauri_commands::notes_list,
+            tauri_commands::notes_get,
+            tauri_commands::notes_create,
+            tauri_commands::notes_update,
+            tauri_commands::notes_autosave,
+            tauri_commands::notes_set_pinned,
+            tauri_commands::notes_trash,
+            tauri_commands::notes_restore,
+            tauri_commands::notes_purge,
+            tauri_commands::notes_folders,
+            tauri_commands::notes_create_folder,
+            tauri_commands::notes_rename_folder,
+            tauri_commands::notes_trash_folder,
+            tauri_commands::notes_restore_folder,
+            tauri_commands::notes_purge_folder,
+            tauri_commands::notes_tags,
+            tauri_commands::notes_conflicts,
+            tauri_commands::notes_resolve_conflict,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
