@@ -36,6 +36,23 @@ impl NotesHandle {
         }
     }
 
+    /// Opens the vault during application start.
+    ///
+    /// Doing this eagerly means the storage status is ready for the first notes
+    /// page and key-file problems surface in the log immediately. A failure is
+    /// only logged: the interface still shows the storage gate, and every
+    /// command retries the open on demand.
+    pub fn preload(&self) {
+        let mut guard = self.vault.lock();
+        if guard.is_some() {
+            return;
+        }
+        match NotesVault::open_production() {
+            Ok(vault) => *guard = Some(vault),
+            Err(error) => log::warn!("notes: vault unavailable at startup: {}", error),
+        }
+    }
+
     /// Runs `action` against the vault, opening the production vault on first
     /// use. The lock is held for the whole operation so commands serialize.
     pub fn with<T>(
@@ -142,6 +159,9 @@ pub fn notes_export_backup_file(
 }
 
 /// Reads a portable envelope from a user-chosen file and imports it.
+///
+/// Cancelling the picker is not an error: the current status is returned
+/// unchanged.
 #[tauri::command(async)]
 pub fn notes_import_backup_file(
     state: tauri::State<'_, AppState>,
@@ -149,7 +169,7 @@ pub fn notes_import_backup_file(
     password: String,
 ) -> Result<StorageStatus, String> {
     let Some(source) = open_path(&app) else {
-        return Err("cancelled".to_string());
+        return state.notes.with(|vault| vault.status());
     };
     let envelope = std::fs::read_to_string(&source).map_err(|_| describe(NoteError::VaultIo))?;
     state

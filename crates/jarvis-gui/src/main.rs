@@ -42,10 +42,15 @@ fn main() {
     DB.set(manager.arc().clone())
             .expect("DB already initialized");
 
+    // open the encrypted notes storage eagerly; a failure is logged and the
+    // notes page can still show the storage gate
+    let notes = tauri_commands::NotesHandle::new();
+    notes.preload();
+
     tauri::Builder::default()
         .manage(AppState {
             settings: manager,
-            notes: tauri_commands::NotesHandle::new(),
+            notes,
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
