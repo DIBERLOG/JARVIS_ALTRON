@@ -128,7 +128,7 @@ Anything that cannot be run on the machine at hand stays **unverified**, not
 
 The application is a working local-first assistant whose encrypted storages,
 local model gateway, autocorrect, safe Windows actions, and dictation are
-implemented and covered by 670+ automated tests. It is **not** yet an installable
+implemented and covered by 715 Rust tests and 173 interface tests. It is **not** yet an installable
 product: there is no tray, no autostart, no wizard, no installer, and no
 whole-application backup, and a public release is blocked by a licence conflict
 that only the copyright holder can resolve.
