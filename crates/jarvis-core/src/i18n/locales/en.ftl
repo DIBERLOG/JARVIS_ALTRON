@@ -1219,3 +1219,16 @@ whisper-note-unsupported-language = That language is not offered.
 whisper-note-storage = The feature could not write its own files.
 whisper-file-executable = Executable
 whisper-file-model = Model
+
+whisper-discovery-button = Find Whisper automatically
+whisper-discovery-hint = Looks next to the application, in C:\AI\whisper.cpp, and on PATH. Nothing is downloaded, and nothing is saved until you confirm.
+whisper-discovery-idle = Not searched yet.
+whisper-discovery-nothing = Nothing was found in those places.
+whisper-discovery-nothing-usable = Something was found, and it did not pass the checks.
+whisper-discovery-one = One pair was found. Confirm it to use it.
+whisper-discovery-choose = Several models were found. Choose the one to use: a larger model is slower and more accurate.
+whisper-discovery-apply = Use this pair
+whisper-discovery-rejected = Checked and refused
+whisper-discovery-source-bundled = next to the application
+whisper-discovery-source-known = in the known folder
+whisper-discovery-source-path = on PATH

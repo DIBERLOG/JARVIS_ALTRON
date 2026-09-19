@@ -1213,3 +1213,16 @@ whisper-note-unsupported-language = Такой язык не поддержив�
 whisper-note-storage = Не удалось записать собственные файлы функции.
 whisper-file-executable = Executable
 whisper-file-model = Model
+
+whisper-discovery-button = Найти Whisper автоматически
+whisper-discovery-hint = Ищет рядом с приложением, в C:\AI\whisper.cpp и в PATH. Ничего не скачивается и ничего не сохраняется до вашего подтверждения.
+whisper-discovery-idle = Поиск ещё не выполнялся.
+whisper-discovery-nothing = В этих местах ничего не найдено.
+whisper-discovery-nothing-usable = Кое-что найдено, но проверку оно не прошло.
+whisper-discovery-one = Найдена одна пара. Подтвердите, чтобы использовать её.
+whisper-discovery-choose = Найдено несколько моделей. Выберите нужную: большая модель медленнее и точнее.
+whisper-discovery-apply = Использовать эту пару
+whisper-discovery-rejected = Проверено и отклонено
+whisper-discovery-source-bundled = рядом с приложением
+whisper-discovery-source-known = в известной папке
+whisper-discovery-source-path = в PATH

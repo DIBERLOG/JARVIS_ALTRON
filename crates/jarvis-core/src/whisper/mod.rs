@@ -32,6 +32,7 @@
 //! Wake-on-LAN is unrelated to this module and excluded from the project.
 
 pub mod config;
+pub mod discovery;
 pub mod error;
 pub mod model;
 pub mod runner;
@@ -43,6 +44,10 @@ pub use config::{
     DEFAULT_SILENCE_MS, DEFAULT_THREADS, DEFAULT_TIMEOUT_SECONDS, LANGUAGES, MAX_DICTATION_SECONDS,
     MIN_AUDIO_MS, MIN_DICTATION_SECONDS, SAMPLE_RATE, SETTINGS_FILE, SETTINGS_SCHEMA_VERSION,
 };
+pub use discovery::{
+    discover, discover_with_roots, CandidatePair, CandidateSource, DiscoveryReport,
+    ExecutableCandidate, ModelCandidate, RejectedCandidate, KNOWN_WINDOWS_DIRECTORY,
+};
 pub use error::WhisperError;
 pub use model::{
     pe_architecture, probe_binary, probe_model, Architecture, BinaryProbe, ModelKind, ModelProbe,
@@ -52,8 +57,8 @@ pub use runner::{
     ProcessTranscriber, RunOutcome, Transcriber, Transcript, TranscriptSegment, AUDIO_FILE_NAME,
 };
 pub use session::{
-    DictationState, DictationStatus, FrameSource, RecorderFrames, Recording, StopReason,
-    WhisperSession,
+    DictationOutcome, DictationState, DictationStatus, FrameSource, RecorderFrames, Recording,
+    StopReason, WhisperSession,
 };
 pub use wav::{
     frames_for_seconds, parse_wav_format, read_wav_format, samples_for_millis, samples_for_seconds,

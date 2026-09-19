@@ -44,7 +44,11 @@ use super::wav::{
 /// microphone.
 pub trait FrameSource: Send {
     /// Fills the buffer with the next frame of 16 kHz mono samples.
-    fn read_frame(&mut self, buffer: &mut [i16]);
+    ///
+    /// A failure — no microphone, an uninitialised recorder, a driver that went
+    /// away — is a value, because a recording has to stop and free the device
+    /// instead of unwinding the thread that was recording.
+    fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError>;
     /// Whether the source is still producing audio.
     fn is_running(&self) -> bool {
         true
@@ -59,8 +63,15 @@ pub enum DictationState {
     Idle,
     /// The microphone is open and the frames are being collected.
     Recording,
+    /// A stop was asked for and is being carried out: the stream is closed, the
+    /// device is released, and the audio is on its way to the model.
+    Stopping,
     /// The recorded audio is being transcribed.
     Transcribing,
+    /// The last dictation produced a transcript.
+    Complete,
+    /// The last dictation failed; the reason is in the last outcome.
+    Failed,
 }
 
 /// A recording that is in progress or has just finished.
@@ -121,8 +132,9 @@ pub struct DictationStatus {
 pub struct RecorderFrames;
 
 impl FrameSource for RecorderFrames {
-    fn read_frame(&mut self, buffer: &mut [i16]) {
-        crate::recorder::read_microphone(buffer);
+    fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError> {
+        crate::recorder::try_read_microphone(buffer)
+            .map_err(|error| WhisperError::AudioUnavailable(error.to_string()))
     }
 }
 
@@ -138,6 +150,70 @@ pub struct WhisperSession {
     /// The audio file of the transcription that is running, so a cancel can
     /// clean it up even while the runner is busy.
     current_audio: Mutex<Option<PathBuf>>,
+    /// What the last attempt produced, for the interface to show after the
+    /// session has returned to `Idle`.
+    last_outcome: Mutex<Option<DictationOutcome>>,
+}
+
+/// What a finished attempt produced, kept after the state returns to `Idle`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DictationOutcome {
+    /// A transcript was produced, with its length in characters only: the text
+    /// itself is never kept here.
+    Transcript { characters: usize },
+    /// Nothing was recorded.
+    EmptyRecording,
+    /// Something failed, with a content-free code.
+    Failed { code: &'static str },
+}
+
+/// Releases the microphone and resets the state, whatever happens.
+///
+/// This is the mechanism behind the guarantee that a failure — including a panic
+/// in a native library — cannot leave the session in `Recording` with the device
+/// held. It is deliberately not a `Drop` on the session itself: the session
+/// outlives many recordings, and only a recording has to be closed.
+struct RecordingGuard<'a> {
+    session: &'a WhisperSession,
+}
+
+impl<'a> RecordingGuard<'a> {
+    fn new(session: &'a WhisperSession) -> Self {
+        Self { session }
+    }
+}
+
+impl Drop for RecordingGuard<'_> {
+    fn drop(&mut self) {
+        // 1. close the stream, whatever state the backend is in;
+        let _ = crate::recorder::try_stop_recording();
+        // 2. release the device in the session's own view of the world;
+        self.session.cancel.store(false, Ordering::SeqCst);
+        // 3. leave `Stopping`/`Recording` behind: a caller that reports the
+        //    state after an error must see `Idle`, not a stuck recording.
+        let mut state = self.session.state.lock();
+        if matches!(
+            *state,
+            DictationState::Recording
+                | DictationState::Stopping
+                | DictationState::Transcribing
+                | DictationState::Complete
+                | DictationState::Failed
+        ) {
+            *state = DictationState::Idle;
+        }
+    }
+}
+
+/// The outcome of one attempt, from its result.
+fn outcome_of(result: &Result<Transcript, WhisperError>) -> DictationOutcome {
+    match result {
+        Ok(transcript) => DictationOutcome::Transcript {
+            characters: transcript.text.chars().count(),
+        },
+        Err(WhisperError::AudioEmpty) => DictationOutcome::EmptyRecording,
+        Err(error) => DictationOutcome::Failed { code: error.code() },
+    }
 }
 
 impl std::fmt::Debug for WhisperSession {
@@ -177,6 +253,7 @@ impl WhisperSession {
             state: Mutex::new(DictationState::Idle),
             cancel: Arc::new(AtomicBool::new(false)),
             current_audio: Mutex::new(None),
+            last_outcome: Mutex::new(None),
         }
     }
 
@@ -191,6 +268,19 @@ impl WhisperSession {
 
     pub fn state(&self) -> DictationState {
         *self.state.lock()
+    }
+
+    /// What the last attempt produced, if there was one.
+    pub fn last_outcome(&self) -> Option<DictationOutcome> {
+        self.last_outcome.lock().clone()
+    }
+
+    /// Whether the microphone is held right now, by this session.
+    pub fn holds_microphone(&self) -> bool {
+        matches!(
+            self.state(),
+            DictationState::Recording | DictationState::Stopping
+        )
     }
 
     /// Whether a transcription is running.
@@ -288,8 +378,24 @@ impl WhisperSession {
         source: &mut dyn FrameSource,
     ) -> Result<(Recording, StopReason), WhisperError> {
         self.begin()?;
+        // The guard is what makes the guarantee true: whatever happens below —
+        // a returned error, an early exit, or a panic from a native library —
+        // the stream is stopped, the device is released, and the session is back
+        // to `Idle` instead of staying in `Recording` forever.
+        let guard = RecordingGuard::new(self);
         let result = self.record_inner(source);
-        *self.state.lock() = DictationState::Idle;
+        let state = match &result {
+            Ok(_) => DictationState::Complete,
+            Err(_) => DictationState::Failed,
+        };
+        *self.state.lock() = state;
+        *self.last_outcome.lock() = Some(match &result {
+            Ok(_) => DictationOutcome::Transcript { characters: 0 },
+            Err(WhisperError::AudioEmpty) => DictationOutcome::EmptyRecording,
+            Err(error) => DictationOutcome::Failed { code: error.code() },
+        });
+        // `guard` runs here; the explicit drop documents the order.
+        drop(guard);
         result
     }
 
@@ -318,7 +424,9 @@ impl WhisperSession {
                 reason = StopReason::Requested;
                 break;
             }
-            source.read_frame(&mut buffer);
+            // A read failure is the end of the recording, with the reason kept:
+            // the stream is closed by the guard and the caller is told why.
+            source.read_frame(&mut buffer)?;
             let peak = peak_amplitude(&buffer);
             if peak > DEFAULT_SILENCE_PEAK {
                 heard_speech = true;
@@ -351,10 +459,14 @@ impl WhisperSession {
     /// The flag is what the record loop reads, and what the runner reads before
     /// it kills its own child. A session that is idle is left alone.
     pub fn cancel(&self) -> bool {
+        // The flag is set and nothing is waited for, so a stop is always bounded
+        // by the loop that reads it — including when the worker has already
+        // died, because then there is nothing left to wait for either.
         if !self.is_busy() {
             return false;
         }
         self.cancel.store(true, Ordering::SeqCst);
+        *self.state.lock() = DictationState::Stopping;
         true
     }
 
@@ -393,7 +505,15 @@ impl WhisperSession {
         format: WavFormat,
     ) -> Result<Transcript, WhisperError> {
         self.begin()?;
+        *self.state.lock() = DictationState::Transcribing;
         let result = self.transcribe_inner(audio_path, format);
+        *self.state.lock() = if result.is_ok() {
+            DictationState::Complete
+        } else {
+            DictationState::Failed
+        };
+        *self.last_outcome.lock() = Some(outcome_of(&result));
+        // The session is ready for the next attempt, whatever happened.
         *self.state.lock() = DictationState::Idle;
         result
     }
@@ -569,7 +689,7 @@ mod tests {
             !self.stop_when_exhausted || self.position < self.frames.len()
         }
 
-        fn read_frame(&mut self, buffer: &mut [i16]) {
+        fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError> {
             match self.endless {
                 true => buffer.fill(5000),
                 false => match self.frames.get(self.position) {
@@ -580,6 +700,7 @@ mod tests {
                 },
             }
             self.position += 1;
+            Ok(())
         }
     }
 
@@ -923,7 +1044,9 @@ mod tests {
         while session.state() == DictationState::Idle && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(session.state(), DictationState::Recording);
+        // The samples are being read by the model now, so the state is the
+        // transcription, not the recording.
+        assert_eq!(session.state(), DictationState::Transcribing);
         assert_eq!(
             session.transcribe_samples(&[0i16; 16_000]).unwrap_err(),
             WhisperError::Busy
@@ -1049,6 +1172,222 @@ mod tests {
         assert_eq!(reopened.settings().language, "ru");
     }
 
+    /// A source that fails the way the recorder did in the reported defect.
+    struct FailingSource {
+        error: Option<WhisperError>,
+        frames_served: usize,
+    }
+
+    impl FailingSource {
+        /// The recorder was never initialised: this is the exact failure that
+        /// used to be `called Option::unwrap() on a None value`.
+        fn not_initialized() -> Self {
+            Self {
+                error: Some(WhisperError::AudioUnavailable(
+                    crate::recorder::RecorderError::NotInitialized.to_string(),
+                )),
+                frames_served: 0,
+            }
+        }
+
+        fn no_input_device() -> Self {
+            Self {
+                error: Some(WhisperError::AudioUnavailable(
+                    crate::recorder::RecorderError::NoInputDevice.to_string(),
+                )),
+                frames_served: 0,
+            }
+        }
+
+        fn unsupported_configuration() -> Self {
+            Self {
+                error: Some(WhisperError::AudioUnavailable(
+                    crate::recorder::RecorderError::UnsupportedConfiguration(
+                        "sample rate".to_string(),
+                    )
+                    .to_string(),
+                )),
+                frames_served: 0,
+            }
+        }
+
+        /// A source whose channel is closed after a few frames: the worker that
+        /// produced the audio is gone.
+        fn closing_channel(frames: usize) -> Self {
+            Self {
+                error: Some(WhisperError::AudioUnavailable(
+                    "the audio stream ended".to_string(),
+                )),
+                frames_served: frames,
+            }
+        }
+    }
+
+    impl FrameSource for FailingSource {
+        fn is_running(&self) -> bool {
+            // A closed channel stops the source, the same way a dropped sender
+            // stops a stream.
+            self.error.is_some() || self.frames_served > 0
+        }
+
+        fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError> {
+            // The scripted frames come first, then the failure: that is what a
+            // stream that dies in the middle looks like.
+            if self.frames_served > 0 {
+                self.frames_served -= 1;
+                buffer.fill(3000);
+                return Ok(());
+            }
+            if let Some(error) = self.error.take() {
+                return Err(error);
+            }
+            Err(WhisperError::AudioUnavailable(
+                "the audio stream ended".to_string(),
+            ))
+        }
+    }
+
+    #[test]
+    fn a_recorder_that_was_never_initialised_ends_the_recording_instead_of_panicking() {
+        // The reported defect, at the level where it happened: the frame source
+        // reports `not_initialized` instead of panicking inside the read, and the
+        // session must come back to `Idle` with the device released.
+        let (directory, binary, model) = prepared_directory();
+        let settings = enabled_settings(&binary, &model);
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            settings,
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        let mut source = FailingSource::not_initialized();
+        let error = session.record(&mut source).unwrap_err();
+        assert!(matches!(error, WhisperError::AudioUnavailable(_)));
+        assert_eq!(
+            session.state(),
+            DictationState::Idle,
+            "the session must be idle"
+        );
+        assert_eq!(
+            session.last_outcome(),
+            Some(DictationOutcome::Failed {
+                code: "audio_unavailable"
+            })
+        );
+        assert!(!session.holds_microphone());
+        assert!(!directory.path().join(AUDIO_FILE_NAME).exists());
+    }
+
+    #[test]
+    fn no_input_device_and_an_unsupported_configuration_end_the_recording_the_same_way() {
+        for (label, mut source) in [
+            ("no device", FailingSource::no_input_device()),
+            (
+                "unsupported configuration",
+                FailingSource::unsupported_configuration(),
+            ),
+        ] {
+            let (directory, binary, model) = prepared_directory();
+            let session = WhisperSession::with_runner(
+                directory.path(),
+                enabled_settings(&binary, &model),
+                Arc::new(FakeTranscriber::answering("привет")),
+            );
+            let error = session.record(&mut source).unwrap_err();
+            assert!(
+                matches!(error, WhisperError::AudioUnavailable(_)),
+                "{label}"
+            );
+            assert_eq!(session.state(), DictationState::Idle, "{label}");
+            assert!(!session.holds_microphone(), "{label}");
+            // The message is the recorder's own sentence, not a panic and not a
+            // code the user cannot read.
+            assert!(error.to_string().contains("microphone"), "{label}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_closed_audio_channel_stops_the_recording_and_returns_to_idle() {
+        let (directory, binary, model) = prepared_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            enabled_settings(&binary, &model),
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        // The source produces a few frames and then reports that the stream is
+        // gone, which is what a dropped channel looks like.
+        // Enough frames to pass the "something was recorded" floor, so the
+        // stream ending is what surfaces rather than an empty buffer.
+        let mut source = FailingSource::closing_channel(10);
+        let error = session.record(&mut source).unwrap_err();
+        assert!(matches!(error, WhisperError::AudioUnavailable(_)));
+        assert_eq!(session.state(), DictationState::Idle);
+        assert!(session.last_outcome().is_some());
+    }
+
+    #[test]
+    fn a_manual_stop_ends_the_recording_and_is_bounded() {
+        let (directory, binary, model) = prepared_directory();
+        let mut settings = enabled_settings(&binary, &model);
+        settings.max_seconds = 30;
+        settings.silence_ms = 10_000;
+        let session = Arc::new(WhisperSession::with_runner(
+            directory.path(),
+            settings,
+            Arc::new(FakeTranscriber::answering("привет")),
+        ));
+        // Endless loud audio: only a manual stop can end this.
+        let worker = {
+            let session = Arc::clone(&session);
+            std::thread::spawn(move || {
+                let mut source = ScriptedSource::endless_speech();
+                session.record(&mut source)
+            })
+        };
+        // Wait until the recording is running, then stop it.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while session.state() != DictationState::Recording && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(session.state(), DictationState::Recording);
+        let started = Instant::now();
+        assert!(session.cancel(), "a running recording must be stoppable");
+        // The flag is set without waiting for anything.
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "stop must be bounded"
+        );
+        assert_eq!(session.state(), DictationState::Stopping);
+        let ended = worker.join().unwrap();
+        assert_eq!(ended.unwrap().1, StopReason::Requested);
+        assert_eq!(session.state(), DictationState::Idle);
+        assert!(!session.holds_microphone());
+        // Cancelling an idle session is a no-op, not an error.
+        assert!(!session.cancel());
+    }
+
+    #[test]
+    fn a_worker_error_leaves_the_session_idle_and_unlocks_the_next_attempt() {
+        let (directory, binary, model) = prepared_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            enabled_settings(&binary, &model),
+            Arc::new(FakeTranscriber::failing()),
+        );
+        let error = session
+            .transcribe_samples(&vec![1000i16; 16_000])
+            .unwrap_err();
+        assert!(matches!(error, WhisperError::ProcessFailed { .. }));
+        assert_eq!(session.state(), DictationState::Idle);
+        assert_eq!(
+            session.last_outcome(),
+            Some(DictationOutcome::Failed {
+                code: "process_failed"
+            })
+        );
+        // The button works again: a second attempt is accepted, not refused.
+        assert!(!session.cancel());
+        assert!(!session.is_busy());
+    }
     /// The exact paths and size from the report of the defect.
     const REPORTED_BINARY: &str = r"C:\AI\whisper.cpp\runtime\Release\whisper-cli.exe";
     const REPORTED_MODEL: &str = r"C:\AI\whisper.cpp\ggml-small.bin";

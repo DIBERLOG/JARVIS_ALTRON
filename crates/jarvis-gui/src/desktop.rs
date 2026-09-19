@@ -23,6 +23,7 @@ use jarvis_core::desktop::{
     AutostartState, AutostartStatus, CloseBehavior, DesktopSettings, DesktopSnapshot, DesktopStore,
     MicrophoneState, SetupState,
 };
+use jarvis_core::whisper::WhisperSettings;
 
 use crate::AppState;
 
@@ -354,8 +355,12 @@ fn on_menu_event(app: &AppHandle, id: &str) {
         "vosk_toggle" => toggle_vosk(app),
         "dictate_start" => start_dictation(app),
         "dictate_stop" => {
+            // The flag is set and nothing is waited for, so a stop is bounded
+            // even when the worker has already died.
             let state = app.state::<AppState>();
-            state.whisper.session().cancel();
+            if state.whisper.session().cancel() {
+                let _ = jarvis_core::recorder::try_stop_recording();
+            }
         }
         "lock_storage" => {
             let state = app.state::<AppState>();
@@ -391,22 +396,70 @@ fn toggle_vosk(app: &AppHandle) {
     }
 }
 
+/// Prepares the recorder in this process, once.
+///
+/// The window never called `recorder::init()`, so the cells the native read
+/// needs were empty and the read panicked inside the worker. Preparing it here
+/// is the fix for the cause; the typed error below is the fix for the symptom.
+fn ensure_recorder_ready() -> Result<(), String> {
+    if jarvis_core::recorder::is_ready() {
+        return Ok(());
+    }
+    jarvis_core::recorder::init().map_err(|_| "recorder_unavailable".to_string())?;
+    if !jarvis_core::recorder::is_ready() {
+        return Err("recorder_unavailable".to_string());
+    }
+    match jarvis_core::recorder::try_audio_devices() {
+        Ok(_) => Ok(()),
+        Err(error) => Err(error.code().to_string()),
+    }
+}
+
 fn start_dictation(app: &AppHandle) {
     let audio = app.state::<Arc<DesktopHandle>>().audio().clone();
     let session = Arc::clone(app.state::<AppState>().whisper.session());
+    // The microphone has to be usable before the session claims it.
+    if let Err(code) = ensure_recorder_ready() {
+        log::warn!("desktop: dictation is not possible ({code})");
+        return;
+    }
     match audio.begin(MicrophoneState::WhisperDictation) {
         Ok(ticket) => {
             // The transcription runs on a worker: the tray must not freeze while
             // a recording is taken.
             std::thread::spawn(move || {
-                let mut source = jarvis_core::whisper::RecorderFrames;
-                match session.dictate(&mut source) {
-                    Ok(_) => {}
-                    Err(error) => log::warn!("desktop: dictation failed: {}", error.code()),
+                // Every exit path of this worker releases the microphone: the
+                // guard runs on a returned error, on an early exit, and on a
+                // panic, which is caught here as the last line of defence. The
+                // primary cause is never masked: the typed error from the frame
+                // source is what the session reports.
+                struct Release {
+                    audio: Arc<jarvis_core::desktop::AudioSession>,
+                    ticket: jarvis_core::desktop::SessionTicket,
                 }
-                // Ending the session releases the microphone and clears the
-                // indicator, whether it worked or not.
-                audio.end(ticket);
+                impl Drop for Release {
+                    fn drop(&mut self) {
+                        let _ = jarvis_core::recorder::try_stop_recording();
+                        self.audio.end(self.ticket);
+                    }
+                }
+                let _release = Release {
+                    audio: Arc::clone(&audio),
+                    ticket,
+                };
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut source = jarvis_core::whisper::RecorderFrames;
+                    session.dictate(&mut source)
+                }));
+                match outcome {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => {
+                        log::warn!("desktop: dictation failed: {}", error.code())
+                    }
+                    Err(_) => log::error!(
+                        "desktop: the dictation worker panicked; the microphone is released"
+                    ),
+                }
             });
         }
         Err(_) => log::warn!("desktop: the microphone is already in use"),
@@ -556,6 +609,39 @@ pub async fn desktop_update_settings(
     let handle = app.state::<Arc<DesktopHandle>>().inner().clone();
     let updated = handle.update_settings(settings)?;
     refresh_tray(&app);
+    Ok(updated)
+}
+
+/// Finds a Whisper build that is already on this machine.
+///
+/// Nothing is saved: the search only reports what passed the same validation the
+/// settings page uses, and the user confirms which pair to use.
+#[tauri::command]
+pub async fn whisper_discover() -> Result<jarvis_core::whisper::DiscoveryReport, String> {
+    Ok(jarvis_core::whisper::discover())
+}
+
+/// Stores a discovered pair, after the user confirmed it.
+#[tauri::command]
+pub async fn whisper_apply_discovered(
+    state: tauri::State<'_, AppState>,
+    executable: String,
+    model: String,
+) -> Result<WhisperSettings, String> {
+    // The pair is validated again here: a path that arrived from the window is
+    // not trusted, even when the search proposed it.
+    jarvis_core::whisper::probe_binary(std::path::Path::new(&executable))
+        .map_err(|error| error.to_string())?;
+    jarvis_core::whisper::probe_model(std::path::Path::new(&model))
+        .map_err(|error| error.to_string())?;
+    let session = state.whisper.session();
+    let mut settings = session.settings();
+    settings.binary_path = executable;
+    settings.model_path = model;
+    let updated = session
+        .update_settings(settings)
+        .map_err(|error| error.to_string())?;
+    session.set_program(std::path::Path::new(&updated.binary_path));
     Ok(updated)
 }
 

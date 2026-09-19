@@ -298,3 +298,72 @@ export function defaultSettings(): WhisperSettings {
         schema_version: 1
     }
 }
+// ------------------------------------------------------------------ discovery
+
+/** Where a discovered candidate was found. */
+export type CandidateSource = "bundled_runtime" | "known_directory" | "path"
+
+export interface ExecutableCandidate {
+    path: string
+    name: string
+    source: CandidateSource
+}
+
+export interface ModelCandidate {
+    path: string
+    name: string
+    source: CandidateSource
+    kind: ModelKind
+    size_bytes: number
+}
+
+export interface CandidatePair {
+    executable: ExecutableCandidate
+    model: ModelCandidate
+}
+
+export interface RejectedCandidate {
+    name: string
+    source: CandidateSource
+    code: string
+    detail: string
+}
+
+export interface DiscoveryReport {
+    pairs: CandidatePair[]
+    executables: ExecutableCandidate[]
+    models: ModelCandidate[]
+    rejected: RejectedCandidate[]
+    searched: string[]
+}
+
+/** The Fluent key of where a candidate was found. */
+export function candidateSourceKey(source: CandidateSource): string {
+    // The core sends the full name; the label is the short one.
+    const short =
+        source === "bundled_runtime" ? "bundled" : source === "known_directory" ? "known" : "path"
+    return `whisper-discovery-source-${short}`
+}
+
+/** Whether a search found something usable. */
+export function discoveryFound(report: DiscoveryReport | null): boolean {
+    return Boolean(report && report.executables.length > 0 && report.models.length > 0)
+}
+
+/** Whether the user has to choose between pairs. */
+export function discoveryNeedsChoice(report: DiscoveryReport | null): boolean {
+    return Boolean(report && report.pairs.length > 1)
+}
+
+/** A one-line result of a search, with no path in it. */
+export function discoverySummaryKey(report: DiscoveryReport | null): string {
+    if (!report) return "whisper-discovery-idle"
+    if (!discoveryFound(report)) {
+        return report.rejected.length > 0
+            ? "whisper-discovery-nothing-usable"
+            : "whisper-discovery-nothing"
+    }
+    return discoveryNeedsChoice(report)
+        ? "whisper-discovery-choose"
+        : "whisper-discovery-one"
+}

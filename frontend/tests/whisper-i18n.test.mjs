@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import {
     LANGUAGES,
     NOTE_CODES,
+    candidateSourceKey,
     errorKey,
     modelKindKey,
     noteKey,
@@ -93,7 +94,16 @@ const FAMILY_KEYS = [
     noteKey("windows-whisper-note-no-model") ?? "",
     noteKey("windows-whisper-note-disabled") ?? "",
     // Every note the status can build, one per error code in the core.
-    ...NOTE_CODES.map((code) => `whisper-note-${code.replace(/_/g, "-")}`)
+    ...NOTE_CODES.map((code) => `whisper-note-${code.replace(/_/g, "-")}`),
+    // The discovery result lines and the places a candidate can come from.
+    "whisper-discovery-idle",
+    "whisper-discovery-nothing",
+    "whisper-discovery-nothing-usable",
+    "whisper-discovery-one",
+    "whisper-discovery-choose",
+    // The core sends `bundled_runtime`/`known_directory`/`path`; the label keys
+    // are the short spelling that `candidateSourceKey` produces.
+    ...["bundled_runtime", "known_directory", "path"].map((source) => candidateSourceKey(source))
 ]
 
 function localePath(language) {
@@ -172,7 +182,7 @@ test("the dictation settings panel exists and is wired into the settings page", 
 
 test("every key the panel asks for exists in all three locales", () => {
     const required = requiredKeys()
-    assert.ok(required.size > 60, `expected a substantial key set, got ${required.size}`)
+    assert.ok(required.size > 80, `expected a substantial key set, got ${required.size}`)
     for (const language of LOCALES) {
         const available = messageKeys(language)
         const missing = [...required].filter((key) => !available.has(key)).sort()

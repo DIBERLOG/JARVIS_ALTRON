@@ -402,6 +402,8 @@ fn main() {
             tauri_commands::whisper_transcribe_file,
             tauri_commands::whisper_cancel,
             tauri_commands::whisper_clear_last,
+            desktop::whisper_discover,
+            desktop::whisper_apply_discovered,
             // the desktop shell: state, close behaviour, autostart, first run
             desktop::desktop_get_state,
             desktop::desktop_show_window,

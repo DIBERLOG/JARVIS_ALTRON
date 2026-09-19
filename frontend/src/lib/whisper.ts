@@ -9,7 +9,7 @@
 
 import { invoke } from "@tauri-apps/api/core"
 
-import type { DictationStatus, Transcript, WhisperSettings } from "./whisper-model"
+import type { DictationStatus, DiscoveryReport, Transcript, WhisperSettings } from "./whisper-model"
 
 export interface WhisperPanelView {
     status: DictationStatus
@@ -35,5 +35,16 @@ export const whisperApi = {
     /** Stops a recording or a transcription; false when nothing was running. */
     cancel: () => invoke<boolean>("whisper_cancel"),
     /** Forgets the transcript the panel is showing. */
-    clearLast: () => invoke<void>("whisper_clear_last")
+    clearLast: () => invoke<void>("whisper_clear_last"),
+
+    /**
+     * Looks for a Whisper build that is already on this machine.
+     *
+     * Nothing is saved: the search validates every candidate and returns a list
+     * for the user to confirm.
+     */
+    discover: () => invoke<DiscoveryReport>("whisper_discover"),
+    /** Stores a pair the user confirmed, revalidated by the core. */
+    applyDiscovered: (executable: string, model: string) =>
+        invoke<WhisperSettings>("whisper_apply_discovered", { executable, model })
 }

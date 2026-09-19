@@ -15,8 +15,10 @@
     import { translate, translations } from "@/stores"
     import { whisperApi } from "@/lib/whisper"
     import type { WhisperPanelView } from "@/lib/whisper"
-    import type { WhisperSettings } from "@/lib/whisper-model"
+    import type { DiscoveryReport, WhisperSettings } from "@/lib/whisper-model"
     import {
+        candidateSourceKey,
+        discoverySummaryKey,
         LANGUAGES,
         MAX_SILENCE_MS,
         MAX_THREADS,
@@ -47,6 +49,7 @@
     let busy = false
     let actionError = ""
     let saved = false
+    let discovery: DiscoveryReport | null = null
 
     $: status = view?.status ?? null
     $: transcript = view?.last ?? null
@@ -74,6 +77,37 @@
     function describe(error: unknown): string {
         const code = typeof error === "string" ? error : String(error)
         return /^[a-z_]+$/.test(code) ? t(errorKey(code)) : code
+    }
+
+    /** Looks for a build that is already installed. Nothing is saved here. */
+    async function discover() {
+        busy = true
+        try {
+            discovery = await whisperApi.discover()
+            actionError = ""
+        } catch (error) {
+            actionError = describe(error)
+        } finally {
+            busy = false
+        }
+    }
+
+    /** Stores a pair the user confirmed; the core validates it again. */
+    async function applyPair(index: number) {
+        const pair = discovery?.pairs[index]
+        if (!pair) return
+        busy = true
+        try {
+            settings = await whisperApi.applyDiscovered(pair.executable.path, pair.model.path)
+            discovery = null
+            saved = true
+            actionError = ""
+            await load()
+        } catch (error) {
+            actionError = describe(error)
+        } finally {
+            busy = false
+        }
     }
 
     async function pickBinary() {
@@ -252,6 +286,36 @@
         {t("whisper-pick-model")}
     </Button>
 </Group>
+<Space h="xs" />
+
+<!-- Looking for a build that is already installed. Nothing is saved until the
+     user confirms a pair, and nothing is downloaded. -->
+<Group spacing="xs">
+    <Button size="sm" variant="default" loading={busy} on:click={discover}>
+        {t("whisper-discovery-button")}
+    </Button>
+</Group>
+<Text size="xs" color="dimmed">{t("whisper-discovery-hint")}</Text>
+{#if discovery}
+    <Text size="sm">{t(discoverySummaryKey(discovery))}</Text>
+    {#each discovery.pairs as pair, index (`${pair.executable.path}-${pair.model.path}`)}
+        <Group spacing="xs">
+            <Text size="xs" color="dimmed">
+                {pair.executable.name} · {pair.model.name}
+                ({t(modelKindKey(pair.model.kind))}, {t(candidateSourceKey(pair.model.source))})
+            </Text>
+            <Button size="xs" variant="subtle" loading={busy} on:click={() => applyPair(index)}>
+                {t("whisper-discovery-apply")}
+            </Button>
+        </Group>
+    {/each}
+    {#if discovery.rejected.length > 0}
+        <Text size="xs" color="orange">{t("whisper-discovery-rejected")}</Text>
+        {#each discovery.rejected as candidate (candidate.name + candidate.code)}
+            <Text size="xs" color="dimmed">{candidate.name}: {candidate.detail}</Text>
+        {/each}
+    {/if}
+{/if}
 <Space h="xs" />
 
 <Group spacing="xs">
