@@ -8,6 +8,12 @@
     import Stats from "@/components/elements/Stats.svelte"
     import Footer from "@/components/Footer.svelte"
     import LocalChat from "@/components/ai/LocalChat.svelte"
+    import CloseDialog from "@/components/desktop/CloseDialog.svelte"
+    import FirstRunWizard from "@/components/desktop/FirstRunWizard.svelte"
+    import { onCloseRequested, onStateChanged, onOpenSettings, desktopApi } from "@/lib/desktop"
+    import { needsWizard } from "@/lib/desktop-model"
+    import type { DesktopState } from "@/lib/desktop-model"
+    import { goto } from "@roxi/routify"
     
     import {
         isJarvisRunning,
@@ -21,6 +27,12 @@
     $: t = (key: string) => translate($translations, key)
 
     let processRunning = false
+    // The shell: the close answer, the first-run wizard, and the tray state.
+    let closeDialogVisible = false
+    let desktopState: DesktopState | null = null
+    let unlisten: (() => void)[] = []
+
+    $: wizardVisible = desktopState ? needsWizard(desktopState.setup) : false
     let launching = false
     let wasRunning = false  // track previous state
 
@@ -41,6 +53,10 @@
     })
 
     onDestroy(() => {
+        for (const stop of unlisten) {
+            stop()
+        }
+        unlisten = []
         disableIpc()
     })
 
@@ -100,4 +116,47 @@
 .local-ai-section {
     margin: 1rem 0;
 }
-</style>
+    .wizard-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 40;
+        overflow: auto;
+        padding: 1.5rem;
+    }
+
+    .wizard-panel {
+        max-width: 34rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        padding: 1rem;
+        background: rgba(20, 20, 24, 0.98);
+    }</style>
+<!-- The close dialog is shown by the core's request, and it is the only place a
+     close answer is chosen. The wizard appears on a profile that has not
+     finished it, and closing it leaves every feature as it was. -->
+<CloseDialog
+    visible={closeDialogVisible}
+    trayAvailable={desktopState?.tray_available ?? true}
+    onDone={() => (closeDialogVisible = false)}
+/>
+
+{#if wizardVisible}
+    <div class="wizard-backdrop">
+        <div class="wizard-panel">
+            <FirstRunWizard
+                onClose={async () => {
+                    desktopState = await desktopApi.state()
+                }}
+                onOpenSection={(section) => {
+                    closeDialogVisible = false
+                    $goto("/settings")
+                    void section
+                }}
+            />
+        </div>
+    </div>
+{/if}

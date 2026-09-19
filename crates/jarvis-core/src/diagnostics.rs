@@ -38,9 +38,15 @@ pub const MAX_REPORT_LINES: usize = 400;
 pub enum ComponentState {
     Ready,
     Missing,
+    /// It is there, and it is not what the setting says it should be.
+    Invalid,
+    /// It is there, and it is locked: a key or a password is needed.
+    Locked,
     WrongArchitecture,
     VersionUnknown,
     Incompatible,
+    /// The platform cannot provide it at all.
+    Unavailable,
     PermissionDenied,
     /// Nothing was configured, which is a choice and not a fault.
     NotConfigured,
@@ -53,9 +59,12 @@ impl ComponentState {
         match self {
             Self::Ready => "ready",
             Self::Missing => "missing",
+            Self::Invalid => "invalid",
+            Self::Locked => "locked",
             Self::WrongArchitecture => "wrong_architecture",
             Self::VersionUnknown => "version_unknown",
             Self::Incompatible => "incompatible",
+            Self::Unavailable => "unavailable",
             Self::PermissionDenied => "permission_denied",
             Self::NotConfigured => "not_configured",
             Self::Disabled => "disabled",
@@ -63,8 +72,13 @@ impl ComponentState {
     }
 
     /// Whether a person has to do something about it.
+    ///
+    /// `Locked` and `NotConfigured` are states the user chose, not faults.
     pub fn needs_attention(&self) -> bool {
-        !matches!(self, Self::Ready | Self::Disabled | Self::NotConfigured)
+        !matches!(
+            self,
+            Self::Ready | Self::Disabled | Self::NotConfigured | Self::Locked
+        )
     }
 
     /// Whether the state means "you have not set this up", which the wizard can
@@ -539,6 +553,9 @@ mod tests {
         let states = [
             ComponentState::Ready,
             ComponentState::Missing,
+            ComponentState::Invalid,
+            ComponentState::Locked,
+            ComponentState::Unavailable,
             ComponentState::WrongArchitecture,
             ComponentState::VersionUnknown,
             ComponentState::Incompatible,
@@ -554,7 +571,10 @@ mod tests {
         assert!(!ComponentState::Ready.needs_attention());
         assert!(!ComponentState::Disabled.needs_attention());
         assert!(!ComponentState::NotConfigured.needs_attention());
+        assert!(!ComponentState::Locked.needs_attention());
         assert!(ComponentState::Missing.needs_attention());
+        assert!(ComponentState::Invalid.needs_attention());
+        assert!(ComponentState::Unavailable.needs_attention());
         assert!(ComponentState::PermissionDenied.needs_attention());
         assert!(ComponentState::NotConfigured.is_setup());
         assert!(!ComponentState::Ready.is_setup());

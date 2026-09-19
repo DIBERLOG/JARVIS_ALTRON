@@ -85,15 +85,49 @@ to 400 lines.
 3. Export it to a file only if you are reporting a problem; the file is safe to
    share, which is the point of the screen.
 
+## What the window does with it
+
+The settings page has a **Diagnostics** tab
+(`frontend/src/components/desktop/DiagnosticsPanel.svelte`) and four commands:
+
+```text
+diagnostics_run       builds the report and its preview
+diagnostics_preview   the lines, without building a view
+diagnostics_export    writes the JSON to a file the user picks
+diagnostics_summary   a short, already-screened summary for the clipboard
+```
+
+The panel shows the component table with a state per row, the file sizes by name,
+the recent error categories by code and count, and the full preview. The export
+runs the screen first: a report that carries a path or a secret-shaped line is
+refused with the line number, not written. The summary is the preview, so the
+clipboard gets the same text the person just read.
+
+`diagnostics_run` collects its facts from the running application:
+
+| Check | How it is read | What it does not do |
+|---|---|---|
+| data directory | a write probe, which is deleted immediately | never writes anything else |
+| SQLite, stores | whether the store file exists, and whether the shared session is unlocked | never decrypts anything to find out |
+| model server, local model | the configured paths and a PE-header check for the executable | never starts the server |
+| Whisper executable and model | the same checks the dictation page uses | never runs a transcription |
+| Vosk runtime, dictionaries | whether the folder exists, and how many files it holds | never loads a model |
+| microphone | the input device list | **never opens the microphone** |
+| Windows commands, Core Audio, screenshots | the backend capability report | never executes an action |
+| autostart, tray | the entry state and whether the icon exists | never writes the entry |
+| WebView2, notifications | reported as `version_unknown`, with the reason | does not claim a toast works without an installed build |
+| memory, disk | `sysinfo` | — |
+
 ## What is not implemented
 
-* **No window command yet.** The core builds, screens, previews, and serialises a
-  report; no Tauri command exposes it, so today the report can only be produced
-  from Rust (a test, or a small program using the crate).
-* **Component collection is the caller's job.** The module deliberately does not
-  know how to probe Vosk, Whisper, or the model server: it holds the vocabulary,
-  the redaction, the screen, and the rendering. The probing belongs next to each
-  feature, which is where the states will come from when the command is wired.
-* **`VersionUnknown` is under-used.** Nothing reads a version out of
-  `whisper-cli.exe` or `llama-server.exe` today, so those report what the file
-  check knows and nothing more.
+* **The version of an external binary is not read.** `whisper-cli.exe` and
+  `llama-server.exe` are checked for existence, size, and architecture, not for a
+  version, so they report what the file check knows and nothing more.
+* **The Windows build number is not read.** The report says `windows x86_64`,
+  which is true, rather than calling `RtlGetVersion` it does not use elsewhere.
+* **The `target` directory size is not reported.** The stage asked for it in dev
+  mode only; nothing reads it, and no command would be honest about it in a
+  release build.
+* **A hash of a public binary is not reported.** The stage allows it; the code
+  does not compute one, because nothing verifies it against a published value,
+  and an unverified hash invites a false sense of checking.

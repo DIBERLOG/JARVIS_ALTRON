@@ -75,12 +75,12 @@ public release is BLOCKED by the licence conflict in `docs/LICENSING_STATUS.md`.
 
 | Check | State |
 |---|---|
-| Ordered exit, bounded, idempotent | **yes** — `lifecycle.rs`, 10 tests, wired into the Tauri exit path |
-| Tray icon and menu | **no** |
-| Autostart, off by default, user-controlled | **no** |
-| First-run wizard | **no** |
-| `NotConfigured` states for every optional feature | **partial** — dictation and Windows actions report them; the wizard that would use them does not exist |
-| Diagnostics report, redacted and previewed | **yes** in the core; **no** window command |
+| Ordered exit, bounded, idempotent | **yes** — `lifecycle.rs`, 10 tests, wired into the Tauri exit path; two of the eleven steps are not registered (see `docs/DESKTOP_SHELL.md`) |
+| Tray icon and menu | **yes in code**, not clicked on a real desktop |
+| Autostart, off by default, user-controlled | **yes in code**, not verified after a real sign-in |
+| First-run wizard | **yes** — ten steps, every one skippable, re-runnable |
+| `NotConfigured` states for every optional feature | **yes** — the features report them, and the wizard and the status lines use them |
+| Diagnostics report, redacted and previewed | **yes** — core and window, with a screened export and a copyable summary |
 | Notifications honest about what the build can do | **yes** — in-application notification; no AUMID without an installer, and the capability flag says `false` on an uninstalled build |
 
 ## 7. Manual smoke tests on a real machine

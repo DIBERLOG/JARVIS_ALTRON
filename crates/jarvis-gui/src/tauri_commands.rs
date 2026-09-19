@@ -64,3 +64,6 @@ pub use windows_actions::*;
 // import dictation commands (local Whisper, no network)
 mod whisper;
 pub use whisper::*;
+// import desktop shell commands (tray, close behaviour, autostart, first run)
+mod diagnostics;
+pub use diagnostics::*;

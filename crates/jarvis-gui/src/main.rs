@@ -10,6 +10,7 @@ extern crate simple_log;
 mod events;
 
 mod tauri_commands;
+mod desktop;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -161,6 +162,18 @@ fn main() {
             whisper,
             lifecycle: std::sync::Arc::clone(&lifecycle),
         })
+        // One instance: a second launch hands the arguments to the copy that is
+        // already running and shows its window, so no second scheduler, tray, or
+        // database can be opened.
+        .plugin(tauri_plugin_single_instance::init(|app, _arguments, _cwd| {
+            desktop::show_main_window(app);
+        }))
+        // Autostart through the supported per-user mechanism, with the argument
+        // that says "start hidden". Nothing else is passed.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![jarvis_core::desktop::START_MINIMIZED_FLAG]),
+        ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -389,8 +402,47 @@ fn main() {
             tauri_commands::whisper_transcribe_file,
             tauri_commands::whisper_cancel,
             tauri_commands::whisper_clear_last,
+            // the desktop shell: state, close behaviour, autostart, first run
+            desktop::desktop_get_state,
+            desktop::desktop_show_window,
+            desktop::desktop_hide_window,
+            desktop::desktop_request_exit,
+            desktop::desktop_get_close_behavior,
+            desktop::desktop_set_close_behavior,
+            desktop::desktop_update_settings,
+            desktop::desktop_lock_storage,
+            desktop::autostart_get_state,
+            desktop::autostart_enable,
+            desktop::autostart_disable,
+            desktop::setup_get_state,
+            desktop::setup_complete_step,
+            desktop::setup_skip_step,
+            desktop::setup_finish,
+            desktop::setup_reset,
+            tauri_commands::diagnostics_run,
+            tauri_commands::diagnostics_preview,
+            tauri_commands::diagnostics_export,
+            tauri_commands::diagnostics_summary,
         ])
         .setup(|app| {
+            // The shell needs the application handle for autostart and the tray,
+            // so it is built here and managed as its own state.
+            let desktop = std::sync::Arc::new(desktop::DesktopHandle::new(app.handle()));
+            app.manage(std::sync::Arc::clone(&desktop));
+            if let Err(error) = desktop::install_tray(app.handle()) {
+                // A missing tray is not fatal: the window still works, and the
+                // diagnostics report says so.
+                log::error!("desktop: the tray could not be created: {error}");
+            }
+            // An autostart launch stays in the tray: the window is hidden here,
+            // after the icon exists, so an invisible application cannot happen.
+            let settings = desktop.settings();
+            if settings.autostart_enabled
+                && settings.start_minimized
+                && std::env::args().any(|argument| argument == jarvis_core::desktop::START_MINIMIZED_FLAG)
+            {
+                desktop::hide_main_window(app.handle());
+            }
             // When a timer or reminder fires the window is poked; the item itself is
             // collected by `windows_actions_take_fired`, so a notification the
             // interface shows can never be the only record of what fired.
@@ -401,6 +453,15 @@ fn main() {
                 let _ = app_handle.emit("windows-actions-fired", ());
             });
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // The close button is answered in one place, so the tray, the
+            // dialog, and the setting cannot disagree.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    desktop::on_close_requested(window.app_handle(), api);
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

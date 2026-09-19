@@ -8,10 +8,15 @@ edition.workspace = true
 
 [dependencies]
 jarvis-core = { path = "../jarvis-core", default-features = false }
-tauri = { version = "2", features = [] } # v1: "shell-open", "dialog-message", "path-all"
+tauri = { version = "2", features = ["tray-icon", "image-png"] } # v1: "shell-open", "dialog-message", "path-all"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+# One instance, one tray, one scheduler: a second launch activates the window
+# that is already open instead of starting a second copy of everything.
+tauri-plugin-single-instance = "2"
+# The Windows Run key for the current user: opt-in, no shell, no admin rights.
+tauri-plugin-autostart = "2"
 
 peak_alloc = "0.3.0"
 systemstat = "0.2"

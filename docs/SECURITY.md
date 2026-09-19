@@ -115,6 +115,27 @@ text is screened for `C:\`, `\\`, `/users/`, `key.dpapi`, and secret-shaped
 assignments before it can be exported. Details are in
 `docs/RUNTIME_DIAGNOSTICS.md`.
 
+## The desktop shell
+
+The tray, the close behaviour, autostart, the microphone session, and the
+first-run wizard are documented in `docs/DESKTOP_SHELL.md` and
+`docs/ADR_TRAY_AUTOSTART.md`. The rules that matter here:
+
+* autostart is **off by default**, writes one entry for the current user through
+  the supported mechanism, and never uses a shell; it starts nothing else unless
+  the user turns that switch on, and **there is no switch that starts Whisper**;
+* the microphone is owned by one session at a time, every state change presents a
+  ticket, and a stale event is refused — so the tray cannot claim a recording that
+  has ended, and a late event cannot clear a session that replaced it;
+* `release_for_exit` invalidates every ticket and returns the microphone to idle,
+  so a full exit never leaves the device claimed;
+* a full exit is one ordered sequence with per-step timeouts and a global
+  deadline, and a second request runs nothing twice;
+* the window cannot write a registry key, drive the tray, create a second
+  lifecycle, build a diagnostics document, or store a password: no command
+  accepts one, and a test scans the interface sources for the words that would
+  mean otherwise.
+
 ## Known risks
 
 `Cargo.toml` declares GPL-3.0-only while `LICENSE.txt` and README describe

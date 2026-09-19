@@ -22,6 +22,7 @@ pub mod autocorrect;
 pub mod windows_actions;
 pub mod whisper;
 pub mod lifecycle;
+pub mod desktop;
 pub mod diagnostics;
 pub mod text;
 pub mod config;

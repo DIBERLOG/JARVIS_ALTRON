@@ -34,13 +34,14 @@ application. A fake backend is **not** a manual test.
 | Backup / restore (whole application) | **no** | **no** | no | — | **Not implemented** (per-feature export/import exists) |
 | Frontend (Svelte + Routify) | yes | yes (173 Node tests) | build verified | — | **Ready** |
 | Tauri shell | yes | no | build compiles; window not run here | WebView2 | **Ready in code**, unverified |
-| System tray | **no** | **no** | no | — | **Not implemented** |
-| Autostart | **no** | **no** | no | — | **Not implemented** |
+| Single instance | yes | no | **no** — a second launch was not performed | — | **Ready in code, unverified** |
+| System tray | yes | yes (menu + states, 26 core tests) | **no** — no click on a real desktop | — | **Ready in code, native path unverified** |
+| Autostart | yes | yes (controller + fake backend) | **no** — no sign-out/sign-in was performed | the plugin writes the per-user Run key | **Ready in code, unverified after a real logon** |
 | Installer | **no** | **no** | no | WiX/NSIS toolchain | **Not implemented** |
 | Lifecycle manager | yes | yes (10 unit tests) | wired into the GUI exit path; exit not run here | — | **Ready in code** |
-| Runtime diagnostics | yes (core) | yes (11 unit tests) | export command not wired to the window | — | **Ready in core**, UI pending |
-| First-run wizard | **no** | **no** | no | — | **Not implemented** |
-| Unified settings page | partial | yes (interface tests) | build verified | — | **Partial** — the panels exist, the single tree does not |
+| Runtime diagnostics | yes | yes (core tests + interface tests) | export not run against a real file dialog | — | **Ready** |
+| First-run wizard | yes | yes (state + interface tests) | build verified | — | **Ready** |
+| Unified settings page | yes | yes (interface tests) | build verified | — | **Ready** — one settings page with the required sections, adding Startup and tray, Privacy, Diagnostics, and About |
 | Licensing analysis | yes (documents) | — | — | — | **Ready** — see `docs/LICENSING_STATUS.md` |
 | Dependency audit | partial | — | `npm audit` run; `cargo audit`/`cargo deny` unavailable | — | **Partial** — see below |
 
@@ -58,36 +59,41 @@ application. A fake backend is **not** a manual test.
   preview, and a JSON export. 17 unit tests.
 * **Licensing documents**: `docs/LICENSING_STATUS.md`, `THIRD_PARTY_NOTICES.md`,
   and `docs/RELEASE_CHECKLIST.md`.
+* **The desktop shell** (`docs/DESKTOP_SHELL.md`, `docs/ADR_TRAY_AUTOSTART.md`):
+  the tray with a state-carrying menu, the close behaviour with its dialog, one
+  exit route through the lifecycle, single instance, opt-in autostart for the
+  current user, the microphone session with stale-event protection, and the
+  first-run wizard (`docs/FIRST_RUN.md`). 26 core tests and 20 interface tests.
+* **Diagnostics in the window** (`docs/RUNTIME_DIAGNOSTICS.md`): a section of the
+  settings page with the component table, the preview, an export that runs the
+  core's screen first, and a summary for the clipboard.
 
 ## Not implemented, and not claimed
 
 These are listed so that nobody reads this document as a promise:
 
-1. **System tray.** No tray icon, no tray menu, no "close to tray". The exit
-   path is ready for it (one route, one report), but the tray itself is absent.
-2. **Autostart.** No registry entry, no `Run` key, no Tauri autostart plugin
-   call. Autostart is therefore trivially "off by default", but it also cannot
-   be switched on.
-3. **First-run wizard.** No wizard. The individual settings pages exist
-   (general, local AI, memory, autocorrect, Windows commands, dictation,
-   devices), and every feature can already be left unconfigured, but there is no
-   guided sequence and no `NotConfigured` overview page.
-4. **Windows installer.** No MSI, no NSIS, no bundler configuration. Nothing was
-   installed, so nothing is verified as an installation.
-5. **Whole-application backup/restore.** No versioned container, no manifest, no
+1. **Windows installer.** No MSI, no NSIS, no bundler configuration. Nothing was
+   installed, so nothing is verified as an installation. The next stage owns it.
+2. **Whole-application backup/restore.** No versioned container, no manifest, no
    atomic restore. What exists today is per feature: notes export/import, vault
    export/import, memory export/import, the autocorrect word list export, and the
-   Windows-actions audit export.
-6. **Unified settings tree.** The settings page groups the panels in tabs, which
-   is close, but it is not the single tree the stage describes, and there is no
-   search.
-7. **Diagnostics export in the window.** The core can build, screen, preview, and
-   serialise a report; no command exposes it to the interface yet.
-8. **Notifications with a registered identity.** Timers and reminders show an
-   in-application notification and attempt a system toast only when the build
-   has an AUMID. With no installer, there is no AUMID, so the honest state is
-   "in-application notification only".
-9. **Smoke tests against a real desktop, models, and microphone.** None were run.
+   Windows-actions audit export. The stage after this one owns it.
+3. **Notifications with a registered identity.** Timers and reminders show an
+   in-application notification and attempt a system toast only when the build has
+   an AUMID. With no installer there is no AUMID, so the honest state is
+   "in-application notification only", and the diagnostics report says
+   `version_unknown` for it rather than claiming a toast works.
+4. **Two exit steps are not registered.** `stop-vosk` belongs to the voice host
+   in `jarvis-app`, and `checkpoint-databases` has no implementation in the
+   stores. An exit logs them as absent instead of pretending they ran.
+5. **The settings tree has no search.** The sections are there; a search box
+   would need an index over four settings documents, and it was not built.
+6. **Autostart cannot detect an entry pointing at another copy**, because the
+   plugin in use reports existence rather than contents. The mitigation is a
+   rewrite on every start, and the limitation is documented.
+7. **Smoke tests against a real desktop, models, and microphone.** None were run:
+   no tray click, no sign-in with autostart enabled, no real dictation, and no
+   second launch of the application.
 
 ## Dependency audit
 

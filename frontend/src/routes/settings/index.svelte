@@ -13,6 +13,8 @@
     import AutocorrectSettings from "@/components/settings/AutocorrectSettings.svelte"
     import WindowsActionsPanel from "@/components/windows/WindowsActionsPanel.svelte"
     import WhisperSettingsPanel from "@/components/settings/WhisperSettings.svelte"
+    import DesktopSettings from "@/components/desktop/DesktopSettings.svelte"
+    import DiagnosticsPanel from "@/components/desktop/DiagnosticsPanel.svelte"
 
     import {
         Notification,
@@ -53,6 +55,7 @@
     }
     
     let availableVoices: VoiceMeta[] = []
+    let version = "—"
 
     async function selectVoice(voiceId: string) {
         voiceVal = voiceId
@@ -148,6 +151,12 @@
 
     // ### INIT
     onMount(async () => {
+        try {
+            // The version command answers with a string.
+            version = await invoke<string>("get_app_version")
+        } catch {
+            version = "—"
+        }
         // load voices
         try {
             const voices = await invoke<VoiceConfig[]>("list_voices")
@@ -331,6 +340,36 @@
     <Tabs.Tab label={t('windows-actions-tab')} icon={Code}>
         <Space h="sm" />
         <WindowsActionsPanel />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('desktop-tab')} icon={Gear}>
+        <Space h="sm" />
+        <DesktopSettings />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('desktop-privacy-tab')} icon={QuestionMarkCircled}>
+        <Space h="sm" />
+        <div class="privacy">
+            <h3>{t('desktop-privacy-title')}</h3>
+            <p>{t('desktop-privacy-body')}</p>
+            <p>{t('desktop-privacy-autostart')}</p>
+            <p>{t('desktop-privacy-report')}</p>
+        </div>
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('desktop-diagnostics-tab')} icon={Code}>
+        <Space h="sm" />
+        <DiagnosticsPanel />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('desktop-about-tab')} icon={QuestionMarkCircled}>
+        <Space h="sm" />
+        <div class="privacy">
+            <h3>{t('desktop-about-title')}</h3>
+            <p>{t('desktop-about-version')}: {version}</p>
+            <p>{t('desktop-about-license')}</p>
+            <p>{t('desktop-about-limits')}</p>
+        </div>
     </Tabs.Tab>
 
     <Tabs.Tab label={t('settings-neural-networks')} icon={Cube}>
@@ -642,4 +681,17 @@ $voice-max-visible: 3;
     color: rgba(255,255,255,0.4);
     font-style: italic;
 }
-</style>
+    .privacy {
+        max-width: 42rem;
+        line-height: 1.5;
+    }
+
+    .privacy h3 {
+        margin-bottom: 0.5rem;
+    }
+
+    .privacy p {
+        margin-bottom: 0.6rem;
+        opacity: 0.85;
+        font-size: 0.9rem;
+    }</style>
