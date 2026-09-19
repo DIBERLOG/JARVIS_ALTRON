@@ -237,6 +237,7 @@
 <label class="field">
     <span>{t("voice-input-phrase")}</span>
     <Input
+        class="voice-control"
         size="sm"
         bind:value={phraseDraft}
         on:focus={() => (editingPhrase = true)}
@@ -249,7 +250,7 @@
 
 <label class="field">
     <span>{t("voice-input-language")}</span>
-    <select bind:value={languageDraft} on:change={() => void commitLanguage()}>
+    <select class="voice-control" bind:value={languageDraft} on:change={() => void commitLanguage()}>
         {#each ["auto", "ru", "en", "ua", "de", "fr", "es"] as language (language)}
             <option value={language}>{language}</option>
         {/each}
@@ -277,7 +278,7 @@
 <label class="field">
     <span>{t("voice-input-clipboard-timeout")}</span>
     <input
-        class="line"
+        class="line voice-control"
         type="number"
         min="15"
         max="60"
@@ -346,5 +347,48 @@
         overflow: auto;
         white-space: pre-wrap;
         opacity: 0.95;
+    }
+
+    :global(.voice-control),
+    :global(.voice-control input) {
+        box-sizing: border-box;
+        min-height: 2.25rem;
+        background: #111b22 !important;
+        color: #e7f7f8 !important;
+        border: 1px solid #34525c !important;
+        border-radius: 6px;
+        color-scheme: dark;
+    }
+
+    :global(select.voice-control option) {
+        background: #111b22;
+        color: #e7f7f8;
+    }
+
+    :global(.voice-control:focus-visible),
+    :global(.voice-control input:focus-visible) {
+        outline: 2px solid #20d6d2;
+        outline-offset: 2px;
+        border-color: #20d6d2 !important;
+    }
+
+    :global(.voice-control:disabled),
+    :global(.voice-control input:disabled) {
+        background: #172126 !important;
+        color: #91a7ad !important;
+        cursor: not-allowed;
+    }
+
+    :global(.voice-control input:-webkit-autofill) {
+        -webkit-text-fill-color: #e7f7f8;
+        -webkit-box-shadow: 0 0 0 1000px #111b22 inset;
+        transition: background-color 9999s ease-out 0s;
+    }
+
+    @media (forced-colors: active) {
+        :global(.voice-control),
+        :global(.voice-control input) {
+            forced-color-adjust: auto;
+        }
     }
 </style>
