@@ -96,6 +96,18 @@ pub struct CatalogEntry {
     /// `executable_missing`, `script_missing`, `unsupported_type`,
     /// `disabled_in_settings`, `forbidden_by_policy`.
     pub unavailable_reason: Option<String>,
+    /// Whether a person can reach it at all: it has phrases in this language.
+    pub recognized: bool,
+    /// Whether the executor exists and is usable — the second question, answered
+    /// separately from the first.
+    pub executor_ready: bool,
+    /// Whether the policy permits it.
+    pub allowed: bool,
+    /// Whether both halves the automatic suite asserts hold for it: a phrase
+    /// reaches this command, and its executor exists. A pack cannot be installed
+    /// with a phrase that does not match, because the suite walks every installed
+    /// pack.
+    pub verified: bool,
 }
 
 /// A pack the loader could not read, with its logical name and nothing else.
@@ -224,6 +236,14 @@ pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str
         .collect();
     slots.sort_by(|left, right| left.name.cmp(&right.name));
 
+    // The four questions, each answered on its own. `recognized` is about the
+    // matcher, `executor_ready` about this build, `allowed` about the policy, and
+    // `verified` claims only what the automatic suite actually asserts.
+    let recognized = !phrases.is_empty();
+    let allowed = command.risk_level != RiskLevel::Forbidden;
+    let executor_ready = enabled || unavailable_reason.as_deref() == Some("allowlist_required");
+    let verified = recognized && executor_ready;
+
     CatalogEntry {
         id: command.id.clone(),
         pack: pack.to_string(),
@@ -236,6 +256,10 @@ pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str
         requires_confirmation: command.risk_level == RiskLevel::ConfirmationRequired,
         enabled,
         status,
+        recognized,
+        executor_ready,
+        allowed,
+        verified,
         unavailable_reason,
     }
 }
@@ -297,6 +321,12 @@ pub fn global_voice_input_entry(phrase: &str, enabled: bool) -> CatalogEntry {
         } else {
             "disabled".to_string()
         },
+        recognized: has_phrase,
+        // The listener recognises the phrase and the dictation engine runs in the
+        // window process: there is nothing else to be ready.
+        executor_ready: has_phrase,
+        allowed: true,
+        verified: has_phrase,
         unavailable_reason,
     }
 }
@@ -731,6 +761,88 @@ mod tests {
         let entry = entry_of("stop", &directory, &internal, "ru");
         assert_eq!(entry.status, "ready");
         let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn the_four_questions_are_answered_separately() {
+        let catalog = installed();
+        for entry in &catalog.entries {
+            // A phrase-checked fact and an executor fact are never the same fact.
+            assert_eq!(
+                entry.recognized,
+                !entry.phrases.is_empty(),
+                "{} must say whether a phrase reaches it",
+                entry.id
+            );
+            assert_eq!(
+                entry.allowed,
+                entry.risk_level != "forbidden",
+                "{} must say whether the policy permits it",
+                entry.id
+            );
+            assert_eq!(
+                entry.verified,
+                entry.recognized && entry.executor_ready,
+                "{} must claim only what is both recognised and executable",
+                entry.id
+            );
+            if entry.status == "executor_missing" || entry.status == "dependency_missing" {
+                assert!(
+                    entry.recognized && !entry.executor_ready,
+                    "{} has a phrase but no executor, and must say exactly that",
+                    entry.id
+                );
+                assert!(!entry.verified, "{} cannot be verified without an executor", entry.id);
+            }
+            if entry.status == "forbidden" {
+                assert!(!entry.allowed, "{} is refused by policy", entry.id);
+            }
+        }
+        // The concrete case: the phrase reaches a command whose helper is missing.
+        let open_google = catalog
+            .entries
+            .iter()
+            .find(|entry| entry.id == "open_google")
+            .expect("open_google");
+        assert!(open_google.recognized);
+        assert!(!open_google.executor_ready);
+        assert!(!open_google.verified);
+        assert!(open_google.allowed);
+    }
+
+    #[test]
+    fn the_runtime_layout_is_what_is_read() {
+        // The application reads `resources/commands/<pack>/command.toml` next to its
+        // own executable, in a debug build and in a release bundle alike: the path
+        // is relative to the runtime directory and never to a developer's checkout.
+        let runtime = fixture("runtime").join("debug");
+        let packs = runtime.join(config::COMMANDS_PATH);
+        let pack = packs.join("volume");
+        fs::create_dir_all(&pack).expect("a runtime pack");
+        fs::write(
+            pack.join("command.toml"),
+            "[[commands]]\nid = \"volume_mid\"\ntype = \"native\"\nrisk_level = \"safe\"\n\n[commands.native]\naction = \"set_volume\"\npercent = 50\n\n[commands.phrases]\nru = [\"громкость пятьдесят\"]\nen = [\"volume fifty\"]\nua = [\"гучність п'ятдесят\"]\n",
+        )
+        .expect("a runtime document");
+        // A second pack the loader does not read: reported, not hidden.
+        fs::create_dir_all(packs.join("legacy")).expect("a runtime pack");
+        fs::write(packs.join("legacy").join("command.yaml"), "list: []").expect("a document");
+
+        let catalog = build_catalog(&packs, "ru");
+        assert_eq!(catalog.entries.len(), 1);
+        assert_eq!(catalog.entries[0].id, "volume_mid");
+        assert_eq!(catalog.entries[0].status, "ready");
+        assert_eq!(catalog.unreadable.len(), 1);
+        assert_eq!(catalog.unreadable[0].pack, "legacy");
+
+        // Nothing in the answer carries the runtime directory.
+        let serialized = serde_json::to_string(&catalog).expect("the answer is a document");
+        assert!(
+            !serialized.contains(&runtime.to_string_lossy().to_string()),
+            "the answer must not carry a path"
+        );
+        assert!(!serialized.contains("resources"), "the answer must not carry a path");
+        let _ = fs::remove_dir_all(runtime.parent().expect("the fixture root"));
     }
 
     #[test]

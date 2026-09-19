@@ -4,12 +4,16 @@ import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 import {
+    RISKS,
+    STATUSES,
     categoryKey,
     filterEntries,
     foldForSearch,
     matchesQuery,
     packReasonKey,
     riskKey,
+    statusKey,
+    titleOf,
     unavailableKey
 } from "../src/lib/command-catalog.ts"
 
@@ -29,6 +33,9 @@ import {
  */
 
 const PAGE = fileURLToPath(new URL("../src/routes/commands/index.svelte", import.meta.url))
+const SHELL = fileURLToPath(new URL("../src/routes/_module.svelte", import.meta.url))
+const TAURI_CONFIG = fileURLToPath(new URL("../../crates/jarvis-gui/tauri.conf.json", import.meta.url))
+const DESKTOP = fileURLToPath(new URL("../../crates/jarvis-gui/src/desktop.rs", import.meta.url))
 const API = fileURLToPath(new URL("../src/lib/command-catalog.ts", import.meta.url))
 const CORE_CATALOG = fileURLToPath(new URL("../../crates/jarvis-core/src/commands/catalog.rs", import.meta.url))
 const CORE_COMMANDS = fileURLToPath(new URL("../../crates/jarvis-core/src/commands.rs", import.meta.url))
@@ -175,39 +182,80 @@ test("the catalogue command is registered and needs no second matcher", () => {
 })
 
 test("the filter helpers behave", () => {
+    const base = {
+        id: "browser_open",
+        pack: "browser",
+        category: "applications",
+        source: "pack",
+        description: "",
+        phrases: ["открой браузер"],
+        slots: [],
+        risk_level: "safe",
+        requires_confirmation: false,
+        enabled: true,
+        status: "ready",
+        recognized: true,
+        executor_ready: true,
+        allowed: true,
+        verified: true,
+        unavailable_reason: null
+    }
     const entries = [
+        base,
         {
-            id: "browser_open",
-            pack: "browser",
-            category: "applications",
-            source: "pack",
-            description: "",
-            phrases: ["открой браузер"],
-            slots: [],
-            risk_level: "safe",
-            requires_confirmation: false,
-            enabled: true,
-            unavailable_reason: null
-        },
-        {
+            ...base,
             id: "weather",
             pack: "weather",
             category: "weather",
-            source: "pack",
-            description: "",
             phrases: ["какая погода в {city}"],
-            slots: [{ name: "city", entity: "city" }],
-            risk_level: "safe",
-            requires_confirmation: false,
-            enabled: true,
-            unavailable_reason: null
+            slots: [{ name: "city", entity: "city" }]
+        },
+        {
+            ...base,
+            id: "open_google",
+            pack: "browser",
+            phrases: ["открой гугл"],
+            risk_level: "forbidden",
+            status: "forbidden",
+            enabled: false,
+            allowed: false,
+            verified: false,
+            unavailable_reason: "forbidden_by_policy"
+        },
+        {
+            ...base,
+            id: "windows_sleep",
+            pack: "windows",
+            phrases: ["спящий режим"],
+            status: "executor_missing",
+            enabled: false,
+            executor_ready: false,
+            verified: false,
+            unavailable_reason: "executable_missing"
         }
     ]
-    assert.equal(filterEntries(entries, "", "").length, 2)
+    assert.equal(filterEntries(entries, "", "").length, 4)
     assert.equal(filterEntries(entries, "weather", "").length, 1)
     assert.deepEqual(
         filterEntries(entries, "", "открой").map((entry) => entry.id),
-        ["browser_open"]
+        ["browser_open", "open_google"]
+    )
+    // The three filters compose.
+    assert.deepEqual(
+        filterEntries(entries, "", "", "ready").map((entry) => entry.id),
+        ["browser_open", "weather"]
+    )
+    assert.deepEqual(
+        filterEntries(entries, "", "", "", "forbidden").map((entry) => entry.id),
+        ["open_google"]
+    )
+    assert.deepEqual(
+        filterEntries(entries, "browser", "", "executor_missing").map((entry) => entry.id),
+        []
+    )
+    assert.deepEqual(
+        filterEntries(entries, "", "спящий", "executor_missing", "safe").map((entry) => entry.id),
+        ["windows_sleep"]
     )
     // A phrase, an identifier, a pack and a slot name are all searched.
     assert.ok(matchesQuery(entries[1], "погода"))
@@ -218,11 +266,95 @@ test("the filter helpers behave", () => {
     assert.equal(foldForSearch("Королёве"), "королеве")
     assert.ok(matchesQuery({ ...entries[1], phrases: ["погода в Королёве"] }, "королеве"))
 
+    // The card's name is the phrase a person would say in that language.
+    assert.equal(titleOf(entries[0]), "открой браузер")
+    assert.equal(titleOf({ ...entries[0], phrases: [] }), "browser_open")
+
     assert.equal(categoryKey("weather"), "command-category-weather")
     assert.equal(riskKey("confirm"), "command-risk-confirm")
+    assert.equal(statusKey("executor_missing"), "command-status-executor_missing")
     assert.equal(unavailableKey("executable_missing"), "command-unavailable-executable_missing")
     assert.equal(unavailableKey(null), "command-unavailable-unknown")
     assert.equal(packReasonKey("unsupported_format"), "command-pack-reason-unsupported_format")
+    assert.equal(STATUSES.length, 6)
+    assert.deepEqual(RISKS, ["safe", "confirm", "forbidden"])
+})
+
+test("the page is a grid that stays readable, with tabs and filters", () => {
+    const page = readFileSync(PAGE, "utf8")
+    // Three to four on a wide window, two in the middle, one when narrow: a grid
+    // with breakpoints, not a single row of cards.
+    assert.ok(page.includes("grid-template-columns"), "the cards need a grid")
+    assert.ok(page.includes("repeat(auto-fill, minmax"), "the grid must fill the width")
+    assert.ok(page.includes("@media (max-width: 1100px)"), "two columns in the middle")
+    assert.ok(page.includes("@media (max-width: 700px)"), "one column when narrow")
+    assert.ok(page.includes("min-width: 0"), "a long phrase must not break the grid")
+    assert.ok(page.includes("overflow-wrap: anywhere"), "a long word must wrap")
+    // The three tabs.
+    for (const tab of ["commands", "phrase", "diagnostics"]) {
+        assert.ok(page.includes(`commands-tab-${tab}`), `the page needs the ${tab} tab`)
+    }
+    // Filters: category, status, risk, search, refresh.
+    for (const key of [
+        "commands-filter-category",
+        "commands-filter-status",
+        "commands-filter-risk",
+        "commands-search",
+        "commands-refresh"
+    ]) {
+        assert.ok(page.includes(key), `the page needs ${key}`)
+    }
+    // A card shows the four indicators separately.
+    for (const indicator of [
+        "command-indicator-recognized",
+        "command-indicator-executable",
+        "command-indicator-allowed",
+        "command-indicator-verified"
+    ]) {
+        assert.ok(page.includes(indicator), `a card needs ${indicator}`)
+    }
+    // Cards expand, and the unsupported block is behind its own toggle.
+    assert.ok(page.includes("commands-expand") && page.includes("commands-collapse"))
+    assert.ok(page.includes("unreadableOpen"), "unsupported packs are collapsed by default")
+    assert.ok(page.includes("catalog.unreadable.length > 0"), "the block is hidden when empty")
+    // The four indicators come from the backend, not from a second guess.
+    assert.ok(page.includes("entry.recognized"))
+    assert.ok(page.includes("entry.executor_ready"))
+    assert.ok(page.includes("entry.allowed"))
+    assert.ok(page.includes("entry.verified"))
+})
+
+test("the shell appears softly without touching the backend", () => {
+    const shell = readFileSync(SHELL, "utf8")
+    assert.ok(shell.includes("@keyframes jarvis-appear"), "the shell must animate in")
+    assert.ok(shell.includes("opacity: 0"), "it fades")
+    assert.ok(shell.includes("translateY"), "it lifts")
+    assert.ok(shell.includes("200ms"), "the animation is short")
+    assert.ok(
+        shell.includes("@media (prefers-reduced-motion: reduce)"),
+        "reduced motion must switch the animation off"
+    )
+    // No library, no timer, no splash delay.
+    for (const forbidden of ["setTimeout", "import(", "gsap", "anime", "svelte/transition"]) {
+        assert.equal(shell.includes(forbidden), false, `the shell must not use ${forbidden}`)
+    }
+})
+
+test("the window chrome is dark and the close behaviour is one place", () => {
+    const config = JSON.parse(readFileSync(TAURI_CONFIG, "utf8"))
+    const window = config.app.windows.find((entry) => entry.label === "main") ?? config.app.windows[0]
+    // The white title bar is answered by the supported Windows mechanism: the window
+    // asks for the dark theme, so Windows draws the native bar dark instead of a
+    // custom title bar that would have to reimplement dragging and DPI.
+    assert.equal(window.theme, "Dark", "the window must ask for the dark theme")
+    assert.ok(window.width >= 1024, "the commands page needs a window wide enough for a grid")
+    assert.equal(window.resizable, true, "a person may size the window")
+    // And closing is one decision, not two: the tray, the dialog and the setting all
+    // go through `on_close_requested`.
+    const desktop = readFileSync(DESKTOP, "utf8")
+    assert.ok(desktop.includes("enum CloseBehavior") || desktop.includes("CloseBehavior::Tray"))
+    assert.ok(desktop.includes("CloseBehavior::Exit"), "a full exit exists and is separate")
+    assert.ok(desktop.includes("fn request_exit"), "exit stops the managed voice host")
 })
 
 test("every commands page key and code exists in all three locales", () => {

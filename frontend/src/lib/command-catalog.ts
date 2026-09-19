@@ -31,7 +31,17 @@ export interface CatalogEntry {
     risk_level: string
     requires_confirmation: boolean
     enabled: boolean
-    /** `no_phrases`, `executable_missing`, `script_missing`, `unsupported_type`. */
+    /** `ready`, `configuration_required`, `disabled`, `forbidden`, `executor_missing`, `dependency_missing`. */
+    status: string
+    /** Whether a phrase reaches it at all — the first question, on its own. */
+    recognized: boolean
+    /** Whether the executor exists in this build — the second question, on its own. */
+    executor_ready: boolean
+    /** Whether the policy permits it. */
+    allowed: boolean
+    /** Whether both the phrase and the executor are proven for it. */
+    verified: boolean
+    /** `no_phrases`, `allowlist_required`, `executable_missing`, `script_missing`, `unsupported_type`, `disabled_in_settings`, `forbidden_by_policy`. */
     unavailable_reason: string | null
 }
 
@@ -73,6 +83,34 @@ export function packReasonKey(reason: string): string {
     return `command-pack-reason-${reason}`
 }
 
+/** The Fluent key of a command status. */
+export function statusKey(status: string): string {
+    return `command-status-${status}`
+}
+
+/** Every status a card can have, in the order the filter shows them. */
+export const STATUSES: string[] = [
+    "ready",
+    "configuration_required",
+    "disabled",
+    "forbidden",
+    "executor_missing",
+    "dependency_missing"
+]
+
+/** Every risk level a card can have. */
+export const RISKS: string[] = ["safe", "confirm", "forbidden"]
+
+/**
+ * The name of a card in the language of the page.
+ *
+ * It is the first phrase a person can say, which is what they will look for; a
+ * command with no phrase in this language falls back to its identifier.
+ */
+export function titleOf(entry: CatalogEntry): string {
+    return entry.phrases.length > 0 ? entry.phrases[0] : entry.id
+}
+
 /**
  * The text a search is compared against, folded the way the matcher folds a
  * phrase: lower case and `ё` written as `е`, so searching for "королеве" finds
@@ -102,14 +140,19 @@ export function matchesQuery(entry: CatalogEntry, query: string): boolean {
     return haystack.includes(needle)
 }
 
-/** The cards of one category, or all of them for an empty category. */
+/** The cards of one selection, or all of them for an empty value. */
 export function filterEntries(
     entries: CatalogEntry[],
     category: string,
-    query: string
+    query: string,
+    status: string = "",
+    risk: string = ""
 ): CatalogEntry[] {
     return entries.filter(
         (entry) =>
-            (category === "" || entry.category === category) && matchesQuery(entry, query)
+            (category === "" || entry.category === category) &&
+            (status === "" || entry.status === status) &&
+            (risk === "" || entry.risk_level === risk) &&
+            matchesQuery(entry, query)
     )
 }

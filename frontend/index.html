@@ -7,7 +7,10 @@
     <title>Проект J.A.R.V.I.S.</title>
   </head>
 
-  <body>
+  <!-- The document itself is dark: the first paint must not flash white while the
+       window is being drawn, and the native title bar is set to the dark theme in
+       the Tauri window configuration. -->
+  <body style="background-color: #0f1115">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

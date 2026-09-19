@@ -456,8 +456,14 @@ fn dispatched() -> Vec<NativeAction> {
         .clone()
 }
 
+/// The dispatcher is a process-wide hook, so the two tests that use it take turns:
+/// one hands a command to the pipeline, the other proves that a phrase check hands
+/// nothing to it, and neither may see the other's work.
+static PIPELINE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn a_native_command_really_reaches_the_native_pipeline() {
+    let _turn = PIPELINE_LOCK.lock().expect("the pipeline lock");
     // EXECUTED, with a stand-in pipeline: the point is that the pack's typed action
     // arrives there unchanged, and that the executor reports success.
     assert!(set_native_dispatch(remember));
@@ -532,6 +538,7 @@ fn an_internal_command_starts_no_process() {
 fn checking_a_phrase_executes_nothing() {
     // The phrase check runs the matcher and stops there: even a native command is
     // returned as an identifier, never handed to a pipeline.
+    let _turn = PIPELINE_LOCK.lock().expect("the pipeline lock");
     let packs = catalog();
     let before = dispatched().len();
     let check = check_phrase(&packs, "ru", "громкость пятьдесят");
