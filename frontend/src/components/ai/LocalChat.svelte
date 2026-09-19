@@ -1,11 +1,20 @@
 <script lang="ts">
     /**
-     * Streaming chat with the local model.
+     * Streaming chat with the local model, backed by the encrypted AI memory.
      *
-     * The component only talks to the local gateway: it never starts a process
-     * itself and never calls the model server directly. Tokens arrive on a Tauri
-     * channel, so the answer is rendered as it is produced, and the conversation
-     * lives in this component's memory only — closing the window ends it.
+     * The component only talks to the local gateway and to the memory commands: it
+     * never starts a process, never calls the model server directly, and never reads
+     * the database. Tokens arrive on a Tauri channel, so the answer is rendered as it
+     * is produced.
+     *
+     * Two rules from the memory stage shape this file:
+     *
+     * * the user's message is stored **before** the request is sent, and the answer is
+     *   stored only when it actually finished — a cancelled answer is kept only if the
+     *   user asks for it, and a failure stores nothing;
+     * * a stored context (facts, summary, earlier messages) is built by the backend
+     *   and sent as user-level data. The profile system prompt is added by the gateway
+     *   and is never part of this component, so memory can never replace it.
      */
     import { afterUpdate, onMount, onDestroy } from "svelte"
 
@@ -14,6 +23,7 @@
     import {
         applyGenerationEvent,
         beginExchange,
+        beginRetry,
         buildRequest,
         canGenerate,
         canSend,
@@ -24,6 +34,7 @@
         failExchange,
         formatDuration,
         formatUsage,
+        lastAnswer,
         normalizeSettings,
         profileLabelKey,
         serverSummary,
@@ -42,6 +53,32 @@
         LocalAiStatus,
         ThinkingMode
     } from "@/lib/local-ai-model"
+    import { memoryApi } from "@/lib/memory"
+    import {
+        canWriteHistory,
+        categoryLabelKey,
+        contextSectionLabelKey,
+        contextWarningKey,
+        conversationTitle,
+        defaultScopeFor,
+        isSecretConfirmation,
+        isSummarizing,
+        memoryIsUsable,
+        needsSetup,
+        needsUnlock,
+        scopeLabelKey,
+        secretKindLabelKey,
+        MEMORY_SCOPES
+    } from "@/lib/memory-model"
+    import type {
+        ContextPlanView,
+        ConversationView,
+        FactView,
+        MemoryScope,
+        MemoryStatusView,
+        MessageStatus,
+        SecretKind
+    } from "@/lib/memory-model"
 
     import { Button, Text } from "@svelteuidev/core"
 
@@ -56,6 +93,28 @@
     let messageBox: HTMLDivElement | null = null
     let statusTimer: ReturnType<typeof setInterval> | null = null
 
+    // --- memory state
+    let memoryStatus: MemoryStatusView | null = null
+    let conversations: ConversationView[] = []
+    let activeConversation: ConversationView | null = null
+    let showArchived = false
+    let useMemoryForRequest = true
+    let lastPlan: ContextPlanView | null = null
+    let showSources = false
+    let candidates: FactView[] = []
+    let candidateScopes: Record<string, MemoryScope> = {}
+    let memoryNotice = ""
+    let secretWarning: { kinds: SecretKind[]; retry: () => Promise<void> } | null = null
+    /**
+     * The turn that is in flight, so a retry never stores the question twice.
+     *
+     * A retry of the same question in the same conversation reuses the stored row; a
+     * new question stores a new one. The flag is cleared as soon as the answer is
+     * stored, so the next question is always a fresh turn.
+     */
+    let pendingTurn: { conversationId: string; prompt: string; stored: boolean } | null = null
+    let partialAnswer: { text: string } | null = null
+
     /** The settings are incomplete or refused, so the server cannot start. */
     $: draftIssues = validateDraft(settings)
     $: blocked = draftIssues.some((issue) => issue.level === "blocked")
@@ -64,10 +123,16 @@
     // Only warn about reasoning once a server is running and cannot honour the
     // preference: a stopped server says nothing about support.
     $: thinkingUnsupported = canGenerate(status) && !thinkingAvailable(status, settings.thinking)
+    $: memoryUsable = memoryIsUsable(memoryStatus)
+    $: memoryWritable = canWriteHistory(memoryStatus)
+    $: memoryLocked = needsUnlock(memoryStatus)
+    $: memoryUninitialized = needsSetup(memoryStatus)
+    $: summarizing = isSummarizing(memoryStatus, activeConversation?.id ?? null)
 
     onMount(async () => {
         await refreshSettings()
         await refreshStatus()
+        await refreshMemory()
         // A slow status refresh keeps uptime, capabilities, and a crashed server
         // visible; it is never used to follow a generation, which streams.
         statusTimer = setInterval(() => {
@@ -99,6 +164,49 @@
         }
     }
 
+    async function refreshMemory() {
+        try {
+            memoryStatus = await memoryApi.status()
+            if (!memoryStatus.memory.unlocked) {
+                // Locking must close every open memory detail in the interface: the
+                // decrypted text is gone in Rust, so it must not stay on screen.
+                activeConversation = null
+                conversations = []
+                candidates = []
+                lastPlan = null
+                partialAnswer = null
+                chat = emptyChatView()
+                memoryNotice = t("memory-chat-no-storage")
+                return
+            }
+            await loadConversations()
+        } catch (error) {
+            memoryStatus = null
+            memoryNotice = describeError(error)
+        }
+    }
+
+    async function loadConversations() {
+        if (!memoryStatus || !memoryStatus.memory.unlocked) {
+            conversations = []
+            return
+        }
+        try {
+            const list = await memoryApi.listConversations({
+                include_archived: showArchived,
+                limit: 100,
+                offset: 0
+            })
+            conversations = list
+            if (activeConversation) {
+                const refreshed = list.find((entry) => entry.id === activeConversation?.id) ?? null
+                activeConversation = refreshed
+            }
+        } catch (error) {
+            memoryNotice = describeError(error)
+        }
+    }
+
     function describeError(error: unknown): string {
         if (typeof error === "string") return error
         if (error instanceof Error) return error.message
@@ -118,6 +226,15 @@
         const value = (event.target as HTMLSelectElement).value as AiProfile
         settings = { ...settings, profile: value }
         await persistSwitches()
+        if (activeConversation) {
+            // Memory is scoped per assistant, so the profile of a conversation is fixed.
+            // Switching starts a new conversation instead of mixing the two areas.
+            activeConversation = null
+            chat = emptyChatView()
+            candidates = []
+            lastPlan = null
+            memoryNotice = t("memory-profile-switch")
+        }
     }
 
     async function onThinkingChange(event: Event) {
@@ -170,17 +287,167 @@
     // answer streams, without a timer and without polling.
     afterUpdate(scrollToLatest)
 
+    // --- conversations
+
+    function titleForPrompt(prompt: string): string {
+        const firstLine = prompt.split("\n")[0].trim()
+        if (firstLine.length <= 60) return firstLine
+        return `${firstLine.slice(0, 59)}…`
+    }
+
+    async function ensureConversation(prompt: string): Promise<ConversationView | null> {
+        if (!memoryWritable) return null
+        if (activeConversation) return activeConversation
+        try {
+            const created = await memoryApi.createConversation(
+                settings.profile,
+                conversationTitle(titleForPrompt(prompt), t("memory-new-conversation"))
+            )
+            activeConversation = created
+            conversations = [created, ...conversations]
+            return created
+        } catch (error) {
+            memoryNotice = describeError(error)
+            return null
+        }
+    }
+
+    async function openConversation(event: Event) {
+        const id = (event.target as HTMLSelectElement).value
+        if (!id) {
+            activeConversation = null
+            chat = emptyChatView()
+            candidates = []
+            lastPlan = null
+            return
+        }
+        await loadConversation(id)
+    }
+
+    async function loadConversation(id: string) {
+        try {
+            const details = await memoryApi.openConversation(id, 0, 200)
+            activeConversation = details.conversation
+            candidates = details.candidates
+            chat = {
+                ...emptyChatView(),
+                entries: details.page.messages.map((message) => ({
+                    role: message.role,
+                    text: message.content,
+                    // Reasoning is never stored, so there is nothing to restore here.
+                    thinking: ""
+                }))
+            }
+            lastPlan = null
+            partialAnswer = null
+        } catch (error) {
+            memoryNotice = describeError(error)
+        }
+    }
+
+    async function newConversation() {
+        activeConversation = null
+        chat = emptyChatView()
+        candidates = []
+        lastPlan = null
+        partialAnswer = null
+        memoryNotice = ""
+    }
+
+    async function renameConversation() {
+        if (!activeConversation) return
+        const title = window.prompt(t("memory-rename"), activeConversation.title)
+        if (!title) return
+        try {
+            activeConversation = await memoryApi.renameConversation(activeConversation.id, title)
+            await loadConversations()
+        } catch (error) {
+            memoryNotice = describeError(error)
+        }
+    }
+
+    async function archiveConversation(archived: boolean) {
+        if (!activeConversation) return
+        try {
+            await memoryApi.archiveConversation(activeConversation.id, archived)
+            await loadConversations()
+        } catch (error) {
+            memoryNotice = describeError(error)
+        }
+    }
+
+    async function deleteConversation() {
+        if (!activeConversation) return
+        if (!window.confirm(t("memory-confirm-conversation"))) return
+        try {
+            await memoryApi.deleteConversation(activeConversation.id)
+            await newConversation()
+            await refreshMemory()
+        } catch (error) {
+            memoryNotice = describeError(error)
+        }
+    }
+
+    // --- sending
+
     async function send() {
         if (!sendable) return
         const prompt = draft.trim()
-        const request = buildRequest(chat, settings, prompt)
+        const retry =
+            pendingTurn !== null &&
+            pendingTurn.prompt === prompt &&
+            pendingTurn.conversationId === (activeConversation?.id ?? "")
+        const conversation = await ensureConversation(prompt)
+        const conversationId = conversation?.id ?? ""
+
+        // The user's message is stored once, before the request goes out. A retry of
+        // the same question reuses that row instead of storing a second copy.
+        let stored = retry && pendingTurn?.stored === true
+        if (!retry && memoryWritable) {
+            stored = await storeUserMessage(conversationId, prompt)
+        } else if (!retry && !memoryWritable) {
+            memoryNotice = t("memory-chat-no-storage")
+        }
+        pendingTurn = { conversationId, prompt, stored }
+
         draft = ""
-        chat = beginExchange(chat, prompt, Date.now())
+        chat = retry ? beginRetry(chat, Date.now()) : beginExchange(chat, prompt, Date.now())
+        partialAnswer = null
+        candidates = []
+
+        // The backend builds the stored context; without memory the local view is used.
+        let request = buildRequest(chat, settings, prompt)
+        lastPlan = null
+        if (memoryUsable && conversationId.length > 0) {
+            try {
+                const plan = await memoryApi.buildContext(
+                    conversationId,
+                    prompt,
+                    useMemoryForRequest,
+                    true
+                )
+                lastPlan = plan
+                if (plan.messages.length > 0) {
+                    request = {
+                        ...request,
+                        messages: plan.messages
+                    }
+                }
+            } catch (error) {
+                memoryNotice = describeError(error)
+            }
+        } else if (!memoryWritable) {
+            memoryNotice = t("memory-chat-no-storage")
+        }
 
         const channel = generationChannel((event: GenerationEvent) => {
             chat = applyGenerationEvent(chat, event, Date.now())
-            if (event.type === "completed" || event.type === "cancelled" || event.type === "failed") {
-                void refreshStatus()
+            if (event.type === "completed") {
+                void finishAnswer(conversationId, event.cancelled ? "cancelled" : "completed", event.cancelled)
+            } else if (event.type === "cancelled") {
+                partialAnswer = { text: lastAnswer(chat)?.text ?? "" }
+            } else if (event.type === "failed") {
+                void finishAnswer(conversationId, "failed", false)
             }
         })
 
@@ -189,6 +456,85 @@
         } catch (error) {
             chat = failExchange(chat, describeError(error))
         }
+    }
+
+    /** Stores the question; returns whether it was stored. */
+    async function storeUserMessage(conversationId: string, prompt: string): Promise<boolean> {
+        if (conversationId.length === 0 || !memoryWritable) return false
+        try {
+            await memoryApi.appendUserMessage(conversationId, prompt)
+            return true
+        } catch (error) {
+            memoryNotice = `${t("memory-not-saved")} ${describeError(error)}`
+            return false
+        }
+    }
+
+    /**
+     * Stores what actually happened.
+     *
+     * A cancelled or failed answer is never stored as a completed one, and a failure
+     * stores nothing at all: the question stays and the chat continues.
+     */
+    async function finishAnswer(conversationId: string, status: MessageStatus, allowPartial: boolean) {
+        const answer = lastAnswer(chat)
+        const text = answer?.text ?? ""
+        if (conversationId.length === 0 || !memoryWritable) return
+        if (text.trim().length === 0) return
+        if (status === "failed") {
+            memoryNotice = t("memory-answer-failed")
+            await refreshMemory()
+            return
+        }
+        if (status === "cancelled" && allowPartial) {
+            // The partial answer is kept only when the user asks for it.
+            partialAnswer = { text }
+            return
+        }
+        await storeAssistantMessage(conversationId, text, status, false)
+        await afterAnswerStored(conversationId)
+    }
+
+    async function storeAssistantMessage(
+        conversationId: string,
+        text: string,
+        status: MessageStatus,
+        partial: boolean
+    ) {
+        try {
+            await memoryApi.appendAssistantMessage(conversationId, text, status, partial)
+        } catch (error) {
+            memoryNotice = `${t("memory-not-saved")} ${describeError(error)}`
+            return
+        }
+        pendingTurn = null
+    }
+
+    /** Keeps the partial answer of a cancelled generation, on request. */
+    async function keepPartialAnswer() {
+        if (!partialAnswer || !activeConversation) return
+        const text = partialAnswer.text
+        partialAnswer = null
+        if (text.trim().length === 0) return
+        await storeAssistantMessage(activeConversation.id, text, "cancelled", true)
+        await afterAnswerStored(activeConversation.id)
+    }
+
+    /** Summaries and memory candidates happen after the answer is stored. */
+    async function afterAnswerStored(conversationId: string) {
+        await loadConversations()
+        try {
+            const settings = await memoryApi.getSettings()
+            if (settings.suggest_facts) {
+                candidates = await memoryApi.suggestCandidates(conversationId)
+            }
+            if (settings.auto_summaries) {
+                await memoryApi.summarize(conversationId)
+            }
+        } catch (error) {
+            memoryNotice = describeError(error)
+        }
+        await refreshMemory()
     }
 
     async function stopGeneration() {
@@ -202,6 +548,100 @@
     function clearConversation() {
         chat = emptyChatView()
         actionError = ""
+        lastPlan = null
+        partialAnswer = null
+    }
+
+    // --- candidates and secret warnings
+
+    function candidateScope(candidate: FactView): MemoryScope {
+        return candidateScopes[candidate.id] ?? defaultScopeFor(settings.profile)
+    }
+
+    function setCandidateScope(candidateId: string, scope: MemoryScope) {
+        candidateScopes = { ...candidateScopes, [candidateId]: scope }
+    }
+
+    function onCandidateScopeChange(candidateId: string, event: Event) {
+        const value = (event.currentTarget as HTMLSelectElement).value as MemoryScope
+        setCandidateScope(candidateId, value)
+    }
+
+    async function approveCandidate(candidate: FactView) {
+        const approved = await runWithSecretGate(() =>
+            memoryApi.approveCandidate(candidate.id, {
+                scope: candidateScope(candidate),
+                category: candidate.category,
+                content: candidate.content,
+                pinned: false,
+                disabled: false,
+                accept_secret_warning: false
+            })
+        )
+        // A candidate refused by the secret gate stays in the list, so the user can
+        // confirm it after reading the warning.
+        if (approved) {
+            candidates = candidates.filter((entry) => entry.id !== candidate.id)
+            await refreshMemory()
+        }
+    }
+
+    async function rejectCandidate(candidate: FactView) {
+        try {
+            await memoryApi.rejectCandidate(candidate.id)
+            candidates = candidates.filter((entry) => entry.id !== candidate.id)
+        } catch (error) {
+            memoryNotice = describeError(error)
+        }
+    }
+
+    /**
+     * Runs an action that may be refused by the secret filter.
+     *
+     * The warning names the kinds the backend recognized and never the matched text,
+     * and repeating the action is what counts as the user's confirmation. Returns
+     * whether the action went through.
+     */
+    async function runWithSecretGate(action: () => Promise<unknown>): Promise<boolean> {
+        try {
+            await action()
+            secretWarning = null
+            return true
+        } catch (error) {
+            const message = describeError(error)
+            if (isSecretConfirmation(message)) {
+                const kinds = extractSecretKinds(message)
+                secretWarning = {
+                    kinds,
+                    retry: async () => {
+                        await action()
+                        secretWarning = null
+                    }
+                }
+            } else {
+                memoryNotice = message
+            }
+            return false
+        }
+    }
+
+    /** Reads the kinds out of a content-free warning, without any matched text. */
+    function extractSecretKinds(message: string): SecretKind[] {
+        const lowered = message.toLowerCase()
+        const kinds: SecretKind[] = []
+        const table: Array<[string, SecretKind]> = [
+            ["private key", "private_key"],
+            ["api token", "api_token"],
+            ["json web token", "jwt"],
+            ["recovery code", "recovery_code"],
+            ["assigned password", "password_assignment"],
+            ["random-looking token", "high_entropy_token"],
+            ["payment card", "payment_card"]
+        ]
+        for (const [needle, kind] of table) {
+            if (lowered.includes(needle)) kinds.push(kind)
+        }
+        return kinds
     }
 </script>
 
@@ -295,6 +735,78 @@
         {/if}
     {/if}
 
+    <!-- memory: conversation list, indicator, and the per-request switch -->
+    <div class="ai-memory">
+        <div class="ai-memory-row">
+            <span class="ai-memory-label">{t('memory-conversations')}</span>
+            <select value={activeConversation?.id ?? ""} on:change={openConversation}>
+                <option value="">{t('memory-new-conversation')}</option>
+                {#each conversations as conversation}
+                    <option value={conversation.id}>
+                        {conversationTitle(conversation.title, t('memory-new-conversation'))}
+                    </option>
+                {/each}
+            </select>
+            <Button size="xs" color="gray" variant="subtle" uppercase on:click={newConversation}>
+                {t('memory-new-conversation')}
+            </Button>
+            {#if conversations.length === 0}
+                <span class="ai-memory-hint">{t('memory-conversation-none')}</span>
+            {/if}
+        </div>
+
+        <div class="ai-memory-row">
+            <label class="ai-check">
+                <input
+                    type="checkbox"
+                    bind:checked={showArchived}
+                    on:change={() => loadConversations()}
+                />
+                <span>{t('memory-show-archived')}</span>
+            </label>
+            {#if activeConversation}
+                <span class="ai-memory-hint">{t(profileLabelKey(activeConversation.profile))}</span>
+                <Button size="xs" color="gray" variant="subtle" uppercase on:click={renameConversation}>
+                    {t('memory-rename')}
+                </Button>
+                {#if activeConversation.archived_at}
+                    <Button size="xs" color="gray" variant="subtle" uppercase on:click={() => archiveConversation(false)}>
+                        {t('memory-restore')}
+                    </Button>
+                {:else}
+                    <Button size="xs" color="gray" variant="subtle" uppercase on:click={() => archiveConversation(true)}>
+                        {t('memory-archive')}
+                    </Button>
+                {/if}
+                <Button size="xs" color="red" variant="subtle" uppercase on:click={deleteConversation}>
+                    {t('memory-delete')}
+                </Button>
+            {/if}
+        </div>
+
+        <div class="ai-memory-row">
+            <label class="ai-check">
+                <input type="checkbox" bind:checked={useMemoryForRequest} />
+                <span>{useMemoryForRequest ? t('memory-chat-memory-on') : t('memory-chat-memory-off')}</span>
+            </label>
+            <span class="ai-memory-hint">{t('memory-chat-toggle')}</span>
+            {#if summarizing}
+                <span class="ai-memory-hint">{t('memory-summary-generating')}</span>
+            {/if}
+        </div>
+
+        {#if memoryLocked}
+            <p class="ai-warn">{t('memory-chat-no-storage')} {t('memory-storage-locked')}</p>
+        {:else if memoryUninitialized}
+            <p class="ai-warn">{t('memory-needs-setup-hint')}</p>
+        {:else if memoryStatus && !memoryStatus.memory.settings.enabled}
+            <p class="ai-warn">{t('memory-settings-off-note')}</p>
+        {/if}
+        {#if memoryNotice}
+            <p class="ai-warn">{memoryNotice}</p>
+        {/if}
+    </div>
+
     {#if actionError}
         <p class="ai-warn">{actionError}</p>
     {/if}
@@ -316,11 +828,121 @@
         {/if}
         {#if chat.cancelled}
             <p class="ai-warn">{t('ai-chat-cancelled')}</p>
+            {#if memoryWritable}
+                {#if partialAnswer && partialAnswer.text.trim().length > 0}
+                    <p class="ai-memory-hint">{t('memory-answer-cancelled-partial')}</p>
+                    <Button size="xs" color="gray" variant="outline" uppercase on:click={keepPartialAnswer}>
+                        {t('memory-keep-partial')}
+                    </Button>
+                {:else}
+                    <p class="ai-memory-hint">{t('memory-answer-cancelled')}</p>
+                {/if}
+            {/if}
         {/if}
         {#if !chat.generating && !chat.cancelled && chat.finishReason === null && chat.error === null && chat.entries.length > 0 && chat.entries[chat.entries.length - 1].text.trim().length === 0}
             <p class="ai-warn">{t('ai-chat-no-answer')}</p>
         {/if}
     </div>
+
+    <!-- what the backend actually put into the request, without the system prompt -->
+    {#if lastPlan}
+        <div class="ai-memory">
+            <button class="ai-link" on:click={() => (showSources = !showSources)}>
+                {t('memory-context-title')} · {t('memory-context-facts-used')}: {lastPlan.used_facts.length}
+            </button>
+            {#if showSources}
+                <div class="ai-sources">
+                    <p class="ai-memory-hint">
+                        {t('memory-context-estimated')}: {lastPlan.estimated_tokens}
+                    </p>
+                    <ul>
+                        {#each lastPlan.sections as section, index (index)}
+                            <li>
+                                {t(contextSectionLabelKey(section))}
+                            </li>
+                        {/each}
+                    </ul>
+                    {#if lastPlan.used_facts.length === 0 && !lastPlan.summary_used}
+                        <p class="ai-memory-hint">{t('memory-context-none')}</p>
+                    {/if}
+                    {#each lastPlan.used_facts as fact}
+                        <p class="ai-source-fact">
+                            <span class="ai-tag">{t(scopeLabelKey(fact.scope))}</span>
+                            <span class="ai-tag">{t(categoryLabelKey(fact.category))}</span>
+                            {fact.excerpt}
+                        </p>
+                    {/each}
+                    {#if lastPlan.dropped_facts > 0}
+                        <p class="ai-memory-hint">
+                            {lastPlan.dropped_facts} {t('memory-context-dropped-facts')}
+                        </p>
+                    {/if}
+                    {#if lastPlan.dropped_messages > 0}
+                        <p class="ai-memory-hint">
+                            {lastPlan.dropped_messages} {t('memory-context-dropped-messages')}
+                        </p>
+                    {/if}
+                    {#each lastPlan.warnings as warning}
+                        <p class="ai-warn">{t(contextWarningKey(warning.code))}</p>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+    {/if}
+
+    <!-- memory candidates proposed for this conversation -->
+    {#if candidates.length > 0}
+        <div class="ai-memory">
+            <span class="ai-memory-label">{t('memory-candidates')}</span>
+            <p class="ai-memory-hint">{t('memory-candidate-scope-hint')}</p>
+            {#each candidates as candidate (candidate.id)}
+                <div class="ai-candidate">
+                    <p class="ai-candidate-text">{candidate.content}</p>
+                    <div class="ai-memory-row">
+                        <span class="ai-tag">{t(categoryLabelKey(candidate.category))}</span>
+                        <span class="ai-memory-hint">
+                            {t('memory-candidate-confidence')}: {Math.round(candidate.confidence * 100)}%
+                        </span>
+                        <select
+                            value={candidateScope(candidate)}
+                            on:change={(event) => onCandidateScopeChange(candidate.id, event)}
+                        >
+                            {#each MEMORY_SCOPES as scope}
+                                <option value={scope}>{t(scopeLabelKey(scope))}</option>
+                            {/each}
+                        </select>
+                        <Button size="xs" color="lime" uppercase on:click={() => approveCandidate(candidate)}>
+                            {t('memory-candidate-approve')}
+                        </Button>
+                        <Button size="xs" color="gray" variant="subtle" uppercase on:click={() => rejectCandidate(candidate)}>
+                            {t('memory-candidate-reject')}
+                        </Button>
+                    </div>
+                </div>
+            {/each}
+        </div>
+    {:else if activeConversation && candidates.length === 0}
+        <p class="ai-memory-hint">{t('memory-candidates-none')}</p>
+    {/if}
+
+    <!-- the secret filter asks before anything suspicious is remembered -->
+    {#if secretWarning}
+        <div class="ai-secret">
+            <Text weight={600}>{t('memory-secret-warning-title')}</Text>
+            <p class="ai-warn">{t('memory-secret-warning-body')}</p>
+            <p class="ai-memory-hint">
+                {secretWarning.kinds.map((kind) => t(secretKindLabelKey(kind))).join(", ")}
+            </p>
+            <div class="ai-memory-row">
+                <Button size="xs" color="red" uppercase on:click={() => secretWarning?.retry()}>
+                    {t('memory-secret-confirm')}
+                </Button>
+                <Button size="xs" color="gray" variant="subtle" uppercase on:click={() => (secretWarning = null)}>
+                    {t('memory-secret-cancel')}
+                </Button>
+            </div>
+        </div>
+    {/if}
 
     <div class="ai-input">
         <textarea
@@ -444,6 +1066,122 @@
         font-size: 0.65rem;
         color: rgba(255, 255, 255, 0.35);
     }
+}
+
+.ai-memory {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.ai-memory-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+
+    select {
+        background: rgba(30, 40, 45, 0.9);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        padding: 0.25rem 0.4rem;
+        font-size: 0.75rem;
+        font-family: inherit;
+    }
+}
+
+.ai-memory-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.ai-memory-hint {
+    margin: 0;
+    font-size: 0.68rem;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.ai-check {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.7);
+
+    input {
+        accent-color: #52fefe;
+    }
+}
+
+.ai-link {
+    background: none;
+    border: none;
+    color: #52fefe;
+    font-size: 0.72rem;
+    text-align: left;
+    cursor: pointer;
+    padding: 0;
+}
+
+.ai-sources {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.55);
+
+    ul {
+        margin: 0;
+        padding-left: 1.1rem;
+    }
+}
+
+.ai-source-fact {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.ai-tag {
+    display: inline-block;
+    margin-right: 0.3rem;
+    padding: 0 0.3rem;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.ai-candidate {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.35rem;
+    border: 1px solid rgba(82, 254, 254, 0.2);
+    border-radius: 6px;
+}
+
+.ai-candidate-text {
+    margin: 0;
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.ai-secret {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    border: 1px solid rgba(255, 107, 107, 0.4);
+    border-radius: 8px;
+    background: rgba(255, 107, 107, 0.08);
 }
 
 .ai-warn {

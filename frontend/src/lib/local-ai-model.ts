@@ -546,6 +546,44 @@ export function failExchange(view: ChatView, message: string): ChatView {
     }
 }
 
+/**
+ * Reuses the last exchange for a retry of the same question.
+ *
+ * The question and answer bubbles are kept and the answer is emptied, so retrying a
+ * failed send never duplicates the user's message in the view — and the backend
+ * keeps the single stored copy it already has.
+ */
+export function beginRetry(view: ChatView, nowMs: number): ChatView {
+    const entries = view.entries.slice()
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        if (entries[index].role === "assistant") {
+            entries[index] = { role: "assistant", text: "", thinking: "" }
+            break
+        }
+    }
+    return {
+        ...view,
+        entries,
+        generating: true,
+        startedAtMs: nowMs,
+        elapsedMs: 0,
+        error: null,
+        cancelled: false,
+        finishReason: null,
+        usage: null,
+        streamed: false,
+        thinkingApplied: false
+    }
+}
+
+/** The last assistant entry, or `null` when there is none. */
+export function lastAnswer(view: ChatView): ChatEntry | null {
+    for (let index = view.entries.length - 1; index >= 0; index -= 1) {
+        if (view.entries[index].role === "assistant") return view.entries[index]
+    }
+    return null
+}
+
 function withLastAssistant(
     view: ChatView,
     update: (entry: ChatEntry) => ChatEntry
