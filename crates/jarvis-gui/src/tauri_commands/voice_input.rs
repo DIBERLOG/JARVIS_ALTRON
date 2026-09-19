@@ -291,7 +291,7 @@ impl VoiceInputHandle {
         // so, and carries the length rather than the text.
         self.announce("voice-input-copied", outcome.characters);
         log::info!(
-            "voice input: finished (method=clipboard characters={} handovers={})",
+            "voice input: finished (method=clipboard characters={} handovers={} clipboard_owned=true)",
             outcome.characters,
             self.handovers.load(Ordering::SeqCst)
         );

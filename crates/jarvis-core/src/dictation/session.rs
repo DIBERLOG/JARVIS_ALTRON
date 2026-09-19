@@ -316,7 +316,29 @@ impl DictationEngine {
         // 1. the focused element, before anything is spoken: the person may move
         //    the window while the confirmation is playing, and this is what the
         //    text was meant for.
-        let target = deps.probe.focused_target()?;
+        // 1. the focused element, for the mode that writes into one: the person
+        //    may move the window while the confirmation is playing, and this is
+        //    what the text was meant for. The clipboard mode does not need it —
+        //    nothing is typed, so the focus cannot make the request fail, and a
+        //    target that cannot even be read is not a reason to throw a
+        //    recognized sentence away.
+        let target = if request.preference == VoiceInputPreference::UiAutomation {
+            deps.probe.focused_target()?
+        } else {
+            TargetSnapshot {
+                window_id: 0,
+                process_id: 0,
+                element_kind: super::target::ElementKind::Unknown,
+                password: false,
+                read_only: false,
+                enabled: true,
+                supports_value_pattern: false,
+                supports_text_pattern: false,
+                elevated_target: false,
+                secure_desktop: false,
+                own_window: false,
+            }
+        };
         self.check_cancelled()?;
 
         // 2. the confirmation, so the person knows the assistant heard them.

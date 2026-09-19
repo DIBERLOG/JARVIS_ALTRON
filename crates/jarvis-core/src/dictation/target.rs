@@ -209,6 +209,14 @@ pub const RULES: [&str; 7] = [
 
 /// Whether the text may be written into this element, and how.
 pub fn decide(target: &TargetSnapshot, preference: VoiceInputPreference) -> TargetVerdict {
+    // The clipboard mode touches no field at all: the text is copied and the
+    // person pastes it wherever they want. Asking about the focused element
+    // first would refuse the request for a reason that does not apply — which is
+    // exactly the defect this ordering fixes: a transcript was recognized and
+    // thrown away with `target_refused` while the delivery was the clipboard.
+    if preference == VoiceInputPreference::Clipboard {
+        return TargetVerdict::allowed(InsertionMethod::Clipboard);
+    }
     if target.secure_desktop {
         return TargetVerdict::refused("secure_desktop");
     }

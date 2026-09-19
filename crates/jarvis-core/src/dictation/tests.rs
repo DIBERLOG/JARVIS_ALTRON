@@ -224,12 +224,21 @@ impl Harness {
         autocorrect: bool,
         punctuation: bool,
     ) -> Result<super::session::DictationOutcome, DictationError> {
+        self.run_with(autocorrect, punctuation, VoiceInputPreference::UiAutomation)
+    }
+
+    fn run_with(
+        &self,
+        autocorrect: bool,
+        punctuation: bool,
+        preference: VoiceInputPreference,
+    ) -> Result<super::session::DictationOutcome, DictationError> {
         let speak = |phrase: &str| self.spoken.lock().unwrap().push(phrase.to_string());
         self.engine.run(
             DictationRequest {
                 autocorrect,
                 punctuation,
-                preference: VoiceInputPreference::UiAutomation,
+                preference,
                 speak_confirmation: true,
             },
             EngineDeps {
@@ -999,4 +1008,76 @@ fn the_newer_marks_are_written_the_way_a_person_says_them() {
     let (text, report) = apply_voice_punctuation("слово кавычки слово");
     assert_eq!(text, "Слово кавычки слово");
     assert_eq!(report.marks, 0);
+}
+
+#[test]
+fn the_clipboard_mode_does_not_care_what_has_the_focus() {
+    // The real defect, exactly: the delivery was the clipboard and the request
+    // was refused with `target_refused` because the focused element was not a
+    // text field. Nothing about the focus matters when the text is copied.
+    for mutate in [0, 1, 2, 3, 4, 5, 6] {
+        let mut harness = Harness::new("привет мир");
+        match mutate {
+            // An element type this build cannot prove is a text field.
+            0 => harness.probe.target.element_kind = ElementKind::Unknown,
+            // The element cannot be read at all.
+            1 => harness.probe.available = false,
+            // A password field.
+            2 => harness.probe.target.password = true,
+            // A read-only field.
+            3 => harness.probe.target.read_only = true,
+            // A disabled field.
+            4 => harness.probe.target.enabled = false,
+            // This application's own window, and the secure desktop.
+            5 => harness.probe.target.own_window = true,
+            // Another window has the focus now.
+            _ => harness.probe.current = None,
+        }
+        let outcome = harness
+            .run_with(false, false, VoiceInputPreference::Clipboard)
+            .unwrap_or_else(|error| panic!("case {mutate} must copy, got {}", error.code()));
+        assert_eq!(outcome.stage, DictationStage::Delivered, "case {mutate}");
+        assert_eq!(
+            outcome.method,
+            Some(DeliveryMethod::Clipboard),
+            "case {mutate}"
+        );
+        assert_eq!(
+            harness.copied().as_deref(),
+            Some("привет мир"),
+            "case {mutate}"
+        );
+        assert_eq!(harness.written(), None, "case {mutate} must not type");
+        // And the listener came back.
+        assert_eq!(
+            harness.trace.calls().last().unwrap(),
+            "vosk.start",
+            "case {mutate}"
+        );
+    }
+}
+
+#[test]
+fn the_automatic_mode_still_refuses_an_unknown_field() {
+    // The checks are not weakened for the mode that would type into a field: an
+    // element this build cannot prove is a text field is still refused, and
+    // nothing is copied either.
+    let mut harness = Harness::new("привет");
+    harness.probe.target.element_kind = ElementKind::Unknown;
+    let error = harness.run(false, false).unwrap_err();
+    assert_eq!(error, DictationError::TargetRefused("unknown_element"));
+    assert_eq!(harness.written(), None);
+    assert_eq!(harness.copied(), None);
+
+    // The same for a password field, a read-only field and another window.
+    for mutate in [0, 1, 2] {
+        let mut harness = Harness::new("привет");
+        match mutate {
+            0 => harness.probe.target.password = true,
+            1 => harness.probe.target.read_only = true,
+            _ => harness.probe.current = None,
+        }
+        assert!(harness.run(false, false).is_err(), "case {mutate}");
+        assert_eq!(harness.written(), None, "case {mutate}");
+    }
 }

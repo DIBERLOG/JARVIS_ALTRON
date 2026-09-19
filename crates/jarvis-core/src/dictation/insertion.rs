@@ -124,6 +124,15 @@ pub fn deliver(
     if text.trim().is_empty() {
         return Err(DictationError::EmptyRecording);
     }
+    // The clipboard mode is the whole delivery: no focused element is asked
+    // about, no window is compared, and no field is written into. The person
+    // pastes where they want the text, so a target that is unknown, read-only,
+    // disabled, in another window, or not a text field at all is simply not
+    // this route's business — refusing for one of those reasons would throw a
+    // recognized transcript away for nothing.
+    if preference == VoiceInputPreference::Clipboard {
+        return copy(text, clipboard, None);
+    }
     // The window is checked again here, immediately before anything is written.
     let current = probe
         .foreground_identity()
