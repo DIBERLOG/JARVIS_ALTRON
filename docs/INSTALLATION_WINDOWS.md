@@ -13,6 +13,15 @@ currently a build step, and the honest name for any package produced later is
 **installer candidate** until someone installs it on a real system and confirms
 it works.
 
+**What this does and does not block.** Running from source is enough for personal
+use on the author's own computer, and the personal-use checks in
+`docs/WINDOWS_MVP.md` do not depend on an installer. An installer **is** required
+before the application is called installed, before a second user is asked to run
+it, and before a public release; the checks are in
+`docs/RELEASE_CHECKLIST.md`, sections 2 and 3. A clean-Windows installation test is
+a public-release requirement, not a personal-use one, and this document does not
+claim it was done.
+
 ## What has to be on the machine
 
 | Requirement | Why | Notes |

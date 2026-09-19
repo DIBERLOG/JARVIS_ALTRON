@@ -1,5 +1,13 @@
 # Security baseline
 
+> **Experimental, and not independently audited.** The encrypted stores (notes,
+> the vault, AI memory, the word list) and the backup container are the project's
+> own design. They have unit tests, a documented threat model for each feature,
+> and a structural test that keeps content out of logs and reports — and they have
+> had **no independent security audit**. For personal use on this computer that is
+> a known, accepted risk; before another person is asked to rely on the project it
+> is a blocker. See `docs/RELEASE_CHECKLIST.md`, section 3.
+
 ## Local command execution
 
 TOML CLI commands are launched as an executable plus separate arguments. The

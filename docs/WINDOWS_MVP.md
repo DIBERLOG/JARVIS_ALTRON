@@ -1,99 +1,145 @@
-# Windows MVP: what is ready for cautious personal testing
+# Windows MVP: what is ready for personal use on this machine
 
-This document is the honest state of the "prepare a Personal Windows MVP build"
-stage. It separates what is implemented and covered by tests, what was verified
-by hand, what could not be verified in this environment, and what is not
-implemented at all.
+This document is the honest state of the Windows MVP. It separates what is
+implemented and covered by tests, what was verified by hand **on this
+computer**, what has not been verified, and what is not implemented at all.
 
-**Name of the result:** `Personal Windows MVP build` — a build for the author's
-own machine. It is not a release, and a public release is blocked by the licence
-conflict in `docs/LICENSING_STATUS.md`.
+**Scope of this document: personal use on the current Windows computer.** It is
+not a release, and it is not a claim about any other machine.
 
-**Installer:** not built in this stage, and no installer was installed on a
-Windows machine here, so what exists is an **installer candidate** at best — and
-at the moment there is no installer configuration to point at either. See
-"Not implemented" below.
+**Warning, kept where it cannot be missed:**
+
+> **Vault and AI memory are experimental. No independent security audit has been
+> carried out.** The cryptography is the project's own design, reviewed only by
+> its author and its test suite. Treat the vault as a place for passwords you can
+> afford to lose, and keep an independent copy elsewhere. This warning does not
+> block personal use on this machine; it does block handing the project to anyone
+> else, and it is listed again in `docs/RELEASE_CHECKLIST.md`.
+
+Three readiness levels are used from here on, and they never mix:
+
+| Level | Meaning | Blocked by |
+| --- | --- | --- |
+| **Personal use** | runs on this computer, for its author | nothing except the checks in "Checks on this machine" below |
+| **Installer** | the built application can be installed and removed on this machine | an installer that builds, installs, uninstalls, and leaves no secret behind |
+| **Public release** | another person may use it | a clean-Windows test, resolved licences, an independent audit, and a verified backup transfer |
+
+## What "a clean Windows check" is, and is not, here
+
+A clean-Windows check means: install on a Windows machine that has never had this
+project on it, with no build tools, no `target/debug`, and no developer paths, and
+run the acceptance scenarios there.
+
+* it is **not** a requirement for personal use on this computer, and it has
+  **not** been performed — this document does not claim it was;
+* it **is** a requirement before handing the project to another user or making a
+  public release, and it is listed there;
+* a limited substitute, when it is possible and cheap, is a **new local Windows
+  profile** on this machine (a fresh user account, the application installed from
+  the built bundle). It is worth doing and it is recorded when it happens, but it
+  is **not mandatory** for personal use and it is not the same thing as a clean
+  machine.
+
+## Checks on this machine (required for personal use)
+
+These are the checks that must pass on the current computer before this build can
+be called usable for personal work. They do not replace the automated suites;
+they are what the automated suites cannot see.
+
+| # | Check | State |
+| --- | --- | --- |
+| 1 | The built application starts **outside** `cargo run` (the bundle's own executable, started from Explorer or the Start menu) | **to do** |
+| 2 | The built application does not depend on `target/debug` or on any other build-tree path (Windows opens nothing from the checkout while the installed copy runs) | **to do** |
+| 3 | Notes: create, edit, close, reopen, confirm the text is there | **to do** |
+| 4 | Vault: add a `FICTIONAL_*` entry, lock, unlock, confirm the secret is intact | **to do** |
+| 5 | Whisper: point the settings at the local `whisper-cli.exe` and a `ggml-*.bin`, dictate a sentence, get the text, confirm no WAV is left behind | **done** — verified by hand on this machine |
+| 6 | Vosk: the listener starts, hears the wake word, and returns to idle | **to do** |
+| 7 | Global voice input: the phrase is recognized, the confirmation is spoken, the microphone changes hands, and the text reaches the field | **to do** — the engine is tested; the Windows reader, the commands and the trigger are not wired yet (see `docs/GLOBAL_VOICE_INPUT.md`) |
+| 8 | Tray: the icon appears, the menu works, the states are shown, and a full exit from the tray closes the process | **to do** |
+| 9 | Autostart: switch it on, sign out and back in, confirm the application starts (and only once), switch it off again | **to do** |
+| 10 | Timers and reminders: a 30-second timer fires, the notification appears, the audit line is written | **to do** |
+| 11 | Diagnostics: the report shows every component, the export runs the screen first, and nothing in it names a path, a note, or a secret | **to do** |
+| 12 | Install and uninstall: the installer runs, the application appears in the Start menu, and uninstall removes the program while leaving user data in place | **to do** — there is no installer yet (`docs/INSTALLATION_WINDOWS.md`) |
+| 13 | No secrets in the bundle: no key, no `key.dpapi`, no user data, no model, no test fixture, no absolute developer path | **to do** — checked by review today; an automated bundle scan is part of the installer stage |
+
+Anything that has not been run stays **to do**. A fake backend, a passing unit
+test and a compile are not a manual check.
+
+**Not blocked by, for personal use:** a clean-Windows test, an independent audit,
+unresolved licences, and the manual backup/restore check. Each of those is
+required before *someone else* is asked to rely on the project.
 
 ## Readiness matrix
 
 `Code` = the module exists and compiles. `Autotests` = covered by tests in this
 repository. `Manual test` = a person ran it against real Windows APIs, real
-hardware, or a real model. `Native deps` = what has to be present outside the
-application. A fake backend is **not** a manual test.
+hardware, or a real model on this machine. `Native deps` = what has to be present
+outside the application. A fake backend is **not** a manual test.
 
 | Component | Code | Autotests | Manual test | Native dependencies | Readiness |
 |---|---|---|---|---|---|
-| Notes (encrypted) | yes | yes (storage, conflicts, trash, import/export) | not in this stage | none beyond the app | **Ready** |
-| Vault (encrypted) | yes | yes (storage, secrets, clipboard timers) | not in this stage | none beyond the app | **Ready** |
-| AI memory (encrypted) | yes | yes (storage, context, secret filter) | not in this stage | none beyond the app | **Ready** |
-| Autocorrect | yes | yes (engine, word list, isolation) | not in this stage | dictionaries optional | **Ready** (dictionaries `NotConfigured`) |
-| Local AI gateway | yes | yes (config, process, streaming, probe) | not in this stage | `llama-server.exe` + GGUF, user-supplied | **Ready in code**, model missing here |
+| Notes (encrypted) | yes | yes (storage, conflicts, trash, import/export) | **no** | none beyond the app | **Ready in code**; experimental, no independent audit |
+| Vault (encrypted) | yes | yes (storage, secrets, clipboard timers) | **no** | none beyond the app | **Ready in code**; experimental, no independent audit |
+| AI memory (encrypted) | yes | yes (storage, context, secret filter) | **no** | none beyond the app | **Ready in code**; experimental, no independent audit |
+| Autocorrect | yes | yes (engine, word list, isolation) | **no** | dictionaries optional | **Ready in code** (dictionaries `NotConfigured` without them) |
+| Local AI gateway | yes | yes (config, process, streaming, probe) | **no** | `llama-server.exe` + GGUF, user-supplied | **Ready in code**, model missing on this machine |
 | Windows Actions | yes | yes (119 unit tests, 7 isolation, 8 contract) | **no** — fake backend only | a real desktop session | **Ready in code**, native path unverified |
-| Vosk | yes (upstream) | partial (model listing) | not in this stage | `libvosk` + a model | unchanged from upstream; **unverified here** |
-| Whisper (dictation) | yes | yes (58 unit tests + interface tests) | **no** | `whisper-cli.exe` + a `ggml-*.bin`, user-supplied | **Ready in code**, real round trip unverified |
-| Backup / restore (whole application) | **no** | **no** | no | — | **Not implemented** (per-feature export/import exists) |
-| Frontend (Svelte + Routify) | yes | yes (173 Node tests) | build verified | — | **Ready** |
-| Tauri shell | yes | no | build compiles; window not run here | WebView2 | **Ready in code**, unverified |
-| Single instance | yes | no | **no** — a second launch was not performed | — | **Ready in code, unverified** |
-| System tray | yes | yes (menu + states, 26 core tests) | **no** — no click on a real desktop | — | **Ready in code, native path unverified** |
-| Autostart | yes | yes (controller + fake backend) | **no** — no sign-out/sign-in was performed | the plugin writes the per-user Run key | **Ready in code, unverified after a real logon** |
-| Installer | **no** | **no** | no | WiX/NSIS toolchain | **Not implemented** |
-| Lifecycle manager | yes | yes (10 unit tests) | wired into the GUI exit path; exit not run here | — | **Ready in code** |
-| Runtime diagnostics | yes | yes (core tests + interface tests) | export not run against a real file dialog | — | **Ready** |
+| Vosk | yes (upstream) | partial (model listing) | **no** | `libvosk` + a model | unverified on this machine |
+| Whisper (dictation) | yes | yes (unit tests + interface tests) | **yes** — dictation on this machine, checked by hand end to end | `whisper-cli.exe` + a `ggml-*.bin`, user-supplied | **Ready and verified on this machine** |
+| Global voice input | yes (engine, gate, punctuation) | yes (24 tests) | **no** — the Windows reader, the commands and the trigger are not wired | UI Automation (Windows), the existing Whisper setup | **Ready in code**, not reachable from the window yet |
+| Backup / restore (whole application) | yes | yes (27 engine tests: full cycle, WAL, damage, rollback) | **no** — the manual check is deliberately open | free disk space, the master password | **Implemented and tested automatically**; the manual check does not block personal use |
+| Frontend (Svelte + Routify) | yes | yes (230 Node tests) | build verified | — | **Ready** |
+| Tauri shell | yes | no | **no** — the window has not been started from the bundle here | WebView2 | **Ready in code**, unverified |
+| Single instance | yes | no | **no** | — | **Ready in code, unverified** |
+| System tray | yes | yes (menu + states, core tests) | **no** | — | **Ready in code, unverified** |
+| Autostart | yes | yes (controller + fake backend) | **no** | the plugin writes the per-user Run key | **Ready in code, unverified after a real logon** |
+| Installer | **no** | **no** | no | WiX/NSIS toolchain | **Not implemented** — see `docs/INSTALLATION_WINDOWS.md` |
+| Lifecycle manager | yes | yes (unit tests) | wired into the GUI exit path; **`checkpoint-databases` is registered now**, `stop-vosk` is not | — | **Ready in code** |
+| Runtime diagnostics | yes | yes (core tests + interface tests) | **no** — export not run against a real file dialog | — | **Ready in code** |
 | First-run wizard | yes | yes (state + interface tests) | build verified | — | **Ready** |
-| Unified settings page | yes | yes (interface tests) | build verified | — | **Ready** — one settings page with the required sections, adding Startup and tray, Privacy, Diagnostics, and About |
-| Licensing analysis | yes (documents) | — | — | — | **Ready** — see `docs/LICENSING_STATUS.md` |
-| Dependency audit | partial | — | `npm audit` run; `cargo audit`/`cargo deny` unavailable | — | **Partial** — see below |
+| Unified settings page | yes | yes (interface tests) | build verified | — | **Ready** |
+| Licensing analysis | yes (documents) | — | — | — | **Ready** for personal use; a public release is blocked by the conflict in `docs/LICENSING_STATUS.md` |
+| Dependency audit | partial | — | `npm audit` run; `cargo audit`/`cargo deny` not installed | — | **Partial** — see below |
 
-## What was done in this stage
+## What the automated suites cover
 
-* **Whisper dictation** (`crates/jarvis-core/src/whisper/`, `docs/WHISPER.md`):
-  a bounded one-shot process, a native architecture check, a format check, a
-  session with silence/length/cancel, and a settings panel. 58 unit tests.
-* **Lifecycle manager** (`crates/jarvis-core/src/lifecycle.rs`): the exit as an
-  ordered, deadline-bounded, idempotent sequence with a per-step report; wired
-  into the Tauri exit path so a normal exit and a tray exit take one route.
-* **Runtime diagnostics** (`crates/jarvis-core/src/diagnostics.rs` and
-  `crates/jarvis-core/src/text.rs`): a report whose *shape* cannot hold user
-  content, with path redaction, a screen that refuses a path or a secret, a
-  preview, and a JSON export. 17 unit tests.
-* **Licensing documents**: `docs/LICENSING_STATUS.md`, `THIRD_PARTY_NOTICES.md`,
-  and `docs/RELEASE_CHECKLIST.md`.
-* **The desktop shell** (`docs/DESKTOP_SHELL.md`, `docs/ADR_TRAY_AUTOSTART.md`):
-  the tray with a state-carrying menu, the close behaviour with its dialog, one
-  exit route through the lifecycle, single instance, opt-in autostart for the
-  current user, the microphone session with stale-event protection, and the
-  first-run wizard (`docs/FIRST_RUN.md`). 26 core tests and 20 interface tests.
-* **Diagnostics in the window** (`docs/RUNTIME_DIAGNOSTICS.md`): a section of the
-  settings page with the component table, the preview, an export that runs the
-  core's screen first, and a summary for the clipboard.
+* `cargo test --workspace -j 1` — **852 tests**, including the encrypted stores,
+  the AI memory, the autocorrect engine, the Windows-action policy and isolation,
+  the tray and autostart state machines, the diagnostics shape, the lifecycle
+  order, the recorder and the Whisper session, the backup container and its
+  rollback, and the global voice input route and gate;
+* `npm run test:ui` — **230 tests**, including the interface shapes, the three
+  locales, and the structural checks that keep a transcript out of the log and
+  out of browser storage;
+* `cargo check --workspace`, `npm run build`, `cargo clippy` on the files written
+  here, `rustfmt` on the files written here, and `git diff --check`.
+
+Encryption is not weakened anywhere by the personal-use framing: the key
+separation, the AEAD records, the DPAPI binding, the portable envelope and the
+backup container are exactly what they were, and their tests still have to pass.
 
 ## Not implemented, and not claimed
 
-These are listed so that nobody reads this document as a promise:
+Listed so that nobody reads this document as a promise:
 
-1. **Windows installer.** No MSI, no NSIS, no bundler configuration. Nothing was
-   installed, so nothing is verified as an installation. The next stage owns it.
-2. **Whole-application backup/restore.** No versioned container, no manifest, no
-   atomic restore. What exists today is per feature: notes export/import, vault
-   export/import, memory export/import, the autocorrect word list export, and the
-   Windows-actions audit export. The stage after this one owns it.
-3. **Notifications with a registered identity.** Timers and reminders show an
-   in-application notification and attempt a system toast only when the build has
-   an AUMID. With no installer there is no AUMID, so the honest state is
-   "in-application notification only", and the diagnostics report says
-   `version_unknown` for it rather than claiming a toast works.
-4. **Two exit steps are not registered.** `stop-vosk` belongs to the voice host
-   in `jarvis-app`, and `checkpoint-databases` has no implementation in the
-   stores. An exit logs them as absent instead of pretending they ran.
-5. **The settings tree has no search.** The sections are there; a search box
-   would need an index over four settings documents, and it was not built.
+1. **Windows installer.** No MSI, no NSIS, no bundler configuration, no AUMID.
+   Nothing has been installed, so nothing is verified as an installation.
+2. **Notifications with a registered identity.** Without an AUMID the timers show
+   an in-application notification, and the diagnostics report says so instead of
+   claiming a system toast works.
+3. **`stop-vosk` is not registered as an exit step.** It belongs to the voice host
+   in `jarvis-app`. `checkpoint-databases` **is** registered now and truncates the
+   write-ahead logs on exit.
+4. **The global voice input is not reachable from the window yet.** The engine,
+   the gate and the punctuation are implemented and tested; the Windows UI
+   Automation reader, the commands, the tray states, the settings section and the
+   Vosk trigger are the remaining wiring.
+5. **The settings tree has no search.**
 6. **Autostart cannot detect an entry pointing at another copy**, because the
    plugin in use reports existence rather than contents. The mitigation is a
    rewrite on every start, and the limitation is documented.
-7. **Smoke tests against a real desktop, models, and microphone.** None were run:
-   no tray click, no sign-in with autostart enabled, no real dictation, and no
-   second launch of the application.
+7. **Smoke tests against a real desktop for the tray, autostart, Vosk and the
+   installer** have not been run. Whisper dictation was run and passed.
 
 ## Dependency audit
 
@@ -103,38 +149,20 @@ These are listed so that nobody reads this document as a promise:
   packages; `npm audit`'s own advice for `esbuild` is `--force`, which would jump
   `vite` to a new major version, and that was **not** done.
 * `cargo audit` and `cargo deny`: **not installed**, so no Rust advisory scan was
-  run in this environment. This is a real gap, and the commands that close it are
-  in `docs/LICENSING_STATUS.md`.
+  run in this environment. This is a real gap; the commands that close it are in
+  `docs/LICENSING_STATUS.md`, and it is on the public-release list.
 * A full transitive licence list was not produced, for the same reason.
-
-## Manual smoke tests: what a person should run first
-
-In this order, with the machines and files available; each line is a check a
-person can complete in a few minutes.
-
-1. Build: `npm ci`, `npm run build`, `cargo build --workspace`.
-2. Start the window; Notes: create, edit, close, reopen, confirm the text is there.
-3. Vault: add a `FICTIONAL_*` entry, lock, unlock, confirm the secret is intact.
-4. Autocorrect: pick a dictionary folder, check a sentence, undo.
-5. Windows commands: volume up/down, a screenshot into a chosen folder, a
-   30-second reminder, lock the session, and the confirmation dialog for a
-   risky action.
-6. Dictation: point the settings at a local `whisper-cli.exe` and a
-   `ggml-*.bin`, allow dictation, press "Начать диктовку", speak one sentence,
-   confirm the text and that no WAV is left behind.
-7. Local AI: start `llama-server` from the settings, ask a question, then ask for
-   an action and confirm the dialog that appears.
-8. Exit from the window and check the log: the exit report should list every step
-   as done.
-
-Anything that cannot be run on the machine at hand stays **unverified**, not
-"works".
 
 ## Honest summary
 
 The application is a working local-first assistant whose encrypted storages,
-local model gateway, autocorrect, safe Windows actions, and dictation are
-implemented and covered by 715 Rust tests and 173 interface tests. It is **not** yet an installable
-product: there is no tray, no autostart, no wizard, no installer, and no
-whole-application backup, and a public release is blocked by a licence conflict
-that only the copyright holder can resolve.
+local model gateway, autocorrect, safe Windows actions, dictation, backup and
+voice-input engine are implemented and covered by 852 Rust tests and 230 interface
+tests, with Whisper dictation verified by hand on this machine.
+
+It is **good enough to keep using personally on this computer**. It is **not** an
+installable product yet (no installer, no verified tray or autostart session), and
+it is **not** ready for another user: that needs a clean-Windows test, resolved
+licences, an independent audit of the vault and the AI memory, a verified backup
+transfer between two computers, and an installer that has been installed and
+removed on a real machine. None of those is claimed here.

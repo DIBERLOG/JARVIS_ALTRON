@@ -1,5 +1,12 @@
 # Encrypted local AI memory
 
+> **Experimental, and not independently audited.** The encryption here is the
+> project's own design: purpose-key separation over one master key, AEAD records,
+> a documented threat model, and a secret filter with its own tests. No
+> independent security review has been carried out. That is an accepted risk for
+> personal use on the author's machine, and a blocker before anyone else is asked
+> to rely on it. See `docs/RELEASE_CHECKLIST.md`, section 3.
+
 ## What this is
 
 A local-first memory layer for the Windows assistant. It stores conversations, messages,

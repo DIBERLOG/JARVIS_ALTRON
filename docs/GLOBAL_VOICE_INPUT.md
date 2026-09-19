@@ -166,6 +166,12 @@ change the route:
    `release_microphone`, then the engine. `is_start_request` and
    `GlobalDictationSettings::matches` are the matcher it should use.
 
+**Readiness.** This feature is required by check 7 of
+`docs/WINDOWS_MVP.md` ("Checks on this machine") and is therefore **open** until
+the three pieces above are wired and the manual scenarios below have been run. It
+does not block the rest of personal use, and it is not part of the public-release
+blockers — those are the four in `docs/RELEASE_CHECKLIST.md`, section 3.
+
 ## Manual checks on Windows
 
 Run these once the three pieces above are wired. Each one names what must happen,

@@ -100,3 +100,12 @@ Personal Windows MVP build
 
 It is not a release, not a beta, and not a distribution. `docs/RELEASE_CHECKLIST.md`
 states the same thing in the form of a checklist.
+
+**What the licence conflict blocks, and what it does not.** It blocks every form of
+distribution: a public release, a build handed to another person, and a package
+published anywhere. It does **not** block personal use on the author's own
+computer, which is the only use this build is for — keeping the application on the
+machine that built it is not distribution. Resolving the conflict, running
+`cargo audit`/`cargo deny`/`cargo license`, and confirming every bundled
+component's licence remain requirements before anyone else receives the project
+(`docs/RELEASE_CHECKLIST.md`, section 3), and none of them is claimed as done.

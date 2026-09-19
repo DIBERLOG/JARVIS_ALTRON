@@ -1,5 +1,13 @@
 # Backup and restore
 
+> **State of this document.** The container, its validation, the consistent
+> snapshot, the safety backup, the restore and the rollback are implemented and
+> covered by 27 engine tests (see below). The **manual round trip on real data has
+> not been walked through yet**, and neither has a transfer between two computers.
+> The manual check is therefore **open**; it does not block personal use of the
+> application on this machine, and it does block a public release. See
+> `docs/RELEASE_CHECKLIST.md`, sections 1.4 and 3.
+
 One encrypted file with everything this application stores on behalf of the
 person using it, and one sequence that puts it back on this or another Windows
 computer.
