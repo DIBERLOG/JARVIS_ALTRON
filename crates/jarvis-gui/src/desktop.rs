@@ -307,7 +307,60 @@ fn build_menu(app: &AppHandle, snapshot: &DesktopSnapshot) -> tauri::Result<Menu
         let item = MenuItem::with_id(app, row.id, label, row.enabled, None::<&str>)?;
         menu.append(&item)?;
     }
+    // Global voice input. The rows live here rather than in the core's tray
+    // model because they are this process's feature: the engine, the session and
+    // the clipboard are all in the window process.
+    let voice = app.state::<AppState>().voice_input.clone();
+    let view = voice.view();
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    let running = view.status.stage.is_running();
+    let ready = view.settings.enabled && view.whisper_configured;
+    let start = MenuItem::with_id(
+        app,
+        "voice_input_start",
+        "Start voice input",
+        // Disabled while one is running, when the feature is off, and when the
+        // dictation is not configured: the same three reasons the panel shows.
+        ready && !running,
+        None::<&str>,
+    )?;
+    menu.append(&start)?;
+    let stop = MenuItem::with_id(
+        app,
+        "voice_input_stop",
+        "Stop voice input",
+        // Cancelling is always possible while something is running.
+        running,
+        None::<&str>,
+    )?;
+    menu.append(&stop)?;
+    let status = MenuItem::with_id(
+        app,
+        "voice_input_status",
+        format!("Voice input: {}", voice_input_stage_label(view.status.stage)),
+        false,
+        None::<&str>,
+    )?;
+    menu.append(&status)?;
     Ok(menu)
+}
+
+/// A short, stable English word for the tray. The window shows the same states
+/// translated; the menu is a fallback surface for a hidden window.
+fn voice_input_stage_label(stage: jarvis_core::dictation::DictationStage) -> &'static str {
+    match stage {
+        jarvis_core::dictation::DictationStage::Idle => "idle",
+        jarvis_core::dictation::DictationStage::Preparing => "preparing",
+        jarvis_core::dictation::DictationStage::Confirming => "confirming",
+        jarvis_core::dictation::DictationStage::Handover => "preparing",
+        jarvis_core::dictation::DictationStage::Recording => "recording",
+        jarvis_core::dictation::DictationStage::Transcribing => "transcribing",
+        jarvis_core::dictation::DictationStage::Correcting => "formatting",
+        jarvis_core::dictation::DictationStage::Inserting => "copying",
+        jarvis_core::dictation::DictationStage::Delivered => "copied",
+        jarvis_core::dictation::DictationStage::Failed => "failed",
+        jarvis_core::dictation::DictationStage::Cancelled => "cancelled",
+    }
 }
 
 /// The label of one row: the Fluent key is resolved by the window, so the tray
@@ -358,6 +411,19 @@ fn on_menu_event(app: &AppHandle, id: &str) {
         "hide" => hide_main_window(app),
         "vosk_toggle" => toggle_vosk(app),
         "dictate_start" => start_dictation(app),
+        "voice_input_start" => {
+            // The window may be hidden: the tray is enough to start the route,
+            // and the result is announced the same way either way.
+            let handle = app.state::<AppState>().voice_input.clone();
+            std::thread::spawn(move || match handle.start() {
+                Ok(_) => {}
+                Err(code) => log::warn!("voice input: the request failed (error_code={code})"),
+            });
+        }
+        "voice_input_stop" => {
+            let cancelled = app.state::<AppState>().voice_input.cancel();
+            log::info!("voice input: cancel from the tray (accepted={cancelled})");
+        }
         "dictate_stop" => {
             // The flag is set and nothing is waited for, so a stop is bounded
             // even when the worker has already died.

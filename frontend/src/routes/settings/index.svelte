@@ -14,6 +14,7 @@
     import WindowsActionsPanel from "@/components/windows/WindowsActionsPanel.svelte"
     import WhisperSettingsPanel from "@/components/settings/WhisperSettings.svelte"
     import BackupSettingsPanel from "@/components/settings/BackupSettings.svelte"
+    import VoiceInputSettingsPanel from "@/components/settings/VoiceInputSettings.svelte"
     import DesktopSettings from "@/components/desktop/DesktopSettings.svelte"
     import DiagnosticsPanel from "@/components/desktop/DiagnosticsPanel.svelte"
 
@@ -336,6 +337,11 @@
     <Tabs.Tab label={t('whisper-tab')} icon={LightningBolt}>
         <Space h="sm" />
         <WhisperSettingsPanel />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('voice-input-tab')} icon={LightningBolt}>
+        <Space h="sm" />
+        <VoiceInputSettingsPanel />
     </Tabs.Tab>
 
     <Tabs.Tab label={t('backup-tab')} icon={Cube}>
