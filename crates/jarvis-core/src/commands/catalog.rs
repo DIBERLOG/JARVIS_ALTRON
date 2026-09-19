@@ -693,7 +693,10 @@ mod tests {
         }
         for entry in &catalog.entries {
             let count = counts.get_mut(entry.status.as_str()).unwrap_or_else(|| {
-                panic!("`{}` has a status outside the six: {}", entry.id, entry.status)
+                panic!(
+                    "`{}` has a status outside the six: {}",
+                    entry.id, entry.status
+                )
             });
             *count += 1;
         }
@@ -856,7 +859,10 @@ mod tests {
         // Nothing in the installed packs is forbidden any more: the three that were
         // now ask for a confirmation instead.
         assert!(
-            catalog.entries.iter().all(|entry| entry.status != "forbidden"),
+            catalog
+                .entries
+                .iter()
+                .all(|entry| entry.status != "forbidden"),
             "no installed command is forbidden"
         );
     }
@@ -1001,7 +1007,10 @@ mod tests {
         // permits it, and the phrase alone is not enough.
         let reboot = find("jarvis_reboot");
         assert!(reboot.recognized);
-        assert!(reboot.executor_ready, "shutdown.exe is a program like any other");
+        assert!(
+            reboot.executor_ready,
+            "shutdown.exe is a program like any other"
+        );
         assert!(reboot.allowed);
         assert!(reboot.verified, "it does run, after the confirmation");
         assert_eq!(reboot.status, "confirmation_required");
