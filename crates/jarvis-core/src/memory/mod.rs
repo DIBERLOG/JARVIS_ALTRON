@@ -8,7 +8,8 @@
 //!        |                 `-- PurposeKeyProvider(JARVIS/ai-memory/v1)
 //!        |
 //!        +-- ContextBuilder   bounded, injection-resistant context
-//!        `-- SecretFilter     keeps credentials out of memory
+//!        +-- SecretFilter     keeps credentials out of memory
+//!        `-- SummaryProvider  summaries and candidates, through the local gateway
 //! ```
 //!
 //! The memory reuses the application's existing storage stack: the same SQLite
@@ -31,6 +32,10 @@ pub mod model;
 pub mod redaction;
 pub mod session;
 pub mod store;
+pub mod summarizer;
+
+#[cfg(test)]
+pub(crate) mod tests;
 
 pub use config::{
     linear_search_warning, load_settings, MemorySettings, DEFAULT_MAX_RECENT_MESSAGES,
@@ -59,4 +64,9 @@ pub use session::{
 pub use store::{
     EncryptedMemoryStore, MemoryConflictResolution, MemoryConflictView, MemoryImportOutcome,
     MemoryStore,
+};
+pub use summarizer::{
+    default_candidate_scope, parse_candidates, summarize_conversation, CandidateRequest,
+    CandidateSuggestion, LocalAiSummaryProvider, SummaryGuard, SummaryJobs, SummaryProvider,
+    SummaryRequest,
 };
