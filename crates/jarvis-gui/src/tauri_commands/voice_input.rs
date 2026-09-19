@@ -53,7 +53,7 @@ use jarvis_core::vault::clipboard::{
 use crate::AppState;
 
 /// File holding the settings of this feature, inside the data directory.
-pub const SETTINGS_FILE: &str = "voice-input.json";
+pub const SETTINGS_FILE: &str = dictation::GLOBAL_SETTINGS_FILE;
 
 /// Event the window receives with a localization key and a length.
 pub const NOTICE_EVENT: &str = "voice-input-notice";
@@ -562,11 +562,7 @@ impl ClipboardWriter for Clipboard {
 
 /// Reads the settings document, falling back to the defaults.
 fn read_settings(document: &std::path::Path) -> GlobalDictationSettings {
-    std::fs::read(document)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<GlobalDictationSettings>(&bytes).ok())
-        .unwrap_or_default()
-        .normalized()
+    GlobalDictationSettings::load_from(document)
 }
 
 // ------------------------------------------------------------------- commands

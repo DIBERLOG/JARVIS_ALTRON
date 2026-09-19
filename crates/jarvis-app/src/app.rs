@@ -312,7 +312,17 @@ fn recognize_command(
                     // process stops listening, and only then does the window
                     // process start the dictation. The recognised text is never
                     // sent anywhere — the event carries no transcript.
-                    if jarvis_core::dictation::is_start_request(&recognized_voice) {
+                    // The Vosk process has no UI state of its own. Read the
+                    // same canonical document the GUI just saved, so `enabled`
+                    // cannot be inverted or stale across processes.
+                    let voice_settings = jarvis_core::dictation::GlobalDictationSettings::load_from(
+                        &jarvis_core::notes::vault::VaultPaths::production()
+                            .map(|paths| paths.data_dir.join(jarvis_core::dictation::GLOBAL_SETTINGS_FILE))
+                            .unwrap_or_else(|_| std::path::PathBuf::from(jarvis_core::dictation::GLOBAL_SETTINGS_FILE)),
+                    );
+                    if jarvis_core::dictation::intent_with_settings(&voice_settings, &recognized_voice)
+                        == jarvis_core::dictation::VoiceIntent::StartGlobalDictation
+                    {
                         info!("Global voice input requested");
                         // The listener lets go of the microphone first.
                         jarvis_core::recorder::stop_recording().ok();

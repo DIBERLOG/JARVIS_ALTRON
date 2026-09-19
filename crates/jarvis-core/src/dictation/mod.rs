@@ -54,6 +54,9 @@ pub use target::{
     WindowIdentity, WINDOW_TOLERANCE,
 };
 
+/// One shared settings document for the GUI and the separate Vosk host.
+pub const GLOBAL_SETTINGS_FILE: &str = "voice-input.json";
+
 /// The phrases that start global dictation, and the answer to them.
 ///
 /// Kept here as data so the voice layer, the settings page and the tests all
@@ -220,6 +223,15 @@ impl Default for GlobalDictationSettings {
 }
 
 impl GlobalDictationSettings {
+    /// Reads the canonical persisted flag. A malformed or missing document is
+    /// safely equivalent to the feature being disabled.
+    pub fn load_from(document: &std::path::Path) -> Self {
+        std::fs::read(document)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok())
+            .unwrap_or_default()
+            .normalized()
+    }
     /// Repairs what a settings document could get wrong.
     pub fn normalized(mut self) -> Self {
         if self.phrase.trim().is_empty() {
