@@ -573,13 +573,39 @@ impl WhisperSession {
     }
 
     /// Transcribes samples that are already in memory.
+    ///
+    /// The stages are logged by name and by number only — `wav_ready`,
+    /// `transcription_started`, `process_exit_code`, `output_length` — because
+    /// "the text never arrived" was impossible to place without them, and
+    /// because a log must never carry what was said.
     pub fn transcribe_samples(&self, samples: &[i16]) -> Result<Transcript, WhisperError> {
         if samples.is_empty() {
+            warn!(
+                "whisper: stage=wav_ready error_code={}",
+                WhisperError::AudioEmpty.code()
+            );
             return Err(WhisperError::AudioEmpty);
         }
         self.settings().validate()?;
         let path = self.directory.join(AUDIO_FILE_NAME);
         let format = write_wav(&path, samples)?;
+        let ready = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        info!(
+            "whisper: stage=wav_ready samples={} audio_ms={} bytes={}",
+            samples.len(),
+            format.duration_ms(),
+            ready
+        );
+        if ready == 0 {
+            // A file that vanished between the write and the check is the one
+            // case where the model would be given nothing to read.
+            warn!(
+                "whisper: stage=wav_ready error_code={}",
+                WhisperError::Storage.code()
+            );
+            self.finish_audio(&path);
+            return Err(WhisperError::Storage);
+        }
         let result = self.transcribe_file_inner(&path, format);
         self.finish_audio(&path);
         result
@@ -609,6 +635,15 @@ impl WhisperSession {
         self.begin()?;
         *self.state.lock() = DictationState::Transcribing;
         let result = self.transcribe_inner(audio_path, format);
+        match &result {
+            Ok(transcript) => info!(
+                "whisper: stage=output_length characters={} segments={} language={}",
+                transcript.text.chars().count(),
+                transcript.segments.len(),
+                transcript.language
+            ),
+            Err(error) => warn!("whisper: stage=output_length error_code={}", error.code()),
+        }
         *self.state.lock() = if result.is_ok() {
             DictationState::Complete
         } else {
@@ -636,8 +671,18 @@ impl WhisperSession {
             &output_base,
         );
         if self.cancel.load(Ordering::SeqCst) {
+            info!("whisper: stage=transcription_started error_code=cancelled");
             return Err(WhisperError::Cancelled);
         }
+        // No path and no model name: the stage, the language, and the numbers the
+        // user chose are the whole of what a diagnosis needs.
+        info!(
+            "whisper: stage=transcription_started language={} threads={} timeout_seconds={} audio_ms={}",
+            settings.language,
+            settings.threads,
+            settings.timeout_seconds,
+            format.duration_ms()
+        );
         let started = Instant::now();
         let runner = Arc::clone(&self.runner.read());
         let outcome = runner.transcribe(
@@ -652,10 +697,26 @@ impl WhisperSession {
         // The build writes the report next to the audio; the printed text is the
         // fallback for builds that do not.
         let json_path = output_base.with_extension("json");
+        let json_present = json_path.exists();
         let mut transcript = match std::fs::read(&json_path) {
             Ok(bytes) => parse_json_transcript(&bytes, &settings.language)?,
-            Err(_) => parse_stdout_transcript(&outcome.stdout, &settings.language)?,
+            Err(_) => {
+                // An empty stdout is the other way a real transcription can
+                // produce nothing, and it has its own code.
+                warn!(
+                    "whisper: stage=output_length error_code={} stdout_bytes={}",
+                    WhisperError::InvalidResponse.code(),
+                    outcome.stdout.len()
+                );
+                parse_stdout_transcript(&outcome.stdout, &settings.language)?
+            }
         };
+        info!(
+            "whisper: stage=transcription_finished report={} duration_ms={} audio_ms={}",
+            if json_present { "json" } else { "stdout" },
+            duration_ms,
+            format.duration_ms()
+        );
         // The report is a copy of the transcript: it does not outlive the call.
         let _ = std::fs::remove_file(&json_path);
         transcript.audio_ms = format.duration_ms();
@@ -813,6 +874,10 @@ mod tests {
         writes_json: bool,
         fail: bool,
         hang: bool,
+        /// A build that runs, exits cleanly, and says nothing at all.
+        silent: bool,
+        /// A build that cannot be started.
+        unavailable: bool,
         calls: Mutex<Vec<Vec<String>>>,
     }
 
@@ -824,6 +889,8 @@ mod tests {
                 writes_json: true,
                 fail: false,
                 hang: false,
+                silent: false,
+                unavailable: false,
                 calls: Mutex::new(Vec::new()),
             }
         }
@@ -835,6 +902,8 @@ mod tests {
                 writes_json: false,
                 fail: true,
                 hang: false,
+                silent: false,
+                unavailable: false,
                 calls: Mutex::new(Vec::new()),
             }
         }
@@ -846,6 +915,8 @@ mod tests {
                 writes_json: false,
                 fail: false,
                 hang: true,
+                silent: false,
+                unavailable: false,
                 calls: Mutex::new(Vec::new()),
             }
         }
@@ -857,6 +928,37 @@ mod tests {
                 writes_json: false,
                 fail: false,
                 hang: false,
+                silent: false,
+                unavailable: false,
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        /// A build that runs and produces nothing: exit code 0, no report, no
+        /// printed text.
+        fn silent_stdout() -> Self {
+            Self {
+                text: String::new(),
+                language: "auto".to_string(),
+                writes_json: false,
+                fail: false,
+                hang: false,
+                silent: true,
+                unavailable: false,
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        /// A build that cannot be started at all.
+        fn unavailable() -> Self {
+            Self {
+                text: String::new(),
+                language: "auto".to_string(),
+                writes_json: false,
+                fail: false,
+                hang: false,
+                silent: false,
+                unavailable: true,
                 calls: Mutex::new(Vec::new()),
             }
         }
@@ -876,8 +978,17 @@ mod tests {
             cancel: &Arc<AtomicBool>,
         ) -> Result<RunOutcome, WhisperError> {
             self.calls.lock().push(arguments.to_vec());
+            if self.unavailable {
+                return Err(WhisperError::ProcessUnavailable);
+            }
             if self.fail {
                 return Err(WhisperError::ProcessFailed { code: Some(1) });
+            }
+            if self.silent {
+                return Ok(RunOutcome {
+                    exit_code: Some(0),
+                    stdout: String::new(),
+                });
             }
             if self.hang {
                 // A build that never finishes: the wait ends when the session is
@@ -1160,6 +1271,104 @@ mod tests {
         assert_eq!(session.state(), DictationState::Idle);
     }
 
+    /// The whole reported route, at the level where it can be pinned without a
+    /// model: record → WAV → transcribing → text → the outcome the window reads.
+    ///
+    /// The defect this pins: the recording finished, the WAV was written, and
+    /// nothing after it was visible — no transcription state, no text, no code.
+    #[test]
+    fn a_finished_recording_reaches_the_model_and_the_text_is_delivered() {
+        let (directory, binary, model) = prepared_directory();
+        let mut settings = enabled_settings(&binary, &model);
+        settings.max_seconds = 5;
+        settings.silence_ms = 500;
+        let runner = Arc::new(FakeTranscriber::answering("привет мир"));
+        let session = WhisperSession::with_runner(directory.path(), settings, runner.clone());
+
+        // The recording: it ends on silence, so this test is bounded.
+        let mut source = ScriptedSource::speech_then_silence(4, 40);
+        let transcript = session.dictate(&mut source).expect("the dictation");
+
+        // 1. the text is there, and it is what the runner answered
+        assert_eq!(transcript.cleaned(), "привет мир");
+        // 2. the model was started exactly once, with the model file
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1, "the model must be started once");
+        assert!(calls[0].contains(&model.to_string_lossy().into_owned()));
+        assert!(calls[0].contains(&"-f".to_string()));
+        // 3. the audio that was transcribed is the audio that was recorded
+        assert!(transcript.audio_ms > 0, "the audio length is known");
+        // 4. the audio and its report are gone: only the text stays
+        assert!(!directory.path().join(AUDIO_FILE_NAME).exists());
+        assert!(!directory
+            .path()
+            .join(format!("{OUTPUT_PREFIX}.json"))
+            .exists());
+        // 5. the session is idle and the outcome says a transcript was produced
+        assert_eq!(session.state(), DictationState::Idle);
+        assert_eq!(
+            session.last_outcome(),
+            Some(DictationOutcome::Transcript { characters: 10 })
+        );
+    }
+
+    /// A WAV with nothing in it, and a build that prints nothing, each get their
+    /// own code instead of a silent end.
+    #[test]
+    fn an_empty_recording_and_an_empty_answer_each_have_a_code() {
+        let (directory, binary, model) = prepared_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            enabled_settings(&binary, &model),
+            Arc::new(FakeTranscriber::silent_stdout()),
+        );
+        // Nothing was recorded: the code says exactly that.
+        assert_eq!(
+            session.transcribe_samples(&[]).unwrap_err(),
+            WhisperError::AudioEmpty
+        );
+        assert_eq!(
+            session.last_outcome(),
+            None,
+            "nothing was started, so there is no outcome"
+        );
+        // The WAV was written, the model ran, and it printed nothing readable.
+        let error = session
+            .transcribe_samples(&vec![1000i16; 16_000])
+            .unwrap_err();
+        assert_eq!(error, WhisperError::InvalidResponse);
+        assert_eq!(
+            session.last_outcome(),
+            Some(DictationOutcome::Failed {
+                code: "invalid_response"
+            })
+        );
+        assert_eq!(session.state(), DictationState::Idle);
+        assert!(!directory.path().join(AUDIO_FILE_NAME).exists());
+    }
+
+    /// A build that cannot be started reports the process, not the audio.
+    #[test]
+    fn a_process_that_never_starts_has_its_own_code() {
+        let (directory, binary, model) = prepared_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            enabled_settings(&binary, &model),
+            Arc::new(FakeTranscriber::unavailable()),
+        );
+        let error = session
+            .transcribe_samples(&vec![1000i16; 16_000])
+            .unwrap_err();
+        assert_eq!(error, WhisperError::ProcessUnavailable);
+        assert_eq!(
+            session.last_outcome(),
+            Some(DictationOutcome::Failed {
+                code: "process_unavailable"
+            })
+        );
+        assert_eq!(session.state(), DictationState::Idle);
+    }
+
     #[test]
     fn a_shutdown_is_safe_to_repeat_and_leaves_nothing_behind() {
         let (directory, binary, model) = prepared_directory();
@@ -1259,6 +1468,13 @@ mod tests {
         let updated = WhisperSettings {
             language: "ru".to_string(),
             threads: 8,
+            // Every number the panel lets a person type, with values a person
+            // would type: 3000 in the silence field is the value that used to
+            // snap back to 1500.
+            max_seconds: 45,
+            silence_ms: 3000,
+            timeout_seconds: 300,
+            translate: true,
             ..settings.clone()
         };
         session.update_settings(updated.clone()).unwrap();
@@ -1268,10 +1484,25 @@ mod tests {
             .path()
             .join(format!("{SETTINGS_FILE}.tmp"))
             .exists());
-        // A new session reads the document the previous one wrote.
+        // A new session reads the document the previous one wrote: this is the
+        // "after a restart" case, and it covers every numeric setting.
         let reopened = WhisperSession::open(directory.path(), WhisperSettings::default());
         assert_eq!(reopened.settings().threads, 8);
         assert_eq!(reopened.settings().language, "ru");
+        assert_eq!(reopened.settings().max_seconds, 45);
+        assert_eq!(
+            reopened.settings().silence_ms,
+            3000,
+            "3000 must survive a restart"
+        );
+        assert_eq!(reopened.settings().timeout_seconds, 300);
+        assert!(reopened.settings().translate);
+        assert_eq!(
+            reopened.settings().binary_path,
+            updated.binary_path,
+            "the two paths are never dropped by a save"
+        );
+        assert_eq!(reopened.settings().model_path, updated.model_path);
     }
 
     /// A source that writes down what the session did to it.

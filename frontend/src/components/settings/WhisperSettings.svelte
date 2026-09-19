@@ -12,17 +12,21 @@
 
     import { Alert, Button, Group, Space, Switch, Text } from "@svelteuidev/core"
 
-    import { translate, translations } from "@/stores"
+    import { translate, translations, commandDraft } from "@/stores"
     import { whisperApi } from "@/lib/whisper"
     import type { WhisperPanelView } from "@/lib/whisper"
-    import type { DiscoveryReport, MicrophoneCheck, WhisperSettings } from "@/lib/whisper-model"
+    import type { DiscoveryReport, MicrophoneCheck, NumericField, WhisperSettings } from "@/lib/whisper-model"
     import {
         candidateSourceKey,
+        cleanedTranscript,
         discoverySummaryKey,
+        draftsAfterPoll,
         LANGUAGES,
         MAX_SILENCE_MS,
         MAX_THREADS,
         MAX_TIMEOUT_SECONDS,
+        MAX_SECONDS,
+        MIN_SECONDS,
         MIN_SILENCE_MS,
         MIN_THREADS,
         MIN_TIMEOUT_SECONDS,
@@ -30,11 +34,15 @@
         defaultSettings,
         errorKey,
         isBusy,
+        isDirty,
         microphoneCheckKey,
         modelIsUnverified,
         modelKindKey,
         noteKey,
         normalizedSettings,
+        NUMERIC_FIELDS,
+        numericDrafts,
+        parseNumericDraft,
         readinessKey,
         settingsProblem,
         stateKey,
@@ -52,6 +60,13 @@
     let saved = false
     let discovery: DiscoveryReport | null = null
     let microphone: MicrophoneCheck | null = null
+    let inserted = false
+    /** The transcript the "inserted" line belongs to. */
+    let shownText = ""
+    /** The text each numeric field shows while it is being edited. */
+    let drafts = numericDrafts(defaultSettings())
+    /** The field the person is in, if any: a poll must not touch it. */
+    let editing: NumericField | null = null
 
     $: status = view?.status ?? null
     $: transcript = view?.last ?? null
@@ -60,16 +75,39 @@
 
     onMount(() => {
         // The panel does not own the session: a dictation can also be started
-        // from the tray, so it asks for the state again while it is open.
+        // from the tray, so it asks for the state again while it is open, and it
+        // listens for the announcement that a transcript arrived.
         void load()
         const timer = setInterval(() => void load(), 2000)
-        return () => clearInterval(timer)
+        let stop: (() => void) | null = null
+        void import("@tauri-apps/api/event").then(({ listen }) =>
+            listen("whisper-transcript-ready", () => {
+                void load()
+            }).then((unlisten) => {
+                stop = unlisten
+            })
+        )
+        return () => {
+            clearInterval(timer)
+            if (stop) stop()
+        }
     })
 
     async function load() {
         try {
             view = await whisperApi.status()
             settings = view.settings
+            // A field being edited keeps what was typed: a poll that overwrote it
+            // would throw the value away before it was ever saved.
+            drafts = draftsAfterPoll(drafts, editing, settings)
+            // A new transcript is not the one that was inserted, so the line that
+            // says "inserted" belongs to the previous one and goes away. The text
+            // itself stays: the core holds it, not this component.
+            const incoming = view.last?.text ?? ""
+            if (incoming !== shownText) {
+                shownText = incoming
+                inserted = false
+            }
             actionError = ""
         } catch (error) {
             actionError = describe(error)
@@ -199,6 +237,62 @@
     /** The measured level as a percentage: a fraction is unreadable. */
     function levelLabel(level: number): string {
         return `${Math.round(level * 100)} %`
+    }
+
+    /**
+     * Commits one numeric field.
+     *
+     * Called from `blur` and from Enter, never from `input`: a value is sent
+     * once, when the person is done with it. What comes back is the document the
+     * core stored, so the field shows the saved value and not the typed one.
+     */
+    async function commitNumeric(field: NumericField) {
+        const parsed = parseNumericDraft(field, drafts[field])
+        if ("problem" in parsed) {
+            if (isDirty(field, drafts, settings)) {
+                actionError = t(parsed.problem)
+            }
+            // Back to what the document holds: an out-of-range value is not
+            // something the core would keep anyway.
+            drafts = { ...drafts, [field]: numericDrafts(settings)[field] }
+            editing = null
+            return
+        }
+        editing = null
+        if (!isDirty(field, { ...drafts, [field]: String(parsed.value) }, settings)) {
+            // Nothing changed: no write, and the field shows the stored value.
+            drafts = { ...drafts, [field]: numericDrafts(settings)[field] }
+            return
+        }
+        await store({ [field]: parsed.value })
+        // `store` reloads, so the field now shows exactly what was stored.
+        drafts = { ...drafts, [field]: numericDrafts(settings)[field] }
+    }
+
+    /** Enter commits the field without leaving it. */
+    function numericKeydown(event: KeyboardEvent, field: NumericField) {
+        if (event.key === "Enter") {
+            event.preventDefault()
+            void commitNumeric(field)
+        }
+        if (event.key === "Escape") {
+            drafts = { ...drafts, [field]: numericDrafts(settings)[field] }
+            editing = null
+            actionError = ""
+        }
+    }
+
+    /**
+     * Puts the transcript into the command field on the home page.
+     *
+     * The text is not executed: a transcript is what was said, and sending it as
+     * a command is a decision the person makes on the home page, in the field
+     * where every other command is typed.
+     */
+    function insertIntoCommandField() {
+        if (!transcript) return
+        commandDraft.set(cleanedTranscript(transcript))
+        inserted = true
     }
 
     async function forget() {
@@ -394,6 +488,9 @@
 <Space h="sm" />
 
 {#if transcript && preview}
+    <!-- The result of the dictation: the text itself, in the panel, where the
+         button that produced it is. It stays here until the person forgets it or
+         replaces it with a new dictation, and a state poll cannot clear it. -->
     <Text weight={600}>{t("whisper-transcript")}</Text>
     <div class="transcript">
         <Text size="sm">{expanded ? transcript.text : preview.text}</Text>
@@ -408,6 +505,15 @@
             </Button>
         {/if}
     </Group>
+    <Group spacing="xs">
+        <Button size="xs" variant="default" on:click={insertIntoCommandField}>
+            {t("whisper-insert-command")}
+        </Button>
+        {#if inserted}
+            <Text size="xs" color="green">{t("whisper-inserted")}</Text>
+        {/if}
+    </Group>
+    <Text size="xs" color="dimmed">{t("whisper-insert-hint")}</Text>
     <Space h="sm" />
 {/if}
 
@@ -421,13 +527,34 @@
         {/each}
     </select>
 </label>
+<!-- The numbers are edited in a draft and committed on blur or Enter. A poll
+     refreshes every field except the one being edited, so a value is never
+     taken away before it is saved. -->
 <label class="field">
     <span>{t("whisper-threads")}</span>
-    <input class="line" type="number" min={MIN_THREADS} max={MAX_THREADS} bind:value={settings.threads} />
+    <input
+        class="line"
+        type="number"
+        min={MIN_THREADS}
+        max={MAX_THREADS}
+        bind:value={drafts.threads}
+        on:focus={() => (editing = "threads")}
+        on:blur={() => void commitNumeric("threads")}
+        on:keydown={(event) => numericKeydown(event, "threads")}
+    />
 </label>
 <label class="field">
     <span>{t("whisper-max-seconds")}</span>
-    <input class="line" type="number" min="1" max="300" bind:value={settings.max_seconds} />
+    <input
+        class="line"
+        type="number"
+        min={MIN_SECONDS}
+        max={MAX_SECONDS}
+        bind:value={drafts.max_seconds}
+        on:focus={() => (editing = "max_seconds")}
+        on:blur={() => void commitNumeric("max_seconds")}
+        on:keydown={(event) => numericKeydown(event, "max_seconds")}
+    />
 </label>
 <label class="field">
     <span>{t("whisper-silence")}</span>
@@ -437,7 +564,10 @@
         min={MIN_SILENCE_MS}
         max={MAX_SILENCE_MS}
         step="100"
-        bind:value={settings.silence_ms}
+        bind:value={drafts.silence_ms}
+        on:focus={() => (editing = "silence_ms")}
+        on:blur={() => void commitNumeric("silence_ms")}
+        on:keydown={(event) => numericKeydown(event, "silence_ms")}
     />
 </label>
 <label class="field">
@@ -447,7 +577,10 @@
         type="number"
         min={MIN_TIMEOUT_SECONDS}
         max={MAX_TIMEOUT_SECONDS}
-        bind:value={settings.timeout_seconds}
+        bind:value={drafts.timeout_seconds}
+        on:focus={() => (editing = "timeout_seconds")}
+        on:blur={() => void commitNumeric("timeout_seconds")}
+        on:keydown={(event) => numericKeydown(event, "timeout_seconds")}
     />
 </label>
 <Switch

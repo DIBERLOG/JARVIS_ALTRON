@@ -1257,3 +1257,8 @@ whisper-mic-check-level = Level
 whisper-mic-check-devices = Input devices
 whisper-mic-check-backend = Recorder
 whisper-mic-check-silent = Nothing was heard. That is normal in a quiet room; speak and check again.
+
+# Where the recognized text goes. The field is the command field on the home page.
+whisper-insert-command = Insert into the command field
+whisper-inserted = Inserted. The command field on the home page now holds this text.
+whisper-insert-hint = The text is placed in the command field and is not sent: press Enter there when you are ready.

@@ -27,6 +27,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use log::info;
+
 use super::error::WhisperError;
 
 /// How long the wait loop sleeps between exit checks.
@@ -255,6 +257,9 @@ impl Transcriber for ProcessTranscriber {
             let _ = reader.join();
         }
         let code = outcome;
+        // The exit code is the one number that says whether the build ran at
+        // all; it carries nothing of the audio or the transcript.
+        info!("whisper: stage=process_exit_code code={code:?}");
         if code != Some(0) {
             return Err(WhisperError::ProcessFailed { code });
         }
@@ -428,6 +433,16 @@ mod tests {
         assert_eq!(arguments[3], "C:/data/dictation.wav");
         assert_eq!(arguments[4], "-t");
         assert_eq!(arguments[5], "4");
+        // The flags the installed `whisper-cli.exe` accepts and acts on: the
+        // JSON report is written next to the audio as `<of>.json`, and the build
+        // prints nothing else. This set was checked against the real build.
+        assert!(arguments.contains(&"-oj".to_string()));
+        assert_eq!(
+            arguments[arguments.iter().position(|a| a == "-of").unwrap() + 1],
+            "C:/data/dictation"
+        );
+        assert!(arguments.contains(&"--no-prints".to_string()));
+        assert!(arguments.contains(&"--print-progress".to_string()));
         assert!(arguments.contains(&"-l".to_string()));
         assert!(arguments.contains(&"ru".to_string()));
         assert!(!arguments

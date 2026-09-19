@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
+use tauri::Emitter;
 
 use jarvis_core::notes::vault::VaultPaths;
 use jarvis_core::recorder::MicrophoneCheck;
@@ -186,7 +187,10 @@ pub async fn whisper_select_model(
 /// The recording ends on silence, on the configured length, or when the window
 /// asks to stop it.
 #[tauri::command]
-pub async fn whisper_dictate(state: tauri::State<'_, AppState>) -> Result<Transcript, String> {
+pub async fn whisper_dictate(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Transcript, String> {
     let handle = state.whisper.clone();
     on_blocking(move || {
         // The recorder is prepared in the startup route; this call is the
@@ -201,9 +205,10 @@ pub async fn whisper_dictate(state: tauri::State<'_, AppState>) -> Result<Transc
         let mut source = RecorderFrames::new();
         // A recorder failure travels as its own code, so the panel shows
         // `not_initialized`, `recorder_busy`, `vosk_owns_microphone`,
-        // `start_failed` — and not one sentence for all of them. The log keeps
-        // the stage as well, which is what tells a missing start from a device
-        // that failed.
+        // `start_failed` — and not one sentence for all of them. Every other
+        // failure travels as its code too, because the panel translates a bare
+        // code and a sentence in English is not an answer a Russian window can
+        // show. The log keeps the stage as well.
         let transcript = match handle.session().dictate(&mut source) {
             Ok(transcript) => transcript,
             Err(error) => {
@@ -219,7 +224,13 @@ pub async fn whisper_dictate(state: tauri::State<'_, AppState>) -> Result<Transc
                 };
             }
         };
+        // The result is delivered to the window: remembered in the session,
+        // where the panel reads it, and announced so it does not have to wait
+        // for its next poll. The text is not in the event.
+        let characters = transcript.text.chars().count();
         handle.remember(transcript.clone());
+        log::info!("whisper: stage=result_delivered characters={characters} source=window");
+        let _ = app.emit(crate::desktop::WHISPER_TRANSCRIPT_EVENT, ());
         Ok(transcript)
     })
     .await
@@ -301,6 +312,11 @@ fn data_directory() -> PathBuf {
 
 /// A message that is safe to show and to log: the error codes carry no path and
 /// no transcript.
+///
+/// The *code* is what the window receives, not the English sentence: the panel
+/// translates a bare code, and every code the core can produce has a message in
+/// all three locales. The detail — the one part that can be a sentence — is
+/// logged, where it is a diagnosis rather than the user's answer.
 fn describe(error: WhisperError) -> String {
     match &error {
         // The stage and the recorder's own code are what makes this
@@ -309,9 +325,12 @@ fn describe(error: WhisperError) -> String {
             "whisper: {} (stage={stage} recorder_code={code})",
             error.code()
         ),
-        _ => log::warn!("whisper: {}", error.code()),
+        _ => match error.detail() {
+            Some(detail) => log::warn!("whisper: {} (detail={detail})", error.code()),
+            None => log::warn!("whisper: {}", error.code()),
+        },
     }
-    error.to_string()
+    error.code().to_string()
 }
 
 /// The recorder's own stage and code, when the failure came from the recorder.

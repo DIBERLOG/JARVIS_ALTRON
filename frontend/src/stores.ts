@@ -38,6 +38,15 @@ export const jarvisCpuUsage = writable(0)
 // ### ASSISTANT VOICE
 export const assistantVoice = writable("")
 
+/**
+ * What the command field on the home page holds.
+ *
+ * It is a store and not local state because two places fill it: the person
+ * typing, and the dictation panel's "insert into the command field" button. The
+ * text is never sent from here — it is a draft until the person presses Enter.
+ */
+export const commandDraft = writable("")
+
 // ### APP INFO
 export const appInfo = writable({
     tgOfficialLink: "",

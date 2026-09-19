@@ -314,6 +314,120 @@ export function transcriptPreview(transcript: Transcript): { text: string; short
     return { text: `${cleaned.slice(0, PREVIEW_CHARS - 1)}…`, shortened: true }
 }
 
+// ------------------------------------------------- the numbers a person types
+
+/**
+ * The numeric settings, and the rule that keeps them from being lost.
+ *
+ * The defect these helpers replace: the inputs were bound straight to the
+ * settings the panel re-reads every two seconds, so typing 3000 in the silence
+ * field was overwritten by the next poll before anything was saved, and the
+ * field snapped back to 1500. The value was never sent, so nothing could be
+ * saved and nothing could be shown.
+ *
+ * The rule now:
+ *
+ * * a field is edited in a *draft*, which is what the input shows;
+ * * a poll refreshes the drafts of the fields that are **not** being edited and
+ *   leaves the one that is alone;
+ * * a value is committed once, on `blur` or on Enter — never on every
+ *   keystroke, because "3" is not a thread count;
+ * * a committed value is validated against the range the core enforces, sent,
+ *   and then read back from the document the core stored.
+ */
+export type NumericField = "threads" | "max_seconds" | "silence_ms" | "timeout_seconds"
+
+/** The order the panel shows them in. */
+export const NUMERIC_FIELDS: readonly NumericField[] = [
+    "threads",
+    "max_seconds",
+    "silence_ms",
+    "timeout_seconds"
+]
+
+/** The range and the step of one numeric setting, mirroring the core. */
+export function numericBounds(field: NumericField): {
+    minimum: number
+    maximum: number
+    step: number
+    problem: string
+} {
+    switch (field) {
+        case "threads":
+            return { minimum: MIN_THREADS, maximum: MAX_THREADS, step: 1, problem: "whisper-error-threads" }
+        case "max_seconds":
+            return { minimum: MIN_SECONDS, maximum: MAX_SECONDS, step: 1, problem: "whisper-error-seconds" }
+        case "silence_ms":
+            return {
+                minimum: MIN_SILENCE_MS,
+                maximum: MAX_SILENCE_MS,
+                step: 100,
+                problem: "whisper-error-silence"
+            }
+        case "timeout_seconds":
+            return {
+                minimum: MIN_TIMEOUT_SECONDS,
+                maximum: MAX_TIMEOUT_SECONDS,
+                step: 1,
+                problem: "whisper-error-timeout"
+            }
+    }
+}
+
+/** The text each numeric field starts with, from the stored settings. */
+export function numericDrafts(settings: WhisperSettings): Record<NumericField, string> {
+    return {
+        threads: String(settings.threads),
+        max_seconds: String(settings.max_seconds),
+        silence_ms: String(settings.silence_ms),
+        timeout_seconds: String(settings.timeout_seconds)
+    }
+}
+
+/**
+ * The drafts after a poll.
+ *
+ * `editing` is the field the person is in, if any: it keeps what was typed, so
+ * a poll can never take a half-typed or not-yet-saved value away.
+ */
+export function draftsAfterPoll(
+    drafts: Record<NumericField, string>,
+    editing: NumericField | null,
+    settings: WhisperSettings
+): Record<NumericField, string> {
+    const stored = numericDrafts(settings)
+    const next = { ...drafts }
+    for (const field of NUMERIC_FIELDS) {
+        if (field === editing) continue
+        next[field] = stored[field]
+    }
+    return next
+}
+
+/** The typed text as a value, or the key of the range it is outside of. */
+export function parseNumericDraft(
+    field: NumericField,
+    raw: string
+): { value: number } | { problem: string } {
+    const { minimum, maximum, problem } = numericBounds(field)
+    const trimmed = raw.trim()
+    if (trimmed === "") return { problem }
+    const value = Number(trimmed)
+    if (!Number.isFinite(value)) return { problem }
+    const rounded = Math.round(value)
+    if (rounded < minimum || rounded > maximum) return { problem }
+    return { value: rounded }
+}
+
+/** Whether a field's draft differs from what the document holds. */
+export function isDirty(
+    field: NumericField,
+    drafts: Record<NumericField, string>,
+    settings: WhisperSettings
+): boolean {
+    return drafts[field] !== numericDrafts(settings)[field]
+}
+
 /** Characters in a transcript, for the counter next to the box. */
 export function transcriptLength(transcript: Transcript): number {
     return cleanedTranscript(transcript).length

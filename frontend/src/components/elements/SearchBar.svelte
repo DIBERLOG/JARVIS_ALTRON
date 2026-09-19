@@ -1,16 +1,25 @@
 <script lang="ts">
-    import { translations, translate, isJarvisRunning, ipcConnected, sendTextCommand } from "@/stores"
+    import { translations, translate, isJarvisRunning, ipcConnected, sendTextCommand, commandDraft } from "@/stores"
     
     $: t = (key: string) => translate($translations, key)
     
-    let searchQuery = ""
+    const searchQuery = commandDraft
     let isProcessing = false
     let statusMessage = ""
+    let inputEl: HTMLInputElement
+
+    // The dictation panel can put a transcript here. The field takes the focus so
+    // the text is where the person is looking; nothing is sent by that.
+    commandDraft.subscribe((value) => {
+        if (value && inputEl) {
+            inputEl.focus()
+        }
+    })
 
     async function handleSubmit(e: Event) {
         e.preventDefault()
         
-        const command = searchQuery.trim()
+        const command = $searchQuery.trim()
         if (!command || isProcessing) return
         
         if (!$isJarvisRunning || !$ipcConnected) {
@@ -24,7 +33,7 @@
 
         try {
             await sendTextCommand(command)
-            searchQuery = ""
+            $searchQuery = ""
         } catch (err) {
             console.error("Failed to send command:", err)
             statusMessage = t('search-error-failed')
@@ -36,15 +45,16 @@
 
     function handleKeydown(e: KeyboardEvent) {
         if (e.key === "Escape") {
-            searchQuery = ""
+            $searchQuery = ""
         }
     }
 </script>
 
-<div id="search-form" class="search" class:active={searchQuery !== ""} class:processing={isProcessing}>
+<div id="search-form" class="search" class:active={$searchQuery !== ""} class:processing={isProcessing}>
     <form on:submit={handleSubmit}>
         <input
-            bind:value={searchQuery}
+            bind:this={inputEl}
+            bind:value={$searchQuery}
             on:keydown={handleKeydown}
             type="text"
             name="q"

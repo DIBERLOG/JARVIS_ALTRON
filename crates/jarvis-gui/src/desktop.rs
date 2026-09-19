@@ -35,6 +35,10 @@ pub const TRAY_ID: &str = "jarvis-main";
 pub const CLOSE_REQUESTED_EVENT: &str = "desktop-close-requested";
 /// Event the window receives when the tray menu changed the state underneath it.
 pub const STATE_CHANGED_EVENT: &str = "desktop-state-changed";
+/// Event the window receives when a dictation that the tray started produced a
+/// transcript. The event carries nothing: the text stays in the session and is
+/// fetched by the panel, so a transcript never travels as an event payload.
+pub const WHISPER_TRANSCRIPT_EVENT: &str = "whisper-transcript-ready";
 
 /// The shell, shared by the tray, the close handler, and the commands.
 pub struct DesktopHandle {
@@ -460,6 +464,11 @@ fn start_dictation(app: &AppHandle) {
         log::warn!("desktop: dictation is not possible ({code})");
         return;
     }
+    // The result belongs to the window, whether the recording was started from
+    // the tray or from the panel: the worker keeps the handle so it can hand the
+    // transcript over. Discarding it here was the defect — the tray started the
+    // dictation, the model produced the text, and nothing ever showed it.
+    let app_handle = app.clone();
     match audio.begin(MicrophoneState::WhisperDictation) {
         Ok(ticket) => {
             // The transcription runs on a worker: the tray must not freeze while
@@ -489,7 +498,28 @@ fn start_dictation(app: &AppHandle) {
                     session.dictate(&mut source)
                 }));
                 match outcome {
-                    Ok(Ok(_)) => {}
+                    Ok(Ok(transcript)) => {
+                        // The one place the text goes: the panel's own state,
+                        // which it polls and which survives a page switch.
+                        let delivered = match app_handle.try_state::<AppState>() {
+                            Some(state) => {
+                                let characters = transcript.text.chars().count();
+                                state.whisper.remember(transcript);
+                                log::info!(
+                                    "whisper: stage=result_delivered characters={characters} source=tray"
+                                );
+                                true
+                            }
+                            None => false,
+                        };
+                        if delivered {
+                            // The window shows it at once instead of at the next
+                            // poll; the text itself is not in the event.
+                            let _ = app_handle.emit(WHISPER_TRANSCRIPT_EVENT, ());
+                        } else {
+                            log::warn!("whisper: stage=result_delivered error_code=storage");
+                        }
+                    }
                     Ok(Err(error)) => log::warn!(
                         "desktop: dictation failed: {} ({})",
                         error.code(),
