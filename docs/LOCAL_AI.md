@@ -137,7 +137,8 @@ The client sends `POST /v1/chat/completions` with `Accept: text/event-stream`, `
 `User-Agent: JARVIS-Altront-local-ai`, `Content-Type: application/json`, and a `Content-Length`
 body. The body carries exactly `model`, `messages`, `stream`, `max_tokens`, `temperature`, `top_p`,
 and optionally `chat_template_kwargs` and `stream_options`. A test asserts that no
-credential-shaped field or header is ever sent.
+credential-shaped field or header is ever sent. The messages themselves are built by the memory
+context builder when memory is available (see "Chat panel and AI memory" below).
 
 `SseParser` implements the parts of Server-Sent Events that matter: `data:` lines are accumulated
 (multiple lines joined with newlines, one leading space stripped), `event:` names are kept, and
@@ -188,6 +189,36 @@ same time yields `ChunkOutcome::TokenAndThinking`, and the gateway emits the rea
 then the answer event, so neither half is lost. `reasoning_field_observed` records that such a field
 has been seen at least once.
 
+## Chat panel and AI memory
+
+`LocalChat.svelte` is the chat surface of the encrypted local AI memory (`docs/AI_MEMORY.md`). When
+memory is on, the settings say history is stored, and the shared encrypted storage is unlocked, the
+panel writes exactly two things: the **visible user question** (`memory_append_user_message`) and
+the **visible final answer** (`memory_append_assistant_message`). Reasoning is never stored:
+`MessagePayload` has no field for a thinking channel, the panel's collapsible reasoning block is
+display only, and the answer that is written is the visible text only.
+
+The request context comes from the memory context builder when it is available
+(`memory_build_context`, which returns the `ContextPlanView` the panel then passes to
+`local_ai_generate`), and from the panel's own local view of the current chat otherwise. The plan
+never contains the system prompt: the gateway adds it from the profile, so the panel cannot
+replace it.
+
+* A **cancelled** answer is stored only on request: the partial text appears with a "keep partial"
+  action, and `memory_append_assistant_message` is called with `MessageStatus::Cancelled` and
+  `partial: true` only after the user asks to keep it
+  (`KEEP_PARTIAL_ANSWER_DEFAULT = false`).
+* A **failed** answer stores nothing: `finishAnswer` records `failed` in the local view and
+  refreshes the memory status, but a failed generation is never written as a completed answer.
+* A question that could not be stored is reported with the `memory-not-saved` notice, and the chat
+  continues locally: storage failure never blocks a generation.
+* Summaries and memory candidates are produced after the answer is stored, and only when the
+  settings allow them (`auto_summaries`, `suggest_facts`); a candidate is `Pending` until the user
+  approves it and picks its scope.
+
+While the storage is locked, the panel shows the storage gate instead of conversation memory and
+does not attempt a write.
+
 ## Settings
 
 Defaults are conservative: host `127.0.0.1`, port `8080`, context `8192` tokens, `cpu_threads` `0`,
@@ -235,6 +266,10 @@ npm run test:ui    # node --test tests/**/*.test.mjs
 cargo check --workspace
 cargo test --workspace
 cargo clippy --workspace
+
+# AI memory, separately: the store over real files and the vault boundary
+cargo test -p jarvis-core --test memory_storage
+cargo test -p jarvis-core --test vault_ai_isolation
 ```
 
 To try it end to end you need your own `llama-server.exe` (from a llama.cpp Windows release) and
@@ -259,8 +294,11 @@ process runner. Point the settings page at both files, start the server, and wai
   unusual server build.
 * Only one generation runs per gateway at a time, and "stop" flags the stream rather than
   guaranteeing the server aborts the request.
-* The conversation is not persisted, summarised, or sent anywhere else. There is no tool surface,
-  no memory, and no context-window management: exceeding the context size is left to llama.cpp.
+* The conversation is only persisted through the encrypted AI memory, and only while memory is
+  enabled and the storage is unlocked (`docs/AI_MEMORY.md`); with memory off, nothing is stored
+  anywhere. There is still no tool surface: model output is never executed. Context-window
+  management exists only on the memory path, and the token budget there is an estimate, so a
+  request can still exceed the real window.
 * Errors are content-free by design, which also means a diagnosis is often just a status code plus
   the bounded stderr tail.
 * The runtime is Windows-specific in its process handling (`CREATE_NO_WINDOW`), and

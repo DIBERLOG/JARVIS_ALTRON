@@ -98,3 +98,82 @@ native binary the application does not attest; the loopback rule protects the
 endpoint from the network, not from another local process that connects to the
 port while the server runs; and a generation cancellation sets a flag, so a
 server that keeps computing after the client disconnects is not interrupted.
+
+## AI memory
+
+Encrypted local AI memory (`docs/AI_MEMORY.md`) reuses the local-first storage
+stack with its own derived key and its own database. These rules are enforced in
+code and covered by tests:
+
+* **A separate derived key and a separate database.** `KeyPurpose::AiMemory`
+  derives `JARVIS/ai-memory/v1` by HKDF from the same master key as
+  `JARVIS/notes/v1` and `JARVIS/vault/v1`, and the store lives in
+  `ai-memory.sqlite3` next to `sync.sqlite3` and `vault.sqlite3`. The store is
+  built from a `PurposeKeyProvider` that holds only the derived memory key, so the
+  memory layer never receives the master key, and journals, cursors, and entity
+  types never mix. In `crates/jarvis-core/tests/memory_storage.rs`,
+  `memory_notes_and_vault_live_in_separate_files_with_separate_keys`
+  asserts that the three files differ, that the memory journal carries only entity
+  types where `is_ai_memory()` is true, and that a notes or vault key fails to
+  decrypt a memory payload.
+* **No memory plaintext in the database, the WAL, or the journal.**
+  `no_memory_plaintext_reaches_the_database_the_wal_or_the_journal` writes a
+  conversation title, a question, an answer, a summary, and a fact, checkpoints,
+  and then scans the database file, the `-wal`, and the `-shm` bytes plus every
+  text column and payload blob of `sync_entities`, `sync_operations`, and
+  `sync_conflicts`. None of the five content markers may appear. The only values
+  the storage contract allows SQLite to keep in the clear are technical metadata:
+  entity id, entity type, revision, server sequence, device id, tombstone flag,
+  schema version, timestamps, and ciphertext length.
+* **The secret filter is a gate, and only a heuristic.**
+  `crates/jarvis-core/src/memory/redaction.rs` recognizes private-key headers,
+  provider token prefixes, JWTs by structure, recovery codes, password
+  assignments, long high-entropy tokens, and Luhn-valid card numbers. It blocks
+  automatic paths (summaries, candidates, imports) and asks for an explicit
+  confirmation on manual paths (`memory_create_fact`, `memory_update_fact`,
+  `memory_approve_candidate`), and a `SecretFinding` carries only kind, span,
+  line, and rule, so the matched value cannot reach a log, a dialog, an error
+  message, or the model. It is **not complete**: it has documented false positives
+  (a hex digest is reported on purpose) and it misses a credential written in a
+  shape no rule covers. It reduces the chance of storing a secret; it does not find
+  every secret.
+* **Memory is untrusted data and can never become the system prompt.**
+  `MessageRole` has no `System` variant, the context builder emits only user and
+  assistant messages, and stored facts and summaries are framed as user-level data
+  blocks with `DATA_BLOCK_NOTICE` and defanged delimiters, so a stored fact saying
+  "ignore your rules" stays data inside the block and can never close it early. The
+  system prompt is built by `system_prompt(persona)` in Rust and is only counted
+  against the budget. In `crates/jarvis-core/src/memory/`,
+  `memory_data_never_reaches_the_model_as_a_system_message` (`tests.rs`) and
+  `a_fact_cannot_close_the_data_block_early` (`context.rs`) cover the rule. Memory
+  text never reaches a command executor, `SafetyGate`, Lua, or AutoHotkey, and the
+  model has no tool surface.
+* **No AI access to the password vault.**
+  `crates/jarvis-core/tests/vault_ai_isolation.rs` keeps the boundary
+  architectural: `ai_voice_and_scripting_sources_never_reference_the_vault` scans
+  `src/ai`, `src/lua`, `src/slots`, `src/intent`, `src/listener`, `src/stt`, and
+  `src/commands.rs` for vault identifiers,
+  `the_local_ai_command_module_has_no_storage_handle` scans
+  `crates/jarvis-gui/src/tauri_commands/local_ai.rs` for `vault`, `notes`,
+  `notestore`, `vaultsession`, and `master_key`, and
+  `list_and_detail_payloads_cannot_carry_a_password` asserts that browsing
+  payloads carry a boolean flag rather than secret material. For memory the boundary
+  is checked as a **dependency**, not as a word search:
+  `the_memory_module_has_no_password_store_dependency` scans
+  `crates/jarvis-core/src/memory/` and the memory command module for password-store
+  types, methods, entity types, and database constants, and the memory tests prove it
+  behaviourally: a password record inside the same repository is invisible to the
+  memory store (`a_record_of_another_feature_is_never_read_as_memory`) and a memory
+  payload cannot be decrypted with the notes or vault key. The memory command module
+  reaches the storage through the shared session, which hands it the memory store
+  only.
+* **Reasoning is never stored.** Only the visible question and the visible final
+  answer are written; `MessagePayload` has no field for reasoning or thinking text,
+  and the summarizer requests `ThinkingMode::Disabled` from the gateway. A
+  cancelled answer is stored with `MessageStatus::Cancelled` and `partial: true`
+  only after the interface asks to keep it, and a failed answer stores nothing.
+
+Limits of these controls: the secret filter is heuristic; the token estimate is a
+heuristic; ranking is a linear scan with no index; and memory protection ends at
+the lock, so decrypted text lives in the process while the storage is unlocked.
+`docs/THREAT_MODEL_AI_MEMORY.md` records the residual risk for each threat.
