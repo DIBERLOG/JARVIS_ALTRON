@@ -22,6 +22,8 @@ pub struct AppState {
     pub autocorrect: tauri_commands::AutocorrectHandle,
     pub windows_actions: tauri_commands::WindowsActionsHandle,
     pub whisper: tauri_commands::WhisperHandle,
+    /// The full backup and restore, one operation at a time.
+    pub backup: tauri_commands::BackupHandle,
     /// The ordered exit, built once so a normal exit, a tray exit, and a second
     /// exit request all take the same route and produce the same report.
     pub lifecycle: std::sync::Arc<jarvis_core::lifecycle::LifecycleManager>,
@@ -78,6 +80,10 @@ fn main() {
     // local dictation: a bounded child process the user supplies, and a
     // microphone that is opened only between an explicit start and stop
     let whisper = tauri_commands::WhisperHandle::restore();
+
+    // The full backup and restore. Building it also finishes or undoes a restore
+    // that a crash interrupted, before any store is opened.
+    let backup = tauri_commands::BackupHandle::restore(notes.clone());
 
     // local spelling: dictionaries on disk, the user's own words in the shared
     // session under their own derived key, and an in-memory undo journal that is
@@ -158,6 +164,37 @@ fn main() {
             );
         }
         {
+            // The write-ahead logs are truncated so the next start finds complete
+            // databases. It runs after nothing is writing and before the keys are
+            // dropped, and a busy checkpoint is reported rather than forced.
+            let data_dir = jarvis_core::backup::BackupRoots::production()
+                .map(|roots| roots.data_dir)
+                .ok();
+            manager.add(
+                "checkpoint-databases",
+                std::time::Duration::from_secs(5),
+                move || {
+                    let Some(directory) = data_dir.clone() else {
+                        return Err("the data directory is unknown".to_string());
+                    };
+                    jarvis_core::backup::checkpoint_databases(&directory)
+                        .map(|_| ())
+                },
+            );
+        }
+        {
+            // A restore that is still moving files is stopped at its next safe
+            // point; its journal makes the result recoverable either way.
+            let backup = backup.clone();
+            manager.add_ok(
+                "stop-backup",
+                std::time::Duration::from_secs(5),
+                move || {
+                    backup.shutdown();
+                },
+            );
+        }
+        {
             // The key session is dropped before the window is gone, and the
             // report says whether it worked.
             let vault = vault.clone();
@@ -184,6 +221,7 @@ fn main() {
             autocorrect,
             windows_actions,
             whisper,
+            backup,
             lifecycle: std::sync::Arc::clone(&lifecycle),
         })
         // One instance: a second launch hands the arguments to the copy that is
@@ -427,6 +465,14 @@ fn main() {
             tauri_commands::whisper_cancel,
             tauri_commands::whisper_clear_last,
             tauri_commands::whisper_check_microphone,
+
+            // backup
+            tauri_commands::backup_status,
+            tauri_commands::backup_export,
+            tauri_commands::backup_inspect,
+            tauri_commands::backup_restore,
+            tauri_commands::backup_discard_previous,
+            tauri_commands::backup_delete_safety,
             desktop::whisper_discover,
             desktop::whisper_apply_discovered,
             // the desktop shell: state, close behaviour, autostart, first run

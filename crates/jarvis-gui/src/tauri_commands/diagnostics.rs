@@ -172,6 +172,45 @@ pub fn collect(app: &tauri::AppHandle) -> DiagnosticReport {
         }),
     });
 
+    // ---------------------------------------------------------------- backup
+    // Only safe facts: whether the feature can run, the format version, the last
+    // operation of this process, whether a restore was interrupted, and codes.
+    // Never a path, a password, a key, or the name of anything the person stored.
+    let backup = state.backup.status();
+    report.notes.push(format!(
+        "backup: format_version={} available={} key_envelope={} interrupted_restore={} previous_state={} last_operation={} last_error={}",
+        backup.format_version,
+        backup.available,
+        backup.key_envelope_present,
+        backup.interrupted_restore.as_deref().unwrap_or("none"),
+        backup.previous_state_present,
+        backup.last_operation.as_deref().unwrap_or("none"),
+        backup.last_error_code.as_deref().unwrap_or("none"),
+    ));
+    report.push_component(
+        ComponentHealth::new(
+            "backup",
+            if backup.available {
+                ComponentState::Ready
+            } else {
+                ComponentState::NotConfigured
+            },
+        )
+        .with_detail(if backup.available {
+            format!("backup format version {}", backup.format_version)
+        } else {
+            "no portable key envelope is stored yet, so a backup cannot be made".to_string()
+        }),
+    );
+    report.health_checks.push(HealthCheck {
+        name: "no_interrupted_restore".to_string(),
+        passed: backup.interrupted_restore.is_none(),
+        detail: Some(match backup.interrupted_restore.as_deref() {
+            Some(stage) => format!("a restore was interrupted at {stage}"),
+            None => "no restore is waiting to be finished or undone".to_string(),
+        }),
+    });
+
     // ----------------------------------------------------------------- vosk
     let vosk_root = jarvis_core::APP_DIR.join("resources").join("vosk");
     report.push_component(directory_health(
