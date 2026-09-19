@@ -1425,3 +1425,29 @@ voice-host-state-crashed = Голосовий хост несподівано з
 voice-host-start = Запустити
 voice-host-stop = Зупинити
 voice-host-hint = Слухач працює окремим процесом, тому продовжує слухати, коли вікно приховано в треї.
+# ---------------------------------------------------------------- phrase check
+# What a phrase would reach, without reaching it. The phrase is not logged and not
+# stored; the voice host answers with the command identifier and the reason.
+phrase-check-title = Перевірити фразу
+phrase-check-hint = Показує, яку команду отримає фраза. Нічого не виконується, програми не запускаються, фраза не зберігається і не пишеться до журналу.
+phrase-check-placeholder = Джарвіс, яка погода в Києві
+phrase-check-run = Перевірити фразу без виконання
+phrase-check-normalized = Як бачить розпізнавач
+phrase-check-matched = Команда
+phrase-check-nothing = Команду не знайдено
+phrase-check-slots = Слоти
+phrase-check-none = немає
+phrase-check-reason-empty = Порожня фраза: перевіряти нічого.
+phrase-check-reason-no_commands = Набори команд не завантажені.
+phrase-check-reason-no_match = Жодна команда не підійшла достатньо близько.
+
+# The stages a spoken phrase passed, for the diagnostics on the commands page.
+command-stages-title = Останні етапи розпізнавання
+command-stages-empty = Поки нічого не розпізнано.
+command-stage-listener_received_phrase = Фразу отримано
+command-stage-wake_word_detected = Пошук слова-активатора
+command-stage-normalized_length = Довжина після нормалізації
+command-stage-command_match = Зіставлення з командою
+command-stage-rejection_code = Відмова
+command-stage-execution_started = Запуск команди
+command-stage-execution_result = Результат

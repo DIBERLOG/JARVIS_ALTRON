@@ -87,6 +87,35 @@ export interface VoiceInputNotice {
     characters: number
 }
 
+/** What a phrase would reach, without reaching it. */
+export interface PhraseCheckView {
+    /** The phrase as the matcher sees it: lower case, `ё` folded, wake word removed. */
+    normalized: string
+    /** The command a phrase would reach, by identifier; null when nothing matched. */
+    matched: string | null
+    /** How close the best candidate was, as a whole percentage. */
+    score: number
+    /** The slots the matched command declares, by name. */
+    slots: string[]
+    /** A stable reason when nothing matched: empty, no_commands, no_match. */
+    reason: string | null
+}
+
+export const phraseCheckApi = {
+    /**
+     * Asks what a phrase would do. Nothing is executed, no program is started, and
+     * the phrase is not stored: the voice host answers with the command identifier,
+     * the slots it needs and the reason nothing matched.
+     */
+    check: (phrase: string) =>
+        invoke<PhraseCheckView>("check_phrase_without_running", { phrase })
+}
+
+/** The Fluent key of a reason a phrase was not accepted. */
+export function phraseReasonKey(reason: string | null | undefined): string {
+    return `phrase-check-reason-${reason ?? "no_match"}`
+}
+
 export const voiceInputApi = {
     /** The state, the settings and the last failure. */
     status: () => invoke<VoiceInputView>("voice_input_status"),

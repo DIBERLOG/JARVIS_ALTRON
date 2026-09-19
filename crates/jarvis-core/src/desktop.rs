@@ -31,7 +31,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// Both processes read it, and the window reports a mismatch as
 /// incompatible_version instead of showing a listener that answers nothing.
-pub const VOICE_PROTOCOL_VERSION: u32 = 1;
+/// It is raised when an event or an action changes shape: the command
+/// diagnostics (`command_diagnostic`) are why it is 2.
+pub const VOICE_PROTOCOL_VERSION: u32 = 2;
 
 pub const DESKTOP_SETTINGS_FILE: &str = "desktop.json";
 /// Schema version of the desktop settings document.

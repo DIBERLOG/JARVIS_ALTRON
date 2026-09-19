@@ -17,7 +17,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
 
-use crate::should_stop;
+use crate::{diag, should_stop};
 
 static SAFETY_GATE: Lazy<Mutex<SafetyGate>> = Lazy::new(|| Mutex::new(SafetyGate::default()));
 
@@ -232,7 +232,9 @@ fn recognize_command(
             VadState::VoiceActive => {
                 // feed to STT
                 if let Some(mut recognized_voice) = stt::recognize(frame_buffer, false) {
-                    info!("Recognized voice: {}", recognized_voice);
+                    // The transcript is a person's speech. It is not written to the
+                    // log: what is written is its length, on the diagnostic stage.
+                    diag::received(recognized_voice.chars().count());
 
                     ipc::send(IpcEvent::SpeechRecognized {
                         text: recognized_voice.clone(),
@@ -261,6 +263,7 @@ fn recognize_command(
                     // check if wake word repeated (reactivate)
                     let wake_phrases = config::get_wake_phrases(&i18n::get_language());
                     let contains_wake = wake_phrases.iter().any(|wp| recognized_voice.contains(wp));
+                    diag::wake_word(contains_wake, recognized_voice.chars().count());
 
                     if contains_wake {
                         // strip the wake word
@@ -297,7 +300,10 @@ fn recognize_command(
                             continue;
                         } else {
                             // wake word + command in one phrase - execute the command part
-                            info!("Wake word + command during chaining: '{}'", remaining);
+                            info!(
+                                "Wake word and command in one phrase (length={})",
+                                remaining.chars().count()
+                            );
                             recognized_voice = remaining.to_string();
                             // fall through to command execution below
                         }
@@ -315,12 +321,16 @@ fn recognize_command(
 
                     recognized_voice = recognized_voice.trim().to_string();
 
-                    if recognized_voice.len() < 5 {
-                        debug!("Ignoring too short recognition: '{}'", recognized_voice);
+                    // The order matters: nothing left after the wake word and the
+                    // filler words is a different answer from a short phrase, and the
+                    // diagnostic says which of the two happened.
+                    if recognized_voice.is_empty() {
+                        diag::rejection("empty_after_strip", 0);
                         continue;
                     }
 
-                    if recognized_voice.is_empty() {
+                    if recognized_voice.chars().count() < 5 {
+                        diag::rejection("too_short", recognized_voice.chars().count());
                         continue;
                     }
 
@@ -369,7 +379,7 @@ fn recognize_command(
 }
 
 fn process_text_command(text: &str, rt: &tokio::runtime::Runtime) {
-    info!("Processing text command: {}", text);
+    info!("Processing text command (length={})", text.chars().count());
 
     ipc::send(IpcEvent::SpeechRecognized {
         text: text.to_string(),
@@ -396,15 +406,30 @@ fn process_text_command(text: &str, rt: &tokio::runtime::Runtime) {
 
 // Execute command, returns true if chaining should continue
 fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
+    // One normalizer, the same one the settings page uses when it is asked what a
+    // phrase would do: lower case, `ё` folded, punctuation dropped, the wake word
+    // and the comma after it removed. It is used for *matching only*. The phrase
+    // itself is what goes to the executor, so a slot value keeps the letters the
+    // person said instead of the ones the matcher compared.
+    let normalized = commands::normalize_phrase(text);
+    diag::normalized(normalized.chars().count());
+    if normalized.is_empty() {
+        diag::rejection("empty_after_strip", 0);
+        ipc::send(IpcEvent::Idle);
+        return false;
+    }
+
     // The safe actions come first: a phrase they understand is theirs, and a phrase they do not
     // understand falls through to the configured commands, which are unchanged.
-    if let Some(handled) = try_windows_action(text) {
+    let mut unclear: Option<&'static str> = None;
+    if let Some(handled) = try_windows_action(&normalized, &mut unclear) {
         return handled;
     }
 
     let commands_list = match COMMANDS_LIST.get() {
         Some(c) => c,
         None => {
+            diag::rejection("no_commands", normalized.chars().count());
             ipc::send(IpcEvent::Error {
                 message: "Commands not loaded".to_string(),
             });
@@ -413,7 +438,7 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
         }
     };
 
-    match text {
+    match normalized.as_str() {
         "отмена" | "cancel" => {
             let message = if matches!(SAFETY_GATE.lock().cancel(), ConfirmationResult::Cancelled) {
                 "Действие отменено"
@@ -456,30 +481,56 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
         _ => {}
     }
 
-    let cmd_result = if let Some((intent_id, confidence)) = rt.block_on(intent::classify(text)) {
-        info!(
-            "Intent recognized: {} (confidence: {:.2})",
-            intent_id, confidence
-        );
-        intent::get_command_by_intent(commands_list, &intent_id)
-    } else {
-        info!("Intent not recognized, trying levenshtein fallback...");
-        commands::fetch_command(text, commands_list)
+    // The AI intent is asked first, and the phrase matcher is the answer when the
+    // AI has none — *and* when the AI names a command that is not in the loaded
+    // packs. That second case used to end the search: a confident intent whose id
+    // no longer exists (a stale training cache, a pack that was edited) left the
+    // deterministic matcher unasked, and a phrase the packs understand was
+    // reported as not found. A named command that cannot be resolved is not an
+    // answer.
+    let normalized_length = normalized.chars().count();
+    let from_intent = match rt.block_on(intent::classify(&normalized)) {
+        Some((intent_id, confidence)) => {
+            info!(
+                "Intent recognized: {} (confidence: {:.2})",
+                intent_id, confidence
+            );
+            match intent::get_command_by_intent(commands_list, &intent_id) {
+                Some(found) => Some(found),
+                None => {
+                    info!(
+                        "Intent '{}' does not name a loaded command, using the phrase matcher",
+                        intent_id
+                    );
+                    None
+                }
+            }
+        }
+        None => {
+            info!("Intent not recognized, using the phrase matcher");
+            None
+        }
+    };
+    let cmd_result = match from_intent {
+        Some(found) => Some(found),
+        None => commands::fetch_command(&normalized, commands_list),
     };
 
     if let Some((cmd_path, cmd_config)) = cmd_result {
-        info!("Command found: {:?}", cmd_path);
+        diag::matched(&cmd_config.id, normalized_length);
         match SAFETY_GATE
             .lock()
             .request(&cmd_config.id, cmd_config.risk_level, Instant::now())
         {
             GateDecision::Approved => {}
             GateDecision::AwaitingConfirmation { .. } => {
+                diag::rejection("awaiting_confirmation", normalized_length);
                 ipc::send(IpcEvent::Error { message: "Это действие требует подтверждения. Скажите «подтверждаю» в течение 15 секунд или «отмена».".into() });
                 ipc::send(IpcEvent::Idle);
                 return false;
             }
             GateDecision::RejectedForbidden => {
+                diag::rejection("forbidden", normalized_length);
                 ipc::send(IpcEvent::Error {
                     message: "Это действие запрещено политикой безопасности".into(),
                 });
@@ -492,19 +543,20 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
         let extracted_slots = if !cmd_config.slots.is_empty() {
             let s = slots::extract(text, &cmd_config.slots);
             if !s.is_empty() {
-                info!("Extracted slots: {:?}", s);
+                info!("Extracted {} slot(s)", s.len());
             }
             Some(s)
         } else {
             None
         };
 
+        diag::started(&cmd_config.id, normalized_length);
         return execute_resolved_command(&cmd_path, &cmd_config, text, extracted_slots.as_ref());
     } else {
-        info!("No command found for: {}", text);
+        diag::rejection(unclear.unwrap_or("no_match"), normalized_length);
         voices::play_not_found();
         ipc::send(IpcEvent::Error {
-            message: format!("Command not found: {}", text),
+            message: "Command not found".to_string(),
         });
     }
     ipc::send(IpcEvent::Idle);
@@ -513,10 +565,19 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
 
 /// Routes one phrase through the safe actions.
 ///
-/// Returns `Some(false)` when the phrase belonged to this feature — whether it ran, is waiting
-/// for a confirmation, or was refused — and `None` when it did not, so the caller can try the
-/// configured commands. Nothing is guessed at: an unclear phrase is reported as unclear.
-fn try_windows_action(text: &str) -> Option<bool> {
+/// Returns `Some(false)` when the phrase belonged to this feature — whether it ran or is waiting
+/// for a confirmation — and `None` when it did not, so the caller can try the configured
+/// commands.
+///
+/// An *unclear* answer also returns `None`, and that is deliberate. It used to be reported and
+/// returned straight away, which meant the safe-action router answered for phrases it had not
+/// acted on: "открой браузер" was recognised as a launch, found no allowed application, and the
+/// configured `browser_open` command was never consulted — the ordinary commands looked broken
+/// while the router was only undecided. Nothing is executed on this path, so falling through
+/// costs nothing and cannot run the wrong thing: the reason is kept in `unclear` and is reported
+/// only if the configured commands have no answer either. A phrase the router *did* act on, or
+/// refused, or that answers a pending confirmation, is still final.
+fn try_windows_action(text: &str, unclear: &mut Option<&'static str>) -> Option<bool> {
     let session = WINDOWS_ACTIONS.as_ref()?;
     let lowered = text.trim().to_lowercase();
 
@@ -568,15 +629,23 @@ fn try_windows_action(text: &str) -> Option<bool> {
             ipc::send(IpcEvent::Idle);
             Some(false)
         }
-        // The phrase was an action the router could not decide. It is reported, and it does not
-        // fall through to the command list, where a wrong guess would be worse.
-        Ok(VoiceRoute::Ambiguous { .. }) => {
-            voices::play_not_found();
-            ipc::send(IpcEvent::Error {
-                message: "Не понял, какое действие имеется в виду".to_string(),
+        // The phrase was an action the router could not decide. Nothing ran, so the
+        // configured commands get their turn; the reason waits in `unclear` in case
+        // they have no answer either.
+        Ok(VoiceRoute::Ambiguous { reason }) => {
+            *unclear = Some(match reason.as_str() {
+                "windows-voice-application-not-allowed" => "action_application_not_allowed",
+                "windows-voice-application-ambiguous" => "action_application_ambiguous",
+                "windows-voice-launch-unspecified" => "action_launch_unspecified",
+                "windows-voice-window-not-found" => "action_window_not_found",
+                "windows-voice-window-ambiguous" => "action_window_ambiguous",
+                "windows-voice-window-unspecified" => "action_window_unspecified",
+                "windows-voice-move-unclear" => "action_move_unclear",
+                "windows-voice-volume-unclear" => "action_volume_unclear",
+                "windows-voice-no-foreground-window" => "action_no_foreground_window",
+                _ => "action_unclear",
             });
-            ipc::send(IpcEvent::Idle);
-            Some(false)
+            None
         }
         Ok(VoiceRoute::NotAnAction) | Ok(VoiceRoute::Disabled) | Err(_) => None,
     }
@@ -624,6 +693,7 @@ fn execute_resolved_command(
     match commands::execute_command(cmd_path, cmd_config, Some(text), slots) {
         Ok(chain) => {
             info!("Command executed successfully");
+            diag::finished(&cmd_config.id, true, None, text.chars().count());
             // voices::play_ok();
             voices::play_random_from(cmd_config.get_sounds(&i18n::get_language()).as_slice());
             ipc::send(IpcEvent::CommandExecuted {
@@ -635,6 +705,12 @@ fn execute_resolved_command(
         }
         Err(msg) => {
             error!("Error executing command: {}", msg);
+            diag::finished(
+                &cmd_config.id,
+                false,
+                Some("execution_failed"),
+                text.chars().count(),
+            );
             voices::play_error();
             ipc::send(IpcEvent::CommandExecuted {
                 id: cmd_config.id.clone(),

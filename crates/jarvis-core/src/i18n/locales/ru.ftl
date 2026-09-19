@@ -1425,3 +1425,29 @@ voice-host-state-crashed = Голосовой хост неожиданно за
 voice-host-start = Запустить
 voice-host-stop = Остановить
 voice-host-hint = Слушатель работает отдельным процессом, поэтому продолжает слушать, когда окно скрыто в трее.
+# ---------------------------------------------------------------- phrase check
+# What a phrase would reach, without reaching it. The phrase is not logged and not
+# stored; the voice host answers with the command identifier and the reason.
+phrase-check-title = Проверить фразу
+phrase-check-hint = Показывает, какую команду получит фраза. Ничего не выполняется, программы не запускаются, фраза не сохраняется и не пишется в журнал.
+phrase-check-placeholder = Джарвис, какая погода в Москве
+phrase-check-run = Проверить фразу без выполнения
+phrase-check-normalized = Как видит распознаватель
+phrase-check-matched = Команда
+phrase-check-nothing = Команда не найдена
+phrase-check-slots = Слоты
+phrase-check-none = нет
+phrase-check-reason-empty = Пустая фраза: проверять нечего.
+phrase-check-reason-no_commands = Наборы команд не загружены.
+phrase-check-reason-no_match = Ни одна команда не подошла достаточно близко.
+
+# The stages a spoken phrase passed, for the diagnostics on the commands page.
+command-stages-title = Последние этапы распознавания
+command-stages-empty = Пока ничего не распознано.
+command-stage-listener_received_phrase = Фраза получена
+command-stage-wake_word_detected = Поиск слова-активатора
+command-stage-normalized_length = Длина после нормализации
+command-stage-command_match = Сопоставление с командой
+command-stage-rejection_code = Отказ
+command-stage-execution_started = Запуск команды
+command-stage-execution_result = Результат

@@ -377,7 +377,8 @@ mod tests {
         // The state function, on the facts a process can report. `listening` is
         // impossible without a version, and a version that differs is its own
         // word rather than a broken listener.
-        assert_eq!(jarvis_core::desktop::VOICE_PROTOCOL_VERSION, 1);
+        // It is 2 because the command diagnostics added an event to the channel.
+        assert_eq!(jarvis_core::desktop::VOICE_PROTOCOL_VERSION, 2);
         let hello = jarvis_core::desktop::VOICE_PROTOCOL_VERSION;
         assert_ne!(hello, 99);
         // The window records what it hears, and only a matching version is usable.

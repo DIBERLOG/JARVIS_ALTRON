@@ -1,6 +1,7 @@
 import { writable, get } from "svelte/store"
 import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
+import { noteCommandStage } from "@/stores"
 
 // ### IPC STORES ###
 
@@ -117,12 +118,28 @@ export function disconnectIpc() {
 // ### EVENT HANDLING ###
 
 function handleEvent(data: any) {
-    console.log("IPC: Event", data.event, data)
+    // Only the name of the event is written to the console. A payload can be a
+    // transcript, and a transcript is what a person said: it does not belong in a
+    // log, in the console, or anywhere it outlives the phrase.
+    console.log("IPC: Event", data.event)
 
     switch (data.event) {
         case "wake_word_detected":
         case "listening":
             jarvisState.set("listening")
+            break
+
+        // Where a spoken phrase went, without the phrase: the stage, the length of
+        // the text the matcher saw, a reason code and a command id. Kept in memory
+        // for the last twenty stages and shown on the commands page.
+        case "command_diagnostic":
+            noteCommandStage({
+                stage: String(data.stage ?? ""),
+                length: Number(data.length ?? 0),
+                code: data.code ?? null,
+                command_id: data.command_id ?? null,
+                success: typeof data.success === "boolean" ? data.success : null
+            })
             break
 
         // The handshake: only a host that introduced itself with the version

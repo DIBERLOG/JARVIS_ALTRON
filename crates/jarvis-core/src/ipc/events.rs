@@ -21,16 +21,23 @@ pub enum IpcEvent {
     Listening,
 
     // Speech recognized
-    SpeechRecognized { text: String },
+    SpeechRecognized {
+        text: String,
+    },
 
     // Command was executed
-    CommandExecuted { id: String, success: bool },
+    CommandExecuted {
+        id: String,
+        success: bool,
+    },
 
     // Returned to idle state
     Idle,
 
     // Error occurred
-    Error { message: String },
+    Error {
+        message: String,
+    },
 
     // App started
     Started,
@@ -39,7 +46,9 @@ pub enum IpcEvent {
     // connects. This is the handshake the window waits for before it calls the
     // listener ready: a process that is running but has not said hello is not a
     // listener yet, and one that says another version is not a usable one.
-    Hello { protocol_version: u32 },
+    Hello {
+        protocol_version: u32,
+    },
 
     // App is shutting down
     Stopping,
@@ -49,6 +58,18 @@ pub enum IpcEvent {
 
     // request GUI to reveal/focus window
     RevealWindow,
+
+    // One stop of one spoken phrase on its way through the listener, with no
+    // transcript in it: a stage name, the length of the text the matcher saw, a
+    // reason code, a command id and an outcome. A phrase that is not accepted is
+    // answered here instead of only in a log line that quotes it.
+    CommandDiagnostic {
+        stage: String,
+        length: usize,
+        code: Option<String>,
+        command_id: Option<String>,
+        success: Option<bool>,
+    },
 
     // The listener recognised the global voice input phrase and has given the
     // microphone up. The event carries no transcript: the window process runs

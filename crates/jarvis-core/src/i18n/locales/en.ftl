@@ -1432,3 +1432,29 @@ voice-host-state-crashed = The voice host stopped unexpectedly
 voice-host-start = Start
 voice-host-stop = Stop
 voice-host-hint = The listener runs in its own process so it keeps working while this window is hidden in the tray.
+# ---------------------------------------------------------------- phrase check
+# What a phrase would reach, without reaching it. The phrase is not logged and not
+# stored; the voice host answers with the command identifier and the reason.
+phrase-check-title = Check a phrase
+phrase-check-hint = Shows which command a phrase would reach. Nothing is executed, no program is started, and the phrase is not stored or written to the log.
+phrase-check-placeholder = Jarvis, what is the weather in London
+phrase-check-run = Check the phrase without running it
+phrase-check-normalized = As the recognizer sees it
+phrase-check-matched = Command
+phrase-check-nothing = No command found
+phrase-check-slots = Slots
+phrase-check-none = none
+phrase-check-reason-empty = The phrase is empty: there is nothing to check.
+phrase-check-reason-no_commands = No command packs are loaded.
+phrase-check-reason-no_match = No command was close enough.
+
+# The stages a spoken phrase passed, for the diagnostics on the commands page.
+command-stages-title = The last stages of recognition
+command-stages-empty = Nothing has been recognized yet.
+command-stage-listener_received_phrase = Phrase received
+command-stage-wake_word_detected = Wake word looked for
+command-stage-normalized_length = Length after normalization
+command-stage-command_match = Matched against a command
+command-stage-rejection_code = Refused
+command-stage-execution_started = Command started
+command-stage-execution_result = Result

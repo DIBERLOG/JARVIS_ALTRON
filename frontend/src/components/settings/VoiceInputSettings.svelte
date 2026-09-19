@@ -15,6 +15,7 @@
     import { translate, translations } from "@/stores"
     import { voiceInputApi, isRunning, stageKey, startProblem } from "@/lib/voice-input"
     import type { VoiceInputSettings, VoiceInputView } from "@/lib/voice-input"
+    import PhraseCheck from "@/components/settings/PhraseCheck.svelte"
 
     $: t = (key: string) => translate($translations, key)
 
@@ -323,6 +324,9 @@
     <Text size="xs" color="dimmed">{t("voice-input-ctrl-v")}</Text>
     <Space h="sm" />
 {/if}
+
+<PhraseCheck />
+<Space h="sm" />
 
 <style>
     .field {

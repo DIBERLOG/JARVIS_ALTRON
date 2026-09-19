@@ -47,6 +47,30 @@ export const assistantVoice = writable("")
  */
 export const commandDraft = writable("")
 
+/**
+ * The last stages a spoken phrase passed, newest first.
+ *
+ * One entry per safe diagnostic the voice host sends: the stage name, the length
+ * of the text the matcher saw, a reason code, a command id and an outcome. There
+ * is no transcript in an entry and nothing here is persisted — it is a short
+ * in-memory ring, so "why was my command not accepted" has an answer that does not
+ * involve reading a log.
+ */
+export interface CommandStageEntry {
+    stage: string
+    length: number
+    code: string | null
+    command_id: string | null
+    success: boolean | null
+}
+
+export const commandStages = writable<CommandStageEntry[]>([])
+
+/** Keeps the last stages, newest first, and never grows without a bound. */
+export function noteCommandStage(entry: CommandStageEntry) {
+    commandStages.update((entries) => [entry, ...entries].slice(0, 20))
+}
+
 // ### APP INFO
 export const appInfo = writable({
     tgOfficialLink: "",

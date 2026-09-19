@@ -133,6 +133,54 @@ A settings document that a person or a version got wrong is repaired by
 unknown language becomes `auto`, and the clipboard timeout is clamped into the
 range the vault's clipboard guard already enforces.
 
+## Command diagnostics and the phrase checker
+
+"Ordinary commands are not accepted" had three causes, and all three are fixed
+and covered by tests:
+
+1. **A slot-bearing phrase could not match.** `какая погода в {city}` was compared
+   literally, placeholder and all, so the score never reached
+   `CMD_RATIO_THRESHOLD` (75) and the weather command was unreachable by voice.
+   The placeholder now stands for any run of spoken words — one for `Москве`, two
+   for `Нижнем Новгороде`, none when the value is left out — and the rest of the
+   phrase is compared with the same score and the same threshold.
+2. **An unclear safe action ended the search.** The Windows-action router ran
+   before the command packs and answered for phrases it had not acted on:
+   `открой браузер` was recognised as a launch, found no allowed application, and
+   the configured `browser_open` command was never consulted. An `Ambiguous`
+   answer now falls through to the packs, and its reason is reported only if the
+   packs have no answer either. Nothing was executed on that path, so falling
+   through cannot run the wrong thing.
+3. **A confident AI intent that named nothing ended the search.** If
+   `intent::classify` returned an identifier that is not in the loaded packs (a
+   stale training cache, an edited pack), the fuzzy matcher was never asked. The
+   phrase matcher is now the fallback for that case as well.
+
+Every phrase passes seven stages, named by
+`jarvis_core::commands::CommandStage` so the voice host, the window and a log
+line use the same words: `listener_received_phrase`, `wake_word_detected`,
+`normalized_length`, `command_match`, `rejection_code`, `execution_started`,
+`execution_result`. Each stage is one log line and one `command_diagnostic` event
+carrying the stage name, the **length** of the text the matcher saw, a reason
+code, a command identifier and an outcome. The transcript itself is never part of
+a stage, and the log no longer quotes a recognized phrase anywhere — not in the
+voice host, not in the matcher.
+
+Refusal codes: `too_short`, `empty_after_strip`, `no_match`, `no_commands`,
+`awaiting_confirmation`, `forbidden`, and `action_*` for an undecided safe
+action.
+
+One normalizer serves both sides: `commands::normalize_phrase` (lower case, `ё`
+folded to `е`, punctuation dropped, the wake word and its comma removed) is what
+the listener matches with, and it is what the settings button
+**«Проверить фразу без выполнения»** calls through `commands::check_phrase` —
+which is `fetch_command`, not a second matcher. The phrase travels no further
+than that call: it is not executed, not stored, not logged, and no shell or
+keyboard path is reached. The answer names the command and its slot names, never
+its path or its arguments. Normalization is used for matching only; the phrase
+that goes to the executor is the one the person said, so a slot value keeps its
+own letters.
+
 ## Privacy
 
 Never logged, never stored, never put in a URL or in browser storage: the
