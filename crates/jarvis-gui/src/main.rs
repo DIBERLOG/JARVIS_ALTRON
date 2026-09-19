@@ -21,6 +21,9 @@ pub struct AppState {
     pub autocorrect: tauri_commands::AutocorrectHandle,
     pub windows_actions: tauri_commands::WindowsActionsHandle,
     pub whisper: tauri_commands::WhisperHandle,
+    /// The ordered exit, built once so a normal exit, a tray exit, and a second
+    /// exit request all take the same route and produce the same report.
+    pub lifecycle: std::sync::Arc<jarvis_core::lifecycle::LifecycleManager>,
 }
 
 fn main() {
@@ -86,6 +89,66 @@ fn main() {
         std::sync::Arc::new(move || autocorrect.clear_journals())
     });
 
+    // The exit is a sequence, not a handful of calls: new work stops first, then
+    // what is running, then the caches and the keys, and the last step is the
+    // exit itself. Each step has its own timeout and one global deadline, so a
+    // component that hangs cannot keep the window open.
+    let lifecycle = {
+        let mut manager = jarvis_core::lifecycle::LifecycleManager::new();
+        {
+            let local_ai = local_ai.clone();
+            manager.add("cancel-generation", std::time::Duration::from_secs(2), move || {
+                local_ai.gateway().cancel();
+                Ok(())
+            });
+        }
+        {
+            let whisper = whisper.clone();
+            manager.add_ok("stop-dictation", std::time::Duration::from_secs(3), move || {
+                whisper.shutdown();
+            });
+        }
+        {
+            let windows_actions = windows_actions.clone();
+            manager.add_ok("stop-timers", std::time::Duration::from_secs(2), move || {
+                windows_actions.shutdown();
+            });
+        }
+        {
+            let autocorrect = autocorrect.clone();
+            manager.add_ok(
+                "drop-decrypted-caches",
+                std::time::Duration::from_secs(2),
+                move || autocorrect.clear_journals(),
+            );
+        }
+        {
+            // The managed model server is stopped last among the child
+            // processes, after nothing can ask it for anything.
+            let local_ai = local_ai.clone();
+            manager.add_ok("stop-llama-server", std::time::Duration::from_secs(5), move || {
+                local_ai.shutdown();
+            });
+        }
+        {
+            let memory = memory.clone();
+            manager.add_ok("close-databases", std::time::Duration::from_secs(3), move || {
+                memory.shutdown();
+            });
+        }
+        {
+            // The key session is dropped before the window is gone, and the
+            // report says whether it worked.
+            let vault = vault.clone();
+            manager.add("zeroize-keys", std::time::Duration::from_secs(2), move || {
+                vault.lock_for_exit();
+                Ok(())
+            });
+        }
+        manager.add_ok("exit", std::time::Duration::from_millis(200), || {});
+        std::sync::Arc::new(manager)
+    };
+
     tauri::Builder::default()
         .manage(AppState {
             settings: manager,
@@ -96,6 +159,7 @@ fn main() {
             autocorrect,
             windows_actions,
             whisper,
+            lifecycle: std::sync::Arc::clone(&lifecycle),
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -349,18 +413,22 @@ fn main() {
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
                 if let Some(state) = app_handle.try_state::<AppState>() {
-                    // The undo journal holds document text: it is dropped before the
-                    // keys are, not after the process ends.
-                    state.autocorrect.clear_journals();
-                    state.vault.lock_for_exit();
-                    state.memory.shutdown();
-                    state.local_ai.shutdown();
-                    // The scheduler thread is stopped before the process ends, so a
-                    // timer cannot fire into a window that is already gone.
-                    state.windows_actions.shutdown();
-                    // Dictation stops before the window is gone, so a
-                    // microphone is never left open by a closing application.
-                    state.whisper.shutdown();
+                    // One route for a normal exit, a tray exit, and a repeated
+                    // request: the second call does nothing.
+                    let report = state.lifecycle.shutdown();
+                    if report.is_clean() {
+                        log::info!("exit: {}", report.summary());
+                    } else {
+                        log::warn!(
+                            "exit incomplete: {}",
+                            report
+                                .problems()
+                                .iter()
+                                .map(|step| step.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
+                    }
                 }
             }
         });

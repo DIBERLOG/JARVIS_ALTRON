@@ -63,3 +63,33 @@ The last Python version commit can be found [here](https://github.com/Priler/jar
 
 [Attribution-NonCommercial-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-nc-sa/4.0/)<br>
 See LICENSE.txt file for more details.
+
+**Known conflict:** the Rust workspace metadata in `Cargo.toml` declares
+`GPL-3.0-only`, while this file and `LICENSE.txt` describe CC-BY-NC-SA-4.0. The
+two are not interchangeable: GPL-3.0-only permits commercial use and
+CC-BY-NC-SA-4.0 forbids it. Only the copyright holder can resolve this, and no
+attempt to choose one has been made by this project.
+
+Until it is resolved:
+
+* a build produced from this repository is named **Personal Windows MVP build**;
+* **a public release is blocked**;
+* the state of every component's licence, and what may be done with the build
+  today, is recorded in [`docs/LICENSING_STATUS.md`](docs/LICENSING_STATUS.md)
+  and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [`docs/WINDOWS_MVP.md`](docs/WINDOWS_MVP.md) | what is ready for cautious personal testing, and what is not implemented |
+| [`docs/INSTALLATION_WINDOWS.md`](docs/INSTALLATION_WINDOWS.md) | building and running on Windows, and what an installer will have to contain |
+| [`docs/WINDOWS_ACTIONS.md`](docs/WINDOWS_ACTIONS.md) | the safe Windows command surface and its risk table |
+| [`docs/WHISPER.md`](docs/WHISPER.md) | local dictation |
+| [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md) | what exists today, and the container that does not |
+| [`docs/RUNTIME_DIAGNOSTICS.md`](docs/RUNTIME_DIAGNOSTICS.md) | the redacted diagnostics report |
+| [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) | the checks that have to pass before anything is shared |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | the security baseline |
+
+Wake-on-LAN is not implemented, is not planned, and is excluded from the project;
+a test fails if the words appear in the workspace's own sources.

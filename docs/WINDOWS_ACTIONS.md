@@ -158,12 +158,39 @@ of the new one.
 | `action = "ahk"` command packs | command packs on disk | launches AutoHotkey with a script | script path from the pack | `risk_level` | as above | **migrate**: a script is a command line; needs its own audit before it is offered as a feature |
 | `action = "lua"` command packs | command packs on disk | full Lua sandbox | script from the pack | `risk_level` | as above | **migrate**: `jarvis.system.exec` exists only here; it must never be connected to the model |
 | `action = "voice"` command packs | command packs on disk | plays an audio file | none | `safe` | not required | **keep**: no system access |
-| `calculator` pack: `taskkill /f /im CalculatorApp.exe` | command pack | process termination through a shell | fixed | `risk_level` as declared in the pack | gate in `jarvis-app` | **forbid**: process termination is not offered by the new feature, and this pack should be removed or rewritten to close the window |
+| `calculator` pack: `taskkill /f /im CalculatorApp.exe` | command pack, **`.yaml`** | forced process termination through a shell | fixed | was unset; now `risk_level: forbidden` | the gate refuses it | **forbid, and it is not loaded**: the loader reads `command.toml` only, so no `.yaml` pack reaches the executor. The entry is marked `forbidden` so that a future YAML loader cannot pick it up silently; replace it with the typed window-close action |
 | `browser_close` | command pack | AutoHotkey, elevates, closes applications, restarts JARVIS | script | `risk_level = "forbidden"` | refused by the gate | **forbid**: it must stay forbidden; the new feature never elevates and never ends a process |
 | `jarvis.system.exec` | Lua full sandbox | arbitrary command execution | anything | not exposed by this feature | none | **forbid**: it is not reachable from the new feature, from the model, or from voice |
 | The new actions | buttons, voice, the local model, timers | typed `WindowsAction` only | typed fields only | central table | one gate, single-use token, 45 s by default | **new**: the surface described above |
 | Wake-on-LAN | — | — | — | — | — | **excluded from the project**: not implemented, not planned, and `windows_actions_isolation.rs` fails if the words appear in the workspace's own sources |
 
+## Legacy command packs: what is actually loaded
+
+The audit was repeated for this stage with the loader in front of it, and the
+result changes what the earlier table means:
+
+* **Loaded packs** are the ones with `command.toml`: `browser`, `counter`,
+  `weather`, and `test_slots`. Of these, `browser_close` is `forbidden` and
+  refused by the gate; `browser_open` launches an AutoHotkey executable from its
+  pack directory, which is a script launcher, not a shell, and it stays a
+  trusted local extension;
+* **`.yaml` packs are not loaded at all.** `parse_commands` reads
+  `command.toml` and nothing else, so the seven `.yaml` packs — `calculator`,
+  `jarvis`, `steam`, `stop`, `terminate`, `volume`, `windows` — are dead
+  configuration in this codebase. `serde_yaml` is declared as a dependency and
+  never used, which is the same fact seen from the other side;
+* therefore the `taskkill` entry in the `calculator` pack **is not reachable
+  today**. It has been marked `risk_level: forbidden` so that a future YAML
+  loader cannot pick it up silently, and the honest description is "dead
+  configuration, marked to stay refused", not "a live command that was
+  disabled";
+* `jarvis.system.exec` exists only in the Lua **full** sandbox
+  (`crates/jarvis-core/src/lua/api/system.rs`). Nothing in the AI path, the
+  voice router, or the safe action surface can reach it: a test fails if that
+  path appears in the feature's sources.
+
+Any change to the loader that starts reading `.yaml` packs must revisit this
+section first.
 ## Honest limitations
 
 * **The sensitive-window guard is a courtesy, not a boundary.** The screen

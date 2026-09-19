@@ -21,6 +21,12 @@ list:
     - /f
     - /im
     - CalculatorApp.exe
+    # Forced process termination is refused by the safety gate. The entry is kept
+    # so that "закрой калькулятор" is still recognised, and answered with a
+    # refusal instead of killing a process with /f. Closing a window is the safe
+    # action for this: `windows_actions` posts `WM_CLOSE` for a window the user
+    # picked from the current list.
+    risk_level: forbidden
   voice:
     sounds:
     - ok1

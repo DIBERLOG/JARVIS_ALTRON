@@ -75,6 +75,46 @@ runner, clipboard contents, files, notes, Vault data, passwords, API keys, or
 system diagnostics without an explicit feature-specific user request. A future
 tool call must be schema-validated, allow-listed, and passed through SafetyGate.
 
+## Dictation (Whisper)
+
+Local dictation is documented in `docs/WHISPER.md`. The rules that matter here:
+
+* the microphone is opened only between an explicit start and an explicit stop,
+  and `enabled` is off by default, so nothing records because the application was
+  launched;
+* one bounded child process per transcription, started with per-argument
+  launches (no shell, no `cmd /C`), a hidden window, bounded output capture, a
+  timeout, and a cancel that stops only the process this session started;
+* the audio is a temporary 16 kHz mono WAV in the feature directory, deleted as
+  soon as the text exists unless the user asked to keep it;
+* the transcript goes to the caller. It is not logged, not written to the AI
+  memory, and not sent to the local model; the error type cannot carry it, and
+  the `Debug` form of a transcript prints its length, not its text;
+* nothing is downloaded and no URL or hash is invented: the executable and the
+  model are chosen by the user in the native dialog.
+
+## The exit path
+
+A full exit is an ordered sequence with its own deadline, not a handful of calls:
+new work is refused first, then a generation is cancelled, dictation and the
+timers are stopped, the managed `llama-server` is shut down (only the child this
+application started), decrypted caches are dropped, keys are released, the
+databases are closed, and the process exits. Each step has its own timeout and
+the whole sequence has a global deadline, so a component that hangs cannot keep
+the window open; a step that misses both is reported and left behind. A repeated
+exit does nothing and returns the first report, and a normal exit and a tray exit
+take the same route (`crates/jarvis-core/src/lifecycle.rs`).
+
+## Diagnostics
+
+`crates/jarvis-core/src/diagnostics.rs` builds a report that cannot hold user
+content: its shape has no field for a note, a conversation, a transcript, a
+password, a token, a key, a window title, a prompt, or an audit line. Paths are
+redacted to `<path>`, file sizes are reported by file name only, and the rendered
+text is screened for `C:\`, `\\`, `/users/`, `key.dpapi`, and secret-shaped
+assignments before it can be exported. Details are in
+`docs/RUNTIME_DIAGNOSTICS.md`.
+
 ## Known risks
 
 `Cargo.toml` declares GPL-3.0-only while `LICENSE.txt` and README describe
