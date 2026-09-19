@@ -792,7 +792,11 @@ mod tests {
                     "{} has a phrase but no executor, and must say exactly that",
                     entry.id
                 );
-                assert!(!entry.verified, "{} cannot be verified without an executor", entry.id);
+                assert!(
+                    !entry.verified,
+                    "{} cannot be verified without an executor",
+                    entry.id
+                );
             }
             if entry.status == "forbidden" {
                 assert!(!entry.allowed, "{} is refused by policy", entry.id);
@@ -841,7 +845,10 @@ mod tests {
             !serialized.contains(&runtime.to_string_lossy().to_string()),
             "the answer must not carry a path"
         );
-        assert!(!serialized.contains("resources"), "the answer must not carry a path");
+        assert!(
+            !serialized.contains("resources"),
+            "the answer must not carry a path"
+        );
         let _ = fs::remove_dir_all(runtime.parent().expect("the fixture root"));
     }
 
