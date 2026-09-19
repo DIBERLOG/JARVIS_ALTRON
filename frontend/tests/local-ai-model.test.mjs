@@ -17,6 +17,7 @@ import {
     THINKING_MODES,
     applyGenerationEvent,
     beginExchange,
+    beginRetry,
     buildRequest,
     canGenerate,
     canSend,
@@ -26,6 +27,7 @@ import {
     describeModel,
     emptyChatView,
     failExchange,
+    lastAnswer,
     fieldLabelKey,
     formatBytes,
     formatDuration,
@@ -382,6 +384,25 @@ test("a failure before any event is shown on the view", () => {
     assert.equal(view.generating, false)
     assert.equal(view.error, "write a message first")
     assert.equal(view.elapsedMs, 0)
+})
+
+test("a retry reuses the question instead of adding a second copy", () => {
+    let view = beginExchange(emptyChatView(), "вопрос", 0)
+    view = applyGenerationEvent(view, { type: "token", text: "часть" }, 1)
+    view = applyGenerationEvent(view, { type: "failed", error: "boom" }, 2)
+    assert.equal(view.entries.length, 2)
+
+    const retried = beginRetry(view, 100)
+    // The question is untouched and no second user bubble appeared.
+    assert.equal(retried.entries.length, 2)
+    assert.equal(retried.entries[0].text, "вопрос")
+    assert.equal(retried.entries[1].text, "")
+    assert.equal(retried.generating, true)
+    assert.equal(retried.error, null)
+    assert.equal(retried.startedAtMs, 100)
+    // The failed text is gone, so a retry cannot display a stale answer.
+    assert.equal(lastAnswer(retried).text, "")
+    assert.equal(lastAnswer(emptyChatView()), null)
 })
 
 test("a token with no open answer is still rendered", () => {

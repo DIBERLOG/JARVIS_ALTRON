@@ -105,7 +105,11 @@ fn ai_voice_and_scripting_sources_never_reference_the_vault() {
 
 #[test]
 fn the_voice_command_catalogue_has_no_vault_commands() {
-    let catalogue = manifest_dir().join("..").join("..").join("resources").join("commands");
+    let catalogue = manifest_dir()
+        .join("..")
+        .join("..")
+        .join("resources")
+        .join("commands");
     let mut files: Vec<PathBuf> = Vec::new();
     collect_all_files(&catalogue, &mut files);
     assert!(
@@ -272,5 +276,81 @@ fn the_local_ai_command_module_has_no_storage_handle() {
         lowered.contains("localaigateway"),
         "expected the scanned file to be the local AI gateway commands: {}",
         path.display()
+    );
+}
+
+/// The AI-memory feature must not depend on the password store.
+///
+/// This is a dependency check rather than a wording check: it looks for the
+/// identifiers that only password-store code can use. The memory module is allowed
+/// to *document* that the stores are separate — that is the point of the doc
+/// comments — but it must not name a vault type, a vault method, a vault database,
+/// or a vault entity type anywhere, in code or in tests.
+///
+/// The behavioural half of this boundary lives in the memory tests: a record of the
+/// password store inside the same repository is invisible to the memory store, and a
+/// memory payload cannot be decrypted with another purpose key.
+#[test]
+fn the_memory_module_has_no_password_store_dependency() {
+    let forbidden = [
+        "VaultStore",
+        "EncryptedVaultStore",
+        "VaultSession",
+        "VaultItemPayload",
+        "VaultItemDraft",
+        "VaultMetadataDraft",
+        "VaultQuery",
+        "VaultItemList",
+        "VaultItemDetails",
+        "VaultItemSummary",
+        "SecretRevealResult",
+        "reveal_secret",
+        "password_for_clipboard",
+        "username_for_clipboard",
+        "VAULT_DB_FILE",
+        "vault_record",
+        "vault_metadata",
+    ];
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    let memory_dir = manifest_dir().join("src").join("memory");
+    assert!(
+        memory_dir.exists(),
+        "the memory module must exist; the scan would be meaningless otherwise"
+    );
+    collect_rust_files(&memory_dir, &mut files);
+    assert!(
+        files.len() >= 8,
+        "expected to scan the whole memory module, found only {} files",
+        files.len()
+    );
+
+    // The window's memory commands are part of the same boundary.
+    let command_module = manifest_dir()
+        .join("..")
+        .join("jarvis-gui")
+        .join("src")
+        .join("tauri_commands")
+        .join("memory.rs");
+    assert!(
+        command_module.is_file(),
+        "the memory command module must exist: {}",
+        command_module.display()
+    );
+    files.push(command_module);
+
+    let mut violations: Vec<String> = Vec::new();
+    for file in &files {
+        let contents = fs::read_to_string(file).unwrap_or_default();
+        for identifier in forbidden {
+            if contents.contains(identifier) {
+                violations.push(format!("{} references {identifier}", file.display()));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "AI memory must stay unable to reach the password store:\n{}",
+        violations.join("\n")
     );
 }
