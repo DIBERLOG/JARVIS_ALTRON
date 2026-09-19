@@ -19,6 +19,7 @@ pub mod config;
 pub mod db;
 pub mod desktop;
 pub mod diagnostics;
+pub mod dictation;
 pub mod i18n;
 pub mod lifecycle;
 pub mod memory;
