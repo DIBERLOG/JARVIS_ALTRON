@@ -5,17 +5,23 @@ script = "script.lua"
 timeout = 5000
 sandbox = "standard"
 
+# The schema is a map of language to phrases: `phrases.ru = [...]`. A bare
+# `phrases = [...]` is a sequence where a map is expected, and the loader refuses
+# the whole file for it — which is what happened here, and what the
+# `command_packs::every_pack_parses` test now catches before it can ship again.
 [commands.phrases]
-ru = ["какая погода в {city}", "погода {city}"]
-en = ["what's the weather in {city}", "weather in {city}"]
+ru = ["какая погода в {city}", "погода {city}", "погода в {city} сегодня"]
+en = ["what's the weather in {city}", "weather in {city}", "what is the weather in {city}"]
+ua = ["яка погода у {city}", "погода {city}", "погода у {city} сьогодні"]
 
 [commands.sounds]
 ru = ["weather_ru_1", "weather_ru_2"]
 en = ["weather_en_1", "weather_en_2"]
+ua = ["weather_ua_1", "weather_ua_2"]
 
 [commands.slots.city]
 entity = "city name"
-context = ["in", "for", "at", "в", "для"]
+context = ["in", "for", "at", "в", "для", "у"]
 
 
 [[commands]]
@@ -24,8 +30,11 @@ type = "lua"
 script = "set_city.lua"
 sandbox = "standard"
 timeout = 5000
-phrases = [
-    "установи город",
-    "set city",
-    "change city",
-]
+
+[commands.phrases]
+ru = ["установи город", "смени город", "запомни город {city}"]
+en = ["set city", "change city", "remember city {city}"]
+ua = ["встанови місто", "зміни місто", "запам'ятай місто {city}"]
+
+[commands.slots.city]
+entity = "city name"

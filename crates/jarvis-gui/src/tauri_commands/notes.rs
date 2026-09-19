@@ -155,19 +155,42 @@ impl NotesHandle {
     }
 }
 
+/// Whether an error is simply "the storage is locked".
+///
+/// Locked is the normal state of the encrypted storage: it is locked at start-up,
+/// it is locked by the idle timer, it is locked on an explicit lock, and it is
+/// locked after every exit. A command that arrives while it is locked — a poll
+/// from an open page, a button pressed before the password was typed — is not a
+/// fault, and logging it as one buries the real failures in noise. Everything
+/// else stays a warning.
+fn is_locked(error: &impl std::fmt::Display) -> bool {
+    let message = error.to_string().to_lowercase();
+    message.contains("storage is locked")
+        || message.contains("storage_locked")
+        || message.contains("storage locked")
+}
+
+/// Logs a storage failure at the level it deserves, and returns the message.
+fn log_storage_error(prefix: &str, error: &impl std::fmt::Display) -> String {
+    let message = error.to_string();
+    if is_locked(error) {
+        // The expected state, not a fault: the interface asks for the password.
+        log::debug!("{prefix}: storage is locked");
+    } else {
+        log::warn!("{prefix}: {message}");
+    }
+    message
+}
+
 /// Turns a vault error into a message safe to show and to log.
 fn describe_vault(error: VaultError) -> String {
-    let message = error.to_string();
-    log::warn!("vault: {}", message);
-    message
+    log_storage_error("vault", &error)
 }
 
 /// Turns a notes error into a message safe to show and to log.
 fn describe(error: NoteError) -> String {
-    let message = error.to_string();
     // Only content-free messages are logged; note text never reaches a log line.
-    log::warn!("notes: {}", message);
-    message
+    log_storage_error("notes", &error)
 }
 
 /// Turns an AI-memory error into a message safe to show and to log.
@@ -175,18 +198,14 @@ fn describe(error: NoteError) -> String {
 /// A memory error never carries stored text: the secret variants name the kinds
 /// that were recognized and nothing else, so this line cannot leak memory.
 fn describe_memory(error: MemoryError) -> String {
-    let message = error.to_string();
-    log::warn!("memory: {}", message);
-    message
+    log_storage_error("memory", &error)
 }
 
 /// Turns an autocorrect error into a message safe to show and to log.
 ///
 /// The message never carries document text, a matched secret, or a key.
 fn describe_autocorrect(error: AutocorrectError) -> String {
-    let message = error.to_string();
-    log::warn!("autocorrect: {}", message);
-    message
+    log_storage_error("autocorrect", &error)
 }
 
 // ------------------------------------------------------------------ storage
@@ -214,7 +233,9 @@ pub fn notes_unlock_password(
     state: tauri::State<'_, AppState>,
     password: String,
 ) -> Result<StorageStatus, String> {
-    state.notes.with(|vault| vault.unlock_with_password(&password))
+    state
+        .notes
+        .with(|vault| vault.unlock_with_password(&password))
 }
 
 #[tauri::command(async)]
@@ -291,28 +312,21 @@ pub fn notes_import_backup_file(
 // --------------------------------------------------------------------- notes
 
 #[tauri::command(async)]
-pub fn notes_list(
-    state: tauri::State<'_, AppState>,
-    query: NoteQuery,
-) -> Result<NoteList, String> {
-    state.notes.with(|vault| vault.with_store(|store| store.list_notes(&query)))
+pub fn notes_list(state: tauri::State<'_, AppState>, query: NoteQuery) -> Result<NoteList, String> {
+    state
+        .notes
+        .with(|vault| vault.with_store(|store| store.list_notes(&query)))
 }
 
 #[tauri::command(async)]
-pub fn notes_get(
-    state: tauri::State<'_, AppState>,
-    id: Uuid,
-) -> Result<Option<Note>, String> {
+pub fn notes_get(state: tauri::State<'_, AppState>, id: Uuid) -> Result<Option<Note>, String> {
     state
         .notes
         .with(|vault| vault.with_store(|store| store.get_note(id)))
 }
 
 #[tauri::command(async)]
-pub fn notes_create(
-    state: tauri::State<'_, AppState>,
-    draft: NoteDraft,
-) -> Result<Note, String> {
+pub fn notes_create(state: tauri::State<'_, AppState>, draft: NoteDraft) -> Result<Note, String> {
     state
         .notes
         .with(|vault| vault.with_store(|store| store.create_note(&draft)))
@@ -378,7 +392,9 @@ pub fn notes_purge(state: tauri::State<'_, AppState>, id: Uuid) -> Result<(), St
 
 #[tauri::command(async)]
 pub fn notes_folders(state: tauri::State<'_, AppState>) -> Result<Vec<NoteFolder>, String> {
-    state.notes.with(|vault| vault.with_store(|store| store.folders()))
+    state
+        .notes
+        .with(|vault| vault.with_store(|store| store.folders()))
 }
 
 #[tauri::command(async)]
@@ -439,9 +455,7 @@ pub fn notes_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, Stri
 // ----------------------------------------------------------------- conflicts
 
 #[tauri::command(async)]
-pub fn notes_conflicts(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<NoteConflictView>, String> {
+pub fn notes_conflicts(state: tauri::State<'_, AppState>) -> Result<Vec<NoteConflictView>, String> {
     state
         .notes
         .with(|vault| vault.with_store(|store| store.conflicts()))
@@ -482,4 +496,37 @@ fn open_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         .add_filter("JSON", &["json"])
         .blocking_pick_file()
         .and_then(|path| path.into_path().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The locked state of the encrypted storage is normal, not a fault.
+    ///
+    /// It is locked at start-up, on the idle timer, on an explicit lock, and
+    /// after every exit, so a command that arrives while it is locked — a poll
+    /// from an open page, a button pressed before the password was typed — must
+    /// not produce a warning that buries the real failures.
+    #[test]
+    fn a_locked_storage_is_not_a_warning() {
+        assert!(is_locked(&VaultError::StorageLocked));
+        assert!(is_locked(&NoteError::StorageLocked));
+        assert!(is_locked(&MemoryError::StorageLocked));
+        assert!(is_locked(&AutocorrectError::StorageLocked));
+    }
+
+    /// Everything else stays a warning: a damaged document, a missing key, a
+    /// storage that cannot be opened.
+    #[test]
+    fn every_other_failure_still_warns() {
+        assert!(!is_locked(&VaultError::KeyMissing));
+        assert!(!is_locked(&VaultError::Unreadable));
+        assert!(!is_locked(&NoteError::Unreadable));
+        // The message is returned unchanged either way: the interface shows it.
+        let message = log_storage_error("vault", &VaultError::StorageLocked);
+        assert!(message.contains("locked"), "{message}");
+        let message = log_storage_error("vault", &VaultError::Unreadable);
+        assert!(!message.is_empty());
+    }
 }

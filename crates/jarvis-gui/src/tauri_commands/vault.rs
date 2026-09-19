@@ -174,10 +174,12 @@ impl VaultHandle {
         clear_after_seconds: u64,
     ) -> Result<ClipboardStatus, String> {
         let mut guard = self.clipboard.lock();
-        guard.copy_secret(secret, clear_after_seconds).map_err(|error| {
-            log::warn!("vault: {error}");
-            error.to_string()
-        })
+        guard
+            .copy_secret(secret, clear_after_seconds)
+            .map_err(|error| {
+                log::warn!("vault: {error}");
+                error.to_string()
+            })
     }
 
     fn clipboard_status(&self) -> ClipboardStatus {
@@ -187,7 +189,15 @@ impl VaultHandle {
 
 fn describe(error: VaultError) -> String {
     let message = error.to_string();
-    log::warn!("vault: {}", message);
+    // Locked is the expected state of the encrypted storage, not a fault: it is
+    // locked at start-up, on the idle timer, and on every exit. A command that
+    // arrives while it is locked asks for the password; it does not deserve a
+    // warning that buries the real failures. Everything else stays a warning.
+    if error == VaultError::StorageLocked {
+        log::debug!("vault: storage is locked");
+    } else {
+        log::warn!("vault: {message}");
+    }
     message
 }
 
@@ -207,7 +217,9 @@ pub fn vault_initialize(
     password: String,
 ) -> Result<VaultStatus, String> {
     state.vault.touch_or_refuse()?;
-    state.notes.with_session(|session| session.initialize(&password))
+    state
+        .notes
+        .with_session(|session| session.initialize(&password))
 }
 
 #[tauri::command(async)]
@@ -224,7 +236,9 @@ pub fn vault_unlock_password(
 #[tauri::command(async)]
 pub fn vault_unlock_dpapi(state: tauri::State<'_, AppState>) -> Result<VaultStatus, String> {
     state.vault.touch_or_refuse()?;
-    state.notes.with_session(|session| session.unlock_with_dpapi())
+    state
+        .notes
+        .with_session(|session| session.unlock_with_dpapi())
 }
 
 #[tauri::command(async)]
@@ -349,9 +363,7 @@ pub fn vault_list(
     state: tauri::State<'_, AppState>,
     query: VaultQuery,
 ) -> Result<VaultItemList, String> {
-    state
-        .vault
-        .with_vault(|store| store.list_items(&query))
+    state.vault.with_vault(|store| store.list_items(&query))
 }
 
 #[tauri::command(async)]
@@ -376,7 +388,9 @@ pub fn vault_update(
     id: Uuid,
     draft: VaultItemDraft,
 ) -> Result<VaultItemDetails, String> {
-    state.vault.with_vault(|store| store.update_item(id, &draft))
+    state
+        .vault
+        .with_vault(|store| store.update_item(id, &draft))
 }
 
 /// Edits only the non-secret fields.
@@ -463,9 +477,11 @@ pub fn vault_copy_username(
     id: Uuid,
     clear_after_seconds: u64,
 ) -> Result<ClipboardStatus, String> {
-    let secret = Zeroizing::new(state.vault.with_vault(|store| {
-        store.username_for_clipboard(id)
-    })?);
+    let secret = Zeroizing::new(
+        state
+            .vault
+            .with_vault(|store| store.username_for_clipboard(id))?,
+    );
     state.vault.copy_secret(&secret, clear_after_seconds)
 }
 
@@ -475,9 +491,11 @@ pub fn vault_copy_password(
     id: Uuid,
     clear_after_seconds: u64,
 ) -> Result<ClipboardStatus, String> {
-    let secret = Zeroizing::new(state.vault.with_vault(|store| {
-        store.password_for_clipboard(id)
-    })?);
+    let secret = Zeroizing::new(
+        state
+            .vault
+            .with_vault(|store| store.password_for_clipboard(id))?,
+    );
     state.vault.copy_secret(&secret, clear_after_seconds)
 }
 
@@ -501,9 +519,7 @@ pub fn vault_clipboard_clear(state: tauri::State<'_, AppState>) -> Result<Clipbo
 // --------------------------------------------------------------- generator
 
 #[tauri::command(async)]
-pub fn vault_generate_password(
-    policy: PasswordPolicy,
-) -> Result<GeneratedPassword, String> {
+pub fn vault_generate_password(policy: PasswordPolicy) -> Result<GeneratedPassword, String> {
     let password = generate_password(&policy).map_err(describe)?;
     Ok(GeneratedPassword {
         password,
