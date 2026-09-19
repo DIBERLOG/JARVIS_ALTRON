@@ -43,6 +43,7 @@
 pub mod dictionary;
 pub mod engine;
 pub mod error;
+pub mod improvement;
 pub mod model;
 pub mod replacement;
 pub mod session;
@@ -58,6 +59,12 @@ pub use engine::{
     adapt_capitalisation, fix_double_capital, punctuation_issues, CheckReport, LocalSpellChecker,
 };
 pub use error::AutocorrectError;
+pub use improvement::{
+    apply_improvement, build_improvement_prompt, build_preview, check_improvement_input,
+    preview_improvement, ImprovementPrompt, ImprovementWarning, LocalAiTextImprover,
+    TextImprovementMode, TextImprovementPreview, TextImprovementProvider, TextImprovementRequest,
+    IMPROVEMENT_TIMEOUT, MAX_IMPROVEMENT_TOKENS,
+};
 pub use model::{
     is_cyrillic, is_double_capital, normalize_word, now, text_version, yo_variant,
     AppliedCorrection, Correction, CorrectionBatch, CorrectionOutcome, IssueReason, Language,
