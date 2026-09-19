@@ -102,6 +102,14 @@ const FAMILY_KEYS = [
     ].map(errorKey),
     "whisper-error-unknown",
     "whisper-error-threads",
+    // The levels the microphone check names instead of a rounded percentage,
+    // and the phases of the result block that is always on the page.
+    ...["none", "quiet", "normal", "loud"].map(
+        (level) => `whisper-mic-level-${level}`
+    ),
+    ...["empty", "recording", "transcribing", "ready", "failed"].map(
+        (phase) => `whisper-result-${phase}`
+    ),
     // The recorder's own codes, so a refused microphone is never shown as a
     // generic "unknown error".
     ...RECORDER_CODES.map(errorKey),

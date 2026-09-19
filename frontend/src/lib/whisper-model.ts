@@ -69,6 +69,8 @@ export interface WhisperSettings {
     silence_ms: number
     timeout_seconds: number
     keep_audio: boolean
+    /** Whether a quiet recording is amplified before the model sees it. */
+    normalize_quiet_speech: boolean
     allow_from_window: boolean
     schema_version: number
 }
@@ -467,9 +469,75 @@ export function defaultSettings(): WhisperSettings {
         silence_ms: 1_500,
         timeout_seconds: 120,
         keep_audio: false,
+        normalize_quiet_speech: true,
         allow_from_window: true,
         schema_version: 1
     }
+}
+
+// ------------------------------------------------------ the result of a dictation
+
+/**
+ * What the always-visible result block shows.
+ *
+ * The block exists before the first dictation and does not depend on anything
+ * having happened: a person who opens the page has to be able to see where the
+ * text will appear. That was the defect — the text was delivered to the panel
+ * and the block was not there at all.
+ */
+export type ResultPhase = "empty" | "recording" | "transcribing" | "ready" | "failed"
+
+/** Which of the five states the block is in. */
+export function resultPhase(
+    state: DictationState | null,
+    hasTranscript: boolean,
+    hasError: boolean
+): ResultPhase {
+    if (state === "recording") return "recording"
+    if (state === "transcribing") return "transcribing"
+    if (hasTranscript) return "ready"
+    if (hasError) return "failed"
+    return "empty"
+}
+
+/** The Fluent key of a phase that shows a sentence instead of the text. */
+export function resultPhaseKey(phase: ResultPhase): string {
+    switch (phase) {
+        case "recording":
+            return "whisper-result-recording"
+        case "transcribing":
+            return "whisper-result-transcribing"
+        case "empty":
+            return "whisper-result-empty"
+        case "failed":
+            return "whisper-result-failed"
+        case "ready":
+            return "whisper-result-ready"
+    }
+}
+
+// ------------------------------------------------------ the microphone check
+
+/** How loud the microphone was, in words rather than in a rounded number. */
+export type MicrophoneLevel = "none" | "quiet" | "normal" | "loud"
+
+/**
+ * The level a peak fraction means.
+ *
+ * A rounded percentage was the problem: 0.001 of full scale printed as `0 %`,
+ * and a person reading that cannot tell "the microphone is broken" from "the
+ * room is quiet". The bands are the ones a person can act on.
+ */
+export function microphoneLevel(level: number): MicrophoneLevel {
+    if (!Number.isFinite(level) || level <= 0) return "none"
+    if (level < 0.02) return "quiet"
+    if (level <= 0.9) return "normal"
+    return "loud"
+}
+
+/** The Fluent key of a level. */
+export function microphoneLevelKey(level: MicrophoneLevel): string {
+    return `whisper-mic-level-${level}`
 }
 // ------------------------------------------------------------------ discovery
 

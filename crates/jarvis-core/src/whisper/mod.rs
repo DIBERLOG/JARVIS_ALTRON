@@ -61,8 +61,9 @@ pub use session::{
     StopReason, WhisperSession,
 };
 pub use wav::{
-    frames_for_seconds, parse_wav_format, read_wav_format, samples_for_millis, samples_for_seconds,
-    write_wav, WavFormat,
+    frames_for_seconds, parse_wav_format, prepare_audio, read_wav_format, samples_for_millis,
+    samples_for_seconds, write_wav, AudioLevels, PreparedAudio, WavFormat, MAX_AUTOMATIC_GAIN,
+    TARGET_PEAK,
 };
 
 // `samples_for_seconds` and `peak_amplitude` are the two helpers a caller

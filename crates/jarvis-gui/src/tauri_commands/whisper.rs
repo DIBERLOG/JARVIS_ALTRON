@@ -32,14 +32,26 @@ pub struct WhisperHandle {
     session: Arc<WhisperSession>,
     /// Kept in memory only, so the panel can still show the text after a
     /// reload. Nothing writes it to disk.
-    last: parking_lot::Mutex<Option<Transcript>>,
+    ///
+    /// It is shared, not copied, and that is the whole point: every command
+    /// clones the handle, so a transcript written by the dictation command has
+    /// to be the one the status command reads. `Clone` used to make a *copy* of
+    /// this mutex, and the text was remembered into a copy the command dropped
+    /// on its way out — the backend logged `result_delivered` and the window was
+    /// given nothing.
+    last: Arc<parking_lot::Mutex<Option<Transcript>>>,
+    /// How many characters the window was last given, or -1 for "nothing yet".
+    /// It exists so the one line that says the interface really has the result
+    /// is logged when it changes, not on every poll.
+    reported: Arc<std::sync::atomic::AtomicI64>,
 }
 
 impl Clone for WhisperHandle {
     fn clone(&self) -> Self {
         Self {
             session: Arc::clone(&self.session),
-            last: parking_lot::Mutex::new(self.last.lock().clone()),
+            last: Arc::clone(&self.last),
+            reported: Arc::clone(&self.reported),
         }
     }
 }
@@ -57,7 +69,8 @@ impl WhisperHandle {
         }
         Self {
             session: Arc::new(session),
-            last: parking_lot::Mutex::new(None),
+            last: Arc::new(parking_lot::Mutex::new(None)),
+            reported: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
         }
     }
 
@@ -65,19 +78,51 @@ impl WhisperHandle {
         &self.session
     }
 
-    /// Remembers a transcript for the window to show.
+    /// Remembers a transcript for the window to show, replacing the previous one.
     pub fn remember(&self, transcript: Transcript) {
         *self.last.lock() = Some(transcript);
+    }
+
+    /// Forgets the transcript. This is the only way it goes away.
+    pub fn forget(&self) {
+        *self.last.lock() = None;
     }
 
     pub fn last(&self) -> Option<Transcript> {
         self.last.lock().clone()
     }
 
+    /// The transcript as the window's own state, with the one line that says the
+    /// interface is being given it.
+    ///
+    /// The line is logged when the answer changes — never the text, only whether
+    /// there is one and how long it is. `result_delivered` on its own is not
+    /// proof: it says the command handed the text over, and this says the window
+    /// is actually being served it.
+    pub fn last_for_window(&self) -> Option<Transcript> {
+        let last = self.last();
+        let characters = match &last {
+            Some(transcript) => transcript.text.chars().count() as i64,
+            None => -1,
+        };
+        if self
+            .reported
+            .swap(characters, std::sync::atomic::Ordering::SeqCst)
+            != characters
+        {
+            if characters < 0 {
+                log::info!("whisper: ui_result_available=false characters=0");
+            } else {
+                log::info!("whisper: ui_result_available=true characters={characters}");
+            }
+        }
+        last
+    }
+
     /// Stops anything that is running, for a full exit. Safe to repeat.
     pub fn shutdown(&self) {
         self.session.shutdown();
-        *self.last.lock() = None;
+        self.forget();
     }
 }
 
@@ -106,7 +151,7 @@ pub async fn whisper_status(state: tauri::State<'_, AppState>) -> Result<Whisper
         Ok(WhisperPanelView {
             status: handle.session().status(),
             settings: handle.session().settings(),
-            last: handle.last(),
+            last: handle.last_for_window(),
         })
     })
     .await
@@ -280,11 +325,15 @@ pub async fn whisper_cancel(state: tauri::State<'_, AppState>) -> Result<bool, S
 }
 
 /// Forgets the transcript the panel was showing.
+///
+/// This is the only thing that clears it: a state poll, a page switch, and a
+/// new dictation all leave the last text in place, and a new result replaces it.
 #[tauri::command]
 pub async fn whisper_clear_last(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let handle = state.whisper.clone();
     on_blocking(move || {
-        *handle.last.lock() = None;
+        handle.forget();
+        log::info!("whisper: ui_result_available=false characters=0 source=clear");
         Ok(())
     })
     .await
@@ -349,4 +398,79 @@ fn pick(app: &tauri::AppHandle, extension: &str) -> Option<PathBuf> {
         .add_filter("Whisper", &[extension])
         .blocking_pick_file()
         .and_then(|path| path.into_path().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A handle over a directory of its own, without touching the real profile.
+    fn handle() -> WhisperHandle {
+        let directory = std::env::temp_dir().join("jarvis-gui-whisper-handle");
+        let _ = std::fs::create_dir_all(&directory);
+        WhisperHandle {
+            session: Arc::new(WhisperSession::open(&directory, WhisperSettings::default())),
+            last: Arc::new(parking_lot::Mutex::new(None)),
+            reported: Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+        }
+    }
+
+    fn transcript(text: &str) -> Transcript {
+        Transcript {
+            text: text.to_string(),
+            segments: Vec::new(),
+            language: "ru".to_string(),
+            audio_ms: 1_000,
+            duration_ms: 10,
+        }
+    }
+
+    /// The defect this whole change was about: `Clone` made a *copy* of the
+    /// transcript, so the dictation command remembered the text into a copy the
+    /// status command never saw. The backend logged `result_delivered` and the
+    /// window was given nothing.
+    #[test]
+    fn a_transcript_remembered_through_a_clone_is_read_by_another_clone() {
+        let handle = handle();
+        // The status command starts from its own clone, and there is nothing yet.
+        assert!(handle.clone().last_for_window().is_none());
+
+        // The dictation command remembers through a clone.
+        let dictate = handle.clone();
+        dictate.remember(transcript("FICTIONAL_SECRET"));
+
+        // The status command asks through yet another clone: it must see the text.
+        let served = handle
+            .clone()
+            .last_for_window()
+            .expect("the window must be served the text the dictation delivered");
+        assert_eq!(served.text, "FICTIONAL_SECRET");
+        assert_eq!(served.language, "ru");
+        // And the original handle has it too: one value, one place.
+        assert_eq!(handle.last().unwrap().text, "FICTIONAL_SECRET");
+    }
+
+    /// Clearing is the only thing that removes it, and it removes it everywhere.
+    #[test]
+    fn only_clearing_removes_the_transcript_and_it_does_so_once() {
+        let handle = handle();
+        handle.remember(transcript("FICTIONAL_SECRET"));
+        assert!(handle.last_for_window().is_some());
+        // Other clones keep seeing it: nothing drops it behind the panel's back.
+        for _ in 0..3 {
+            assert!(handle.clone().last_for_window().is_some());
+        }
+        handle.clone().forget();
+        assert!(handle.last_for_window().is_none());
+        assert!(handle.clone().last_for_window().is_none());
+    }
+
+    /// A new result replaces the previous one, and it is the new one that is served.
+    #[test]
+    fn a_new_transcript_replaces_the_previous_one() {
+        let handle = handle();
+        handle.remember(transcript("first"));
+        handle.clone().remember(transcript("second"));
+        assert_eq!(handle.last_for_window().unwrap().text, "second");
+    }
 }

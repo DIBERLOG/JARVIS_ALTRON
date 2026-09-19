@@ -36,6 +36,8 @@
         isBusy,
         isDirty,
         microphoneCheckKey,
+        microphoneLevel,
+        microphoneLevelKey,
         modelIsUnverified,
         modelKindKey,
         noteKey,
@@ -44,6 +46,8 @@
         numericDrafts,
         parseNumericDraft,
         readinessKey,
+        resultPhase,
+        resultPhaseKey,
         settingsProblem,
         stateKey,
         transcriptLength,
@@ -61,6 +65,7 @@
     let discovery: DiscoveryReport | null = null
     let microphone: MicrophoneCheck | null = null
     let inserted = false
+    let copied = false
     /** The transcript the "inserted" line belongs to. */
     let shownText = ""
     /** The text each numeric field shows while it is being edited. */
@@ -72,6 +77,13 @@
     $: transcript = view?.last ?? null
     $: preview = transcript ? transcriptPreview(transcript) : null
     $: running = status ? isBusy(status.state) : false
+    // The block at the top of the page: which of the five things it says.
+    $: phase = resultPhase(
+        status?.state ?? null,
+        Boolean(transcript && transcript.text.trim() !== ""),
+        Boolean(actionError)
+    )
+    $: levelKey = microphone ? microphoneLevelKey(microphoneLevel(microphone.level)) : null
 
     onMount(() => {
         // The panel does not own the session: a dictation can also be started
@@ -107,8 +119,11 @@
             if (incoming !== shownText) {
                 shownText = incoming
                 inserted = false
+                copied = false
             }
-            actionError = ""
+            // `actionError` is deliberately not cleared here: a failure that a
+            // poll wiped out two seconds later is a failure nobody can read. The
+            // next action clears it, which is when it stops being true.
         } catch (error) {
             actionError = describe(error)
         }
@@ -234,9 +249,18 @@
         }
     }
 
-    /** The measured level as a percentage: a fraction is unreadable. */
+    /**
+     * The measured level, in tenths of a percent.
+     *
+     * A rounded percentage is not an answer: 0.001 of full scale printed as
+     * `0 %`. The word beside it is what a person acts on, and this number says
+     * how much room there is between "quiet" and "normal".
+     */
     function levelLabel(level: number): string {
-        return `${Math.round(level * 100)} %`
+        const tenths = Math.round(level * 1000)
+        if (tenths <= 0) return "0"
+        if (tenths < 10) return (tenths / 10).toFixed(1)
+        return String(Math.round(level * 100))
     }
 
     /**
@@ -293,12 +317,34 @@
         if (!transcript) return
         commandDraft.set(cleanedTranscript(transcript))
         inserted = true
+        copied = false
     }
 
+    /**
+     * Copies the transcript to the clipboard.
+     *
+     * It is the only place the text leaves this window, it goes where the person
+     * asked it to go, and nothing about it is written down: no browser storage,
+     * no URL, no log.
+     */
+    async function copyTranscript() {
+        if (!transcript) return
+        try {
+            await navigator.clipboard.writeText(cleanedTranscript(transcript))
+            copied = true
+            inserted = false
+        } catch {
+            actionError = t("whisper-copy-failed")
+        }
+    }
+
+    /** The only thing that removes the text: the person asking for it. */
     async function forget() {
         await guard(async () => {
             await whisperApi.clearLast()
             expanded = false
+            inserted = false
+            copied = false
         })
     }
 
@@ -391,6 +437,56 @@
     <Space h="sm" />
 {/if}
 
+<!-- The result of the dictation, always here: before the first one it says so,
+     while one is running it says which half is running, and after one it holds
+     the text. It sits above the switch that turns dictation on, so it is the
+     first thing on the page and it never moves. -->
+<div class="result" class:ready={phase === "ready"}>
+    <Text weight={600}>{t("whisper-result-title")}</Text>
+    {#if phase === "recording"}
+        <Text size="sm" color="dimmed">{t(resultPhaseKey(phase))}</Text>
+    {:else if phase === "transcribing"}
+        <Text size="sm" color="dimmed">{t(resultPhaseKey(phase))}</Text>
+    {:else if phase === "ready" && transcript && preview}
+        <div class="transcript">
+            <Text size="sm">{expanded ? transcript.text : preview.text}</Text>
+        </div>
+        <Text size="xs" color="dimmed">
+            {transcriptLength(transcript)} {t("whisper-characters")} ·
+            {transcript.language} · {t("whisper-audio-length")}: {audioLabel(transcript)}
+        </Text>
+        <Group spacing="xs">
+            <Button size="xs" variant="default" on:click={insertIntoCommandField}>
+                {t("whisper-insert-command")}
+            </Button>
+            <Button size="xs" variant="default" on:click={copyTranscript}>
+                {t("whisper-copy")}
+            </Button>
+            <Button size="xs" variant="subtle" on:click={forget}>{t("whisper-clear")}</Button>
+            {#if preview.shortened}
+                <Button size="xs" variant="subtle" on:click={() => (expanded = !expanded)}>
+                    {expanded ? t("whisper-show-less") : t("whisper-show-all")}
+                </Button>
+            {/if}
+        </Group>
+        {#if inserted}
+            <Text size="xs" color="green">{t("whisper-inserted")}</Text>
+        {:else if copied}
+            <Text size="xs" color="green">{t("whisper-copied")}</Text>
+        {/if}
+        <Text size="xs" color="dimmed">{t("whisper-insert-hint")}</Text>
+    {:else if phase === "failed"}
+        <Text size="sm" color="orange">{t("whisper-result-failed")}</Text>
+        {#if actionError}
+            <Text size="sm">{actionError}</Text>
+        {/if}
+    {:else}
+        <Text size="sm" color="dimmed">{t(resultPhaseKey(phase))}</Text>
+        <Text size="xs" color="dimmed">{t("whisper-result-hint")}</Text>
+    {/if}
+</div>
+<Space h="sm" />
+
 <Switch
     label={t("whisper-enabled")}
     checked={settings.enabled}
@@ -457,8 +553,9 @@
 {#if microphone}
     <Text size="xs" color={microphone.error_code ? "orange" : "dimmed"}>
         {t(microphoneCheckKey(microphone))}
-        {#if !microphone.error_code}
-            · {t("whisper-mic-check-level")}: {levelLabel(microphone.level)}
+        {#if !microphone.error_code && levelKey}
+            <!-- The word a person can act on, with the measurement behind it. -->
+            · {t("whisper-mic-check-level")}: {t(levelKey)} ({levelLabel(microphone.level)} %)
             · {t("whisper-mic-check-devices")}: {microphone.status.device_count}
             · {t("whisper-mic-check-backend")}: {microphone.status.backend}
         {/if}
@@ -488,33 +585,9 @@
 <Space h="sm" />
 
 {#if transcript && preview}
-    <!-- The result of the dictation: the text itself, in the panel, where the
-         button that produced it is. It stays here until the person forgets it or
-         replaces it with a new dictation, and a state poll cannot clear it. -->
-    <Text weight={600}>{t("whisper-transcript")}</Text>
-    <div class="transcript">
-        <Text size="sm">{expanded ? transcript.text : preview.text}</Text>
-    </div>
-    <Group spacing="xs">
-        <Text size="xs" color="dimmed">
-            {transcriptLength(transcript)} {t("whisper-characters")} · {audioLabel(transcript)} · {transcript.language}
-        </Text>
-        {#if preview.shortened}
-            <Button size="xs" variant="subtle" on:click={() => (expanded = !expanded)}>
-                {expanded ? t("whisper-show-less") : t("whisper-show-all")}
-            </Button>
-        {/if}
-    </Group>
-    <Group spacing="xs">
-        <Button size="xs" variant="default" on:click={insertIntoCommandField}>
-            {t("whisper-insert-command")}
-        </Button>
-        {#if inserted}
-            <Text size="xs" color="green">{t("whisper-inserted")}</Text>
-        {/if}
-    </Group>
-    <Text size="xs" color="dimmed">{t("whisper-insert-hint")}</Text>
-    <Space h="sm" />
+    <!-- The result is shown at the top of the page; this is only the reminder
+         that the text is still there while the settings are edited. -->
+    <Space h="xs" />
 {/if}
 
 <Text weight={600}>{t("whisper-settings-title")}</Text>
@@ -594,6 +667,15 @@
     on:change={() => store({ keep_audio: !settings.keep_audio })}
 />
 <Text size="xs" color="dimmed">{t("whisper-keep-audio-hint")}</Text>
+<Space h="xs" />
+<!-- Quiet speech: the recording is amplified before the model sees it. On by
+     default, because a working microphone can still deliver a very low level. -->
+<Switch
+    label={t("whisper-normalize")}
+    checked={settings.normalize_quiet_speech}
+    on:change={() => store({ normalize_quiet_speech: !settings.normalize_quiet_speech })}
+/>
+<Text size="xs" color="dimmed">{t("whisper-normalize-hint")}</Text>
 <Space h="xs" />
 <Group spacing="xs">
     <Button size="sm" loading={busy} on:click={save}>{t("whisper-save")}</Button>

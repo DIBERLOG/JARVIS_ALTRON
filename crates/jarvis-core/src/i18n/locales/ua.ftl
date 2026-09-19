@@ -978,7 +978,6 @@ whisper-stop = Зупинити
 whisper-dictate-hint = Запис зупиниться сам, коли ви замовкнете, після вказаної довжини або за кнопкою «Зупинити». Аудіо видаляється, щойно з'явився текст.
 whisper-transcribe-file = Розшифрувати WAV-файл…
 whisper-forget = Забути текст
-whisper-transcript = Що було сказано
 whisper-characters = символів
 whisper-show-all = Показати все
 whisper-show-less = Згорнути
@@ -1255,3 +1254,27 @@ whisper-mic-check-silent = Нічого не почуто. У тихій кім�
 whisper-insert-command = Вставити в поле команди
 whisper-inserted = Вставлено. Поле команди на головній сторінці тепер містить цей текст.
 whisper-insert-hint = Текст кладеться в поле команди й не надсилається: натисніть там Enter, коли будете готові.
+
+# Блок результату. Він на сторінці ще до першої диктовки й залишається на місці.
+whisper-result-title = Результат диктовки
+whisper-result-empty = Текст ще не розпізнано.
+whisper-result-hint = Натисніть «Почати диктовку», говоріть і натисніть зупинку: текст з'явиться тут.
+whisper-result-recording = Триває запис…
+whisper-result-transcribing = Триває розшифровка…
+whisper-result-ready = Розпізнаний текст
+whisper-result-failed = Остання диктовка не дала тексту.
+whisper-audio-length = Тривалість запису
+whisper-copy = Копіювати
+whisper-copied = Скопійовано.
+whisper-copy-failed = Не вдалося заповнити буфер обміну.
+whisper-clear = Очистити
+
+# Наскільки гучним був мікрофон — словами, а не округленим числом.
+whisper-mic-level-none = Немає сигналу
+whisper-mic-level-quiet = Дуже тихо
+whisper-mic-level-normal = Нормально
+whisper-mic-level-loud = Занадто гучно
+
+# Тиха мова: запис підсилюється до того, як його побачить модель.
+whisper-normalize = Підсилення тихої мови: автоматично
+whisper-normalize-hint = Тихий запис піднімається до робочого рівня (не більше +24 дБ) перед надсиланням. Цифрова тиша не підсилюється, а мову нижче рівня шуму розпізнати неможливо.

@@ -16,9 +16,13 @@ import {
     defaultSettings,
     draftsAfterPoll,
     isDirty,
+    microphoneLevel,
+    microphoneLevelKey,
     numericBounds,
     numericDrafts,
     parseNumericDraft,
+    resultPhase,
+    resultPhaseKey,
     settingsProblem
 } from "../src/lib/whisper-model.ts"
 
@@ -163,7 +167,7 @@ test("the panel says where the recognized text goes", () => {
     const panel = readFileSync(PANEL, "utf8")
     assert.ok(panel.includes("whisper-insert-command"), "the insert button must exist")
     assert.ok(panel.includes("commandDraft.set("), "it must fill the command field")
-    assert.ok(panel.includes("whisper-transcript"), "the transcript must be shown")
+    assert.ok(panel.includes("whisper-result-title"), "the transcript must be shown")
     // The text is inserted, not sent: no command is dispatched from here.
     for (const forbidden of ["sendTextCommand", "sendAction", "invoke(\"send"]) {
         assert.equal(
@@ -172,4 +176,147 @@ test("the panel says where the recognized text goes", () => {
             `the panel must not send a command (${forbidden})`
         )
     }
+})
+
+// ------------------------------------------------- the result block at the top
+
+test("the result block is always there, in every phase", () => {
+    // The five answers the block gives, and nothing else can be one of them.
+    assert.equal(resultPhase(null, false, false), "empty")
+    assert.equal(resultPhase("recording", false, false), "recording")
+    assert.equal(resultPhase("transcribing", false, false), "transcribing")
+    assert.equal(resultPhase("idle", true, false), "ready")
+    assert.equal(resultPhase("idle", false, true), "failed")
+    // A state that is neither recording nor transcribing, with no text: empty.
+    assert.equal(resultPhase("idle", false, false), "empty")
+    // The text wins over an error: a failure must never take the last text away.
+    assert.equal(resultPhase("idle", true, true), "ready")
+    for (const phase of ["empty", "recording", "transcribing", "ready", "failed"]) {
+        assert.match(resultPhaseKey(phase), /^whisper-result-[a-z]+$/)
+    }
+})
+
+test("the result block sits under the state panel and above the enable switch", () => {
+    const panel = readFileSync(PANEL, "utf8")
+    const block = panel.indexOf('class="result"')
+    const statePanel = panel.indexOf("{#if status}")
+    const enable = panel.indexOf('t("whisper-enabled")')
+    assert.ok(statePanel >= 0 && block > statePanel, "the block comes after the state panel")
+    assert.ok(enable > block, "and before the switch that turns dictation on")
+    // It is not inside the state panel's condition: the array of buttons and
+    // sentences must be reachable with no status at all.
+    const between = panel.slice(statePanel, panel.indexOf("{/if}", statePanel))
+    assert.equal(
+        between.includes("whisper-result-title"),
+        false,
+        "the block must not be hidden behind `{#if status}`"
+    )
+    // Every phase has its own branch, so no state renders an empty box.
+    for (const phase of ["recording", "transcribing", "ready", "failed", "empty"]) {
+        assert.ok(
+            panel.includes(`phase === "${phase}"`) || phase === "empty",
+            `the block needs a branch for ${phase}`
+        )
+    }
+    assert.ok(panel.includes("{:else}"), "the empty phase is the fallback")
+})
+
+test("the block offers the text, the numbers, and the three buttons", () => {
+    const panel = readFileSync(PANEL, "utf8")
+    const block = panel.slice(
+        panel.indexOf('class="result"'),
+        panel.indexOf('t("whisper-enabled")')
+    )
+    for (const key of [
+        "whisper-insert-command",
+        "whisper-copy",
+        "whisper-clear",
+        "whisper-characters",
+        "whisper-audio-length"
+    ]) {
+        assert.ok(block.includes(key), `the result block needs ${key}`)
+    }
+    // The language is shown as the core reported it, and the text itself.
+    assert.ok(block.includes("transcript.language"))
+    assert.ok(block.includes("transcript.text"))
+})
+
+test("no poll and no page switch can remove the result", () => {
+    const panel = readFileSync(PANEL, "utf8")
+    // `load()` is the poll, and the reload after a page switch. It only reads.
+    const load = panel.slice(panel.indexOf("async function load()"), panel.indexOf("function describe("))
+    for (const forbidden of ["clearLast", "forget", "last = null"]) {
+        assert.equal(
+            load.includes(forbidden),
+            false,
+            `the poll must not clear the transcript (${forbidden})`
+        )
+    }
+    // Clearing happens in exactly one place, and a person does it.
+    const clearCalls = panel.match(/whisperApi\.clearLast\(\)/g) ?? []
+    assert.equal(clearCalls.length, 1, "clearing is one explicit call")
+    const forget = panel.slice(panel.indexOf("async function forget()"))
+    assert.ok(
+        forget.slice(0, 300).includes("clearLast"),
+        "and it lives in the function the Clear button uses"
+    )
+    // The transcript is never written to the log or to browser storage.
+    for (const forbidden of [
+        "console.log",
+        "console.error",
+        "console.warn",
+        "localStorage",
+        "sessionStorage",
+        "indexedDB",
+        "document.cookie",
+        "location.hash"
+    ]) {
+        assert.equal(
+            panel.includes(forbidden),
+            false,
+            `the panel must not use ${forbidden}`
+        )
+    }
+})
+
+// ------------------------------------------------- the microphone check level
+
+test("the microphone level is a word, not a rounded percentage", () => {
+    // 0.001 of full scale printed as "0 %", which told a person nothing.
+    assert.equal(microphoneLevel(0), "none")
+    assert.equal(microphoneLevel(0.001), "quiet")
+    assert.equal(microphoneLevel(0.019), "quiet")
+    assert.equal(microphoneLevel(0.02), "normal")
+    assert.equal(microphoneLevel(0.5), "normal")
+    assert.equal(microphoneLevel(0.9), "normal")
+    assert.equal(microphoneLevel(0.95), "loud")
+    assert.equal(microphoneLevel(Number.NaN), "none")
+    for (const level of ["none", "quiet", "normal", "loud"]) {
+        assert.equal(microphoneLevelKey(level), `whisper-mic-level-${level}`)
+    }
+})
+
+test("the check lasts about a second", () => {
+    // The core is asked for thirty frames of 512 samples at 16 kHz: 0.96 s.
+    // Three frames (96 ms) missed the beginning of a word.
+    const rust = readFileSync(
+        fileURLToPath(new URL("../../crates/jarvis-gui/src/desktop.rs", import.meta.url)),
+        "utf8"
+    )
+    const call = /check_microphone\((\d+)\)/.exec(rust)
+    assert.ok(call, "the check must call the core")
+    const frames = Number(call[1])
+    const seconds = (frames * 512) / 16_000
+    assert.ok(
+        seconds >= 0.8 && seconds <= 1.6,
+        `the check must last about a second, got ${seconds.toFixed(2)} s`
+    )
+})
+
+test("the panel shows the level as a word and keeps the number behind it", () => {
+    const panel = readFileSync(PANEL, "utf8")
+    assert.ok(panel.includes("microphoneLevelKey"), "the word comes from the model")
+    assert.ok(panel.includes("levelLabel(microphone.level)"), "the number is still shown")
+    // A value under one percent must not print as a bare "0".
+    assert.ok(panel.includes("tenths"), "a very small level needs a fraction")
 })

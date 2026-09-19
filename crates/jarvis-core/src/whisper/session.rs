@@ -33,8 +33,8 @@ use super::runner::{
     Transcriber, Transcript, AUDIO_FILE_NAME, OUTPUT_PREFIX,
 };
 use super::wav::{
-    frames_for_seconds, peak_amplitude, samples_for_millis, samples_for_seconds, write_wav,
-    WavFormat,
+    frames_for_seconds, peak_amplitude, prepare_audio, samples_for_millis, samples_for_seconds,
+    write_wav, WavFormat,
 };
 
 /// Where the frames of a recording come from.
@@ -579,6 +579,11 @@ impl WhisperSession {
     /// "the text never arrived" was impossible to place without them, and
     /// because a log must never carry what was said.
     pub fn transcribe_samples(&self, samples: &[i16]) -> Result<Transcript, WhisperError> {
+        // A session that is already working says so first: what the second
+        // payload contains is not the question.
+        if self.is_busy() {
+            return Err(WhisperError::Busy);
+        }
         if samples.is_empty() {
             warn!(
                 "whisper: stage=wav_ready error_code={}",
@@ -587,12 +592,44 @@ impl WhisperSession {
             return Err(WhisperError::AudioEmpty);
         }
         self.settings().validate()?;
+
+        // Preparing comes before the file, and the recording itself is not
+        // touched: a quiet speaker is amplified here, a silent one is refused.
+        let settings = self.settings();
+        let prepared = prepare_audio(samples, settings.normalize_quiet_speech);
+        info!(
+            "whisper: stage=audio_prepared peak={:.4} rms={:.5} offset={:.2} gain={:.2} normalized={}",
+            prepared.levels.peak / f32::from(i16::MAX),
+            prepared.levels.rms / f32::from(i16::MAX),
+            prepared.levels.offset,
+            prepared.levels.gain,
+            prepared.normalized
+        );
+        if prepared.levels.is_silent() {
+            // Digital silence is not speech at any gain, and amplifying it would
+            // only make the model answer with an invention.
+            warn!(
+                "whisper: stage=audio_prepared error_code={} peak=0.0",
+                WhisperError::AudioEmpty.code()
+            );
+            return Err(WhisperError::AudioEmpty);
+        }
+        if prepared.levels.is_quiet() {
+            // A warning, not a refusal: the recording is still sent, because a
+            // quiet word that is recognized beats no attempt at all.
+            warn!(
+                "whisper: stage=audio_prepared warning=quiet_speech rms={:.5} gain={:.2}",
+                prepared.levels.rms / f32::from(i16::MAX),
+                prepared.levels.gain
+            );
+        }
+
         let path = self.directory.join(AUDIO_FILE_NAME);
-        let format = write_wav(&path, samples)?;
+        let format = write_wav(&path, &prepared.samples)?;
         let ready = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
         info!(
             "whisper: stage=wav_ready samples={} audio_ms={} bytes={}",
-            samples.len(),
+            prepared.samples.len(),
             format.duration_ms(),
             ready
         );
@@ -1367,6 +1404,106 @@ mod tests {
             })
         );
         assert_eq!(session.state(), DictationState::Idle);
+    }
+
+    /// The loudest sample in the WAV a dictation wrote.
+    fn written_wav_peak(path: &std::path::Path) -> i16 {
+        let bytes = std::fs::read(path).expect("the audio");
+        bytes[crate::whisper::wav::WAV_HEADER_BYTES as usize..]
+            .chunks(2)
+            .filter(|pair| pair.len() == 2)
+            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]).saturating_abs())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// A quiet but non-zero recording is amplified and sent; a zero one is not
+    /// sent at all.
+    #[test]
+    fn a_quiet_recording_reaches_the_model_amplified_and_silence_does_not() {
+        let (directory, binary, model) = prepared_directory();
+        let mut settings = enabled_settings(&binary, &model);
+        // The audio is kept so the file the model was given can be read back.
+        settings.keep_audio = true;
+        let runner = Arc::new(FakeTranscriber::answering("привет"));
+        let session = WhisperSession::with_runner(directory.path(), settings, runner.clone());
+
+        // A working microphone can still deliver a peak of 30 of 32767.
+        let quiet: Vec<i16> = (0..16_000)
+            .map(|index| if index % 2 == 0 { 30 } else { -30 })
+            .collect();
+        session
+            .transcribe_samples(&quiet)
+            .expect("a quiet recording must still be sent");
+        assert_eq!(runner.calls().len(), 1, "the model is started");
+
+        // What the model was given is the amplified audio, not the raw one.
+        let peak = written_wav_peak(&directory.path().join(AUDIO_FILE_NAME));
+        assert!(
+            peak > 300,
+            "the audio handed to the model is amplified, got a peak of {peak}"
+        );
+        assert!(peak < i16::MAX, "and it is not clipped: {peak}");
+        // The recording the caller passed in is untouched.
+        assert_eq!(quiet[0], 30);
+
+        // Digital silence is not speech at any gain, and the model is not run.
+        assert_eq!(
+            session.transcribe_samples(&vec![0i16; 16_000]).unwrap_err(),
+            WhisperError::AudioEmpty
+        );
+        assert_eq!(
+            runner.calls().len(),
+            1,
+            "silence must never reach the model"
+        );
+    }
+
+    /// The switch turns the automatic gain off, and the audio is sent unchanged.
+    #[test]
+    fn the_automatic_gain_can_be_switched_off_for_a_deliberate_recording() {
+        let (directory, binary, model) = prepared_directory();
+        let mut settings = enabled_settings(&binary, &model);
+        settings.keep_audio = true;
+        settings.normalize_quiet_speech = false;
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            settings,
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        let quiet: Vec<i16> = (0..1_000)
+            .map(|index| if index % 2 == 0 { 30 } else { -30 })
+            .collect();
+        session
+            .transcribe_samples(&quiet)
+            .expect("the recording is sent");
+        let peak = written_wav_peak(&directory.path().join(AUDIO_FILE_NAME));
+        assert_eq!(peak, 30, "with the gain off the samples are unchanged");
+    }
+
+    /// A settings document written before the switch existed loads with it on.
+    #[test]
+    fn an_older_settings_document_keeps_the_automatic_gain_on() {
+        let older = r#"{
+            "enabled": true,
+            "binary_path": "C:/tools/whisper-cli.exe",
+            "model_path": "C:/models/ggml-small.bin",
+            "language": "ru",
+            "translate": false,
+            "threads": 4,
+            "max_seconds": 30,
+            "silence_ms": 1500,
+            "timeout_seconds": 120,
+            "keep_audio": false,
+            "allow_from_window": true,
+            "schema_version": 1
+        }"#;
+        let settings = WhisperSettings::load_or_default(Some(older));
+        assert!(
+            settings.normalize_quiet_speech,
+            "a document without the field must load with the gain on"
+        );
+        assert_eq!(settings.threads, 4, "and the rest of the document is kept");
     }
 
     #[test]

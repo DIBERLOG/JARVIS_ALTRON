@@ -73,10 +73,22 @@ pub struct WhisperSettings {
     /// Whether to keep the temporary WAV after a transcription. Off by default:
     /// the audio is deleted as soon as the text exists.
     pub keep_audio: bool,
+    /// Whether a quiet recording is amplified before it is sent to the model.
+    ///
+    /// On by default, and it is a `serde` default as well: a settings document
+    /// written before this field existed has to load with it on, not fail to
+    /// load at all.
+    #[serde(default = "default_true")]
+    pub normalize_quiet_speech: bool,
     /// Whether the window may start a dictation from its own button. The tray
     /// item is controlled by the same switch.
     pub allow_from_window: bool,
     pub schema_version: u32,
+}
+
+/// The value of a switch that is on unless the user turns it off.
+fn default_true() -> bool {
+    true
 }
 
 impl Default for WhisperSettings {
@@ -92,6 +104,7 @@ impl Default for WhisperSettings {
             silence_ms: DEFAULT_SILENCE_MS,
             timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             keep_audio: false,
+            normalize_quiet_speech: true,
             allow_from_window: true,
             schema_version: SETTINGS_SCHEMA_VERSION,
         }

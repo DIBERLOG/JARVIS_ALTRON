@@ -984,7 +984,6 @@ whisper-stop = Stop
 whisper-dictate-hint = Recording stops on its own when you stop speaking, at the length below, or when you press Stop. The audio is deleted as soon as the text exists.
 whisper-transcribe-file = Transcribe a WAV file…
 whisper-forget = Forget the text
-whisper-transcript = What was said
 whisper-characters = characters
 whisper-show-all = Show all
 whisper-show-less = Show less
@@ -1262,3 +1261,27 @@ whisper-mic-check-silent = Nothing was heard. That is normal in a quiet room; sp
 whisper-insert-command = Insert into the command field
 whisper-inserted = Inserted. The command field on the home page now holds this text.
 whisper-insert-hint = The text is placed in the command field and is not sent: press Enter there when you are ready.
+
+# The result block. It is on the page before the first dictation and it stays.
+whisper-result-title = Dictation result
+whisper-result-empty = No text has been recognized yet.
+whisper-result-hint = Press "Start dictation", speak, and press stop: the text appears here.
+whisper-result-recording = Recording…
+whisper-result-transcribing = Transcribing…
+whisper-result-ready = Recognized text
+whisper-result-failed = The last dictation did not produce text.
+whisper-audio-length = Recording length
+whisper-copy = Copy
+whisper-copied = Copied.
+whisper-copy-failed = The clipboard could not be filled.
+whisper-clear = Clear
+
+# How loud the microphone was, in words rather than in a rounded number.
+whisper-mic-level-none = No signal
+whisper-mic-level-quiet = Very quiet
+whisper-mic-level-normal = Normal
+whisper-mic-level-loud = Too loud
+
+# Quiet speech: the recording is amplified before the model sees it.
+whisper-normalize = Amplify quiet speech: automatically
+whisper-normalize-hint = A quiet recording is raised towards a usable level (up to +24 dB) before it is sent. Digital silence is never amplified, and nothing is recognizable below the noise floor.

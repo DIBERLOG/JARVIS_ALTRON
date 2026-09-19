@@ -450,10 +450,10 @@ pub(crate) fn check_microphone(
             .to_string());
     }
     ensure_recorder_ready()?;
-    // Ten frames of 512 samples at 16 kHz: about a third of a second, long
-    // enough for a spoken word to show up and short enough that a person does
-    // not notice the device being taken.
-    jarvis_core::recorder::check_microphone(10).map_err(|error| error.code().to_string())
+    // About a second: 30 frames of 512 samples at 16 kHz. Three frames (96 ms)
+    // were too short to catch the beginning of a word, which is exactly what a
+    // person does after pressing the button.
+    jarvis_core::recorder::check_microphone(30).map_err(|error| error.code().to_string())
 }
 
 fn start_dictation(app: &AppHandle) {
