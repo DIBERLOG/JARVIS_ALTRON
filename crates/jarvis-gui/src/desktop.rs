@@ -399,20 +399,49 @@ fn toggle_vosk(app: &AppHandle) {
 /// Prepares the recorder in this process, once.
 ///
 /// The window never called `recorder::init()`, so the cells the native read
-/// needs were empty and the read panicked inside the worker. Preparing it here
-/// is the fix for the cause; the typed error below is the fix for the symptom.
-fn ensure_recorder_ready() -> Result<(), String> {
-    if jarvis_core::recorder::is_ready() {
-        return Ok(());
-    }
-    jarvis_core::recorder::init().map_err(|_| "recorder_unavailable".to_string())?;
+/// needs were empty and the read panicked inside the worker. The one startup
+/// route in `main` prepares the recorder before any command can run; this
+/// function stays as the recovery path, and it never hides the reason: the code
+/// of the [`jarvis_core::recorder::RecorderError`] is returned unchanged, so the
+/// interface says `not_initialized`, `no_input_device`, or `permission_denied`
+/// instead of one flattened "audio unavailable".
+pub(crate) fn ensure_recorder_ready() -> Result<jarvis_core::recorder::RecorderStatus, String> {
     if !jarvis_core::recorder::is_ready() {
-        return Err("recorder_unavailable".to_string());
+        jarvis_core::recorder::init().map_err(|error| error.code().to_string())?;
     }
-    match jarvis_core::recorder::try_audio_devices() {
-        Ok(_) => Ok(()),
-        Err(error) => Err(error.code().to_string()),
+    let status = jarvis_core::recorder::status().map_err(|error| error.code().to_string())?;
+    if !status.native_ready {
+        return Err(jarvis_core::recorder::RecorderError::DeviceFailed(
+            "the microphone could not be opened".to_string(),
+        )
+        .code()
+        .to_string());
     }
+    // The device list is asked for as well: a backend that opens but lists
+    // nothing is the one case `init` cannot see, and it ends the same way.
+    jarvis_core::recorder::try_audio_devices().map_err(|error| error.code().to_string())?;
+    Ok(status)
+}
+
+/// Opens the microphone for a moment and gives it straight back.
+///
+/// This is the "Проверить микрофон" command: it is the only way to find out
+/// whether dictation can work without recording anything. A dictation already in
+/// flight owns the device, so it is refused instead of competing for it; every
+/// other answer, including a failure, comes back as a value with the recorder's
+/// own code.
+pub(crate) fn check_microphone(
+    session: &jarvis_core::whisper::WhisperSession,
+) -> Result<jarvis_core::recorder::MicrophoneCheck, String> {
+    if session.holds_microphone() {
+        return Err(jarvis_core::recorder::RecorderError::AlreadyRunning
+            .code()
+            .to_string());
+    }
+    ensure_recorder_ready()?;
+    // Three frames of 512 samples at 16 kHz: about a tenth of a second, enough
+    // for a level and short enough that a person does not notice it.
+    jarvis_core::recorder::check_microphone(3).map_err(|error| error.code().to_string())
 }
 
 fn start_dictation(app: &AppHandle) {

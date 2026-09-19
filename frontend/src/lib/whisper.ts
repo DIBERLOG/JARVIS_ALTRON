@@ -9,7 +9,13 @@
 
 import { invoke } from "@tauri-apps/api/core"
 
-import type { DictationStatus, DiscoveryReport, Transcript, WhisperSettings } from "./whisper-model"
+import type {
+    DictationStatus,
+    DiscoveryReport,
+    MicrophoneCheck,
+    Transcript,
+    WhisperSettings
+} from "./whisper-model"
 
 export interface WhisperPanelView {
     status: DictationStatus
@@ -36,6 +42,14 @@ export const whisperApi = {
     cancel: () => invoke<boolean>("whisper_cancel"),
     /** Forgets the transcript the panel is showing. */
     clearLast: () => invoke<void>("whisper_clear_last"),
+
+    /**
+     * Opens the microphone for a moment and gives it straight back.
+     *
+     * Nothing is recorded and nothing is transcribed: the answer is the device
+     * count, a signal level, and — when it failed — the recorder's own code.
+     */
+    checkMicrophone: () => invoke<MicrophoneCheck>("whisper_check_microphone"),
 
     /**
      * Looks for a Whisper build that is already on this machine.

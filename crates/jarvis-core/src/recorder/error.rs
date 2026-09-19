@@ -26,6 +26,12 @@ pub enum RecorderError {
     NotRunning,
     /// The backend is not implemented in this build.
     BackendUnavailable,
+    /// The operating system refused access to the microphone.
+    ///
+    /// This is the Windows privacy setting and the device-in-use case. It is its
+    /// own variant because the answer for the user is different: no amount of
+    /// retrying helps until the setting is changed.
+    PermissionDenied(String),
 }
 
 impl RecorderError {
@@ -39,6 +45,7 @@ impl RecorderError {
             Self::AlreadyRunning => "already_running",
             Self::NotRunning => "not_running",
             Self::BackendUnavailable => "backend_unavailable",
+            Self::PermissionDenied(_) => "permission_denied",
         }
     }
 
@@ -46,7 +53,10 @@ impl RecorderError {
     pub fn is_configuration_problem(&self) -> bool {
         matches!(
             self,
-            Self::NoInputDevice | Self::UnsupportedConfiguration(_) | Self::BackendUnavailable
+            Self::NoInputDevice
+                | Self::UnsupportedConfiguration(_)
+                | Self::BackendUnavailable
+                | Self::PermissionDenied(_)
         )
     }
 }
@@ -67,6 +77,12 @@ impl fmt::Display for RecorderError {
             Self::BackendUnavailable => {
                 formatter.write_str("this build has no recording backend for that device")
             }
+            Self::PermissionDenied(detail) => {
+                write!(
+                    formatter,
+                    "the system refused access to the microphone: {detail}"
+                )
+            }
         }
     }
 }
@@ -86,6 +102,7 @@ mod tests {
             RecorderError::AlreadyRunning,
             RecorderError::NotRunning,
             RecorderError::BackendUnavailable,
+            RecorderError::PermissionDenied("access".to_string()),
         ]
     }
 
@@ -113,6 +130,7 @@ mod tests {
     fn the_failures_a_person_can_fix_are_marked_as_such() {
         assert!(RecorderError::NoInputDevice.is_configuration_problem());
         assert!(RecorderError::BackendUnavailable.is_configuration_problem());
+        assert!(RecorderError::PermissionDenied("access".to_string()).is_configuration_problem());
         assert!(!RecorderError::NotInitialized.is_configuration_problem());
         assert!(!RecorderError::DeviceFailed("x".to_string()).is_configuration_problem());
     }

@@ -28,6 +28,13 @@ pub enum WhisperError {
     },
     /// The audio could not be prepared (written, read, or decoded).
     AudioUnavailable(String),
+    /// The microphone could not be used, with the recorder's own code.
+    ///
+    /// The code is one of `not_initialized`, `no_input_device`,
+    /// `unsupported_configuration`, `device_failed`, `backend_unavailable`,
+    /// `permission_denied`, `already_running`, or `not_running`: the interface
+    /// shows it instead of a generic "audio unavailable".
+    RecorderUnavailable { code: String },
     /// The recording is too short or too quiet to transcribe.
     AudioEmpty,
     /// Another transcription is already running in this session.
@@ -60,6 +67,7 @@ impl WhisperError {
             Self::ModelUnknown => "model_unknown",
             Self::WrongArchitecture { .. } => "wrong_architecture",
             Self::AudioUnavailable(_) => "audio_unavailable",
+            Self::RecorderUnavailable { .. } => "recorder_unavailable",
             Self::AudioEmpty => "audio_empty",
             Self::Busy => "busy",
             Self::ProcessUnavailable => "process_unavailable",
@@ -103,6 +111,7 @@ impl WhisperError {
             | Self::BinaryUnavailable(detail)
             | Self::ModelUnavailable(detail)
             | Self::AudioUnavailable(detail) => Some(detail.clone()),
+            Self::RecorderUnavailable { code } => Some(code.clone()),
             Self::WrongArchitecture { expected, found } => {
                 Some(format!("built for {found}, needs {expected}"))
             }
@@ -138,6 +147,9 @@ impl fmt::Display for WhisperError {
             ),
             Self::AudioUnavailable(detail) => {
                 write!(formatter, "the audio cannot be used: {detail}")
+            }
+            Self::RecorderUnavailable { code } => {
+                write!(formatter, "the microphone is not available ({code})")
             }
             Self::AudioEmpty => formatter.write_str("nothing was recorded"),
             Self::Busy => formatter.write_str("a transcription is already running"),
@@ -195,6 +207,9 @@ mod tests {
                 found: "x86".to_string(),
             },
             WhisperError::AudioUnavailable("not a wav".to_string()),
+            WhisperError::RecorderUnavailable {
+                code: "not_initialized".to_string(),
+            },
             WhisperError::AudioEmpty,
             WhisperError::Busy,
             WhisperError::ProcessUnavailable,

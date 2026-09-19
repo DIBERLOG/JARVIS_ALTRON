@@ -1226,3 +1226,22 @@ whisper-discovery-rejected = Проверено и отклонено
 whisper-discovery-source-bundled = рядом с приложением
 whisper-discovery-source-known = в известной папке
 whisper-discovery-source-path = в PATH
+
+# Коды самого рекордера: ответ на вопрос, почему на этой машине нельзя записать.
+whisper-error-not_initialized = Рекордер не был подготовлен в этом процессе.
+whisper-error-no_input_device = Микрофон не найден.
+whisper-error-unsupported_configuration = Этот микрофон нельзя использовать с текущими настройками.
+whisper-error-device_failed = Микрофон перестал отвечать.
+whisper-error-already_running = Запись уже идёт.
+whisper-error-not_running = Сейчас ничего не записывается.
+whisper-error-backend_unavailable = Эта сборка не умеет записывать с такого устройства.
+whisper-error-permission_denied = Микрофон занят Windows или другой программой.
+
+# Проверка микрофона в настройках: она ничего не записывает.
+whisper-mic-check-button = Проверить микрофон
+whisper-mic-check-hint = Микрофон открывается на мгновение и сразу освобождается. Ничего не записывается и не распознаётся.
+whisper-mic-check-heard = Микрофон ответил.
+whisper-mic-check-level = Уровень
+whisper-mic-check-devices = Входных устройств
+whisper-mic-check-backend = Рекордер
+whisper-mic-check-silent = Ничего не услышано. В тихой комнате это нормально: скажите что-нибудь и проверьте снова.

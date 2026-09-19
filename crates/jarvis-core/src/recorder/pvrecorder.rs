@@ -6,6 +6,72 @@ use super::RecorderError;
 
 static RECORDER: OnceCell<PvRecorder> = OnceCell::new();
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
+/// The native library's own reason for the last failed open.
+///
+/// It is kept only long enough to classify the failure. It is never logged and
+/// never shown: a native message can name a device.
+static LAST_OPEN_ERROR: OnceCell<String> = OnceCell::new();
+
+/// Whether the native recorder object was created.
+pub fn is_ready() -> bool {
+    RECORDER.get().is_some()
+}
+
+/// The native reason for the last failed open, for classification only.
+pub fn last_open_error() -> String {
+    LAST_OPEN_ERROR.get().cloned().unwrap_or_default()
+}
+
+/// Turns a native failure into one of the documented recorder errors.
+///
+/// The distinction matters to the person reading it: a refused access is the
+/// Windows privacy setting or a device another application holds, and it is not
+/// fixed by trying again, which is what `device_failed` would suggest.
+pub fn classify(message: &str) -> RecorderError {
+    let lowered = message.to_lowercase();
+    let refused = [
+        "denied",
+        "permission",
+        "not permitted",
+        "access is denied",
+        "eacces",
+        "forbidden",
+        "unauthorized",
+    ];
+    if refused.iter().any(|needle| lowered.contains(needle)) {
+        // The native sentence is dropped: it can carry a device name.
+        return RecorderError::PermissionDenied(
+            "the system or another program is using the microphone".to_string(),
+        );
+    }
+    let safe = safe_words(message);
+    if safe.is_empty() {
+        // Nothing of the native message survived, so the answer is the honest
+        // generic one rather than a half-sentence.
+        RecorderError::DeviceFailed("the microphone could not be read".to_string())
+    } else {
+        RecorderError::DeviceFailed(safe)
+    }
+}
+
+/// The part of a native message that cannot name a device or a path.
+///
+/// A word carrying a separator, a drive letter, or a quote is dropped: what went
+/// wrong may be written down, which device it was may not.
+fn safe_words(message: &str) -> String {
+    let words: Vec<&str> = message
+        .split_whitespace()
+        .filter(|word| {
+            !word.is_empty()
+                && word.len() <= 40
+                && !word.contains(['\\', '/', ':', '"', '\''])
+                && word.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || ".,_-".contains(character)
+                })
+        })
+        .collect();
+    shorten(&words.join(" "))
+}
 
 pub fn init_microphone(device_index: i32, frame_length: u32) -> bool {
     if RECORDER.get().is_some() {
@@ -28,6 +94,7 @@ pub fn init_microphone(device_index: i32, frame_length: u32) -> bool {
         }
         Err(msg) => {
             error!("Failed to initialize pvrecorder.\nError details: {:?}", msg);
+            let _ = LAST_OPEN_ERROR.set(format!("{msg:?}"));
 
             // fail
             false
@@ -53,7 +120,7 @@ pub fn try_read_microphone(frame_buffer: &mut [i16]) -> Result<(), RecorderError
             frame_buffer[usable..].fill(0);
             Ok(())
         }
-        Err(message) => Err(RecorderError::DeviceFailed(shorten(&message.to_string()))),
+        Err(message) => Err(classify(&format!("{message:?}"))),
     }
 }
 
@@ -136,7 +203,7 @@ pub fn try_start_recording() -> Result<(), RecorderError> {
             IS_RECORDING.store(true, Ordering::SeqCst);
             Ok(())
         }
-        Err(message) => Err(RecorderError::DeviceFailed(shorten(&message.to_string()))),
+        Err(message) => Err(classify(&format!("{message:?}"))),
     }
 }
 
@@ -154,7 +221,7 @@ pub fn try_stop_recording() -> Result<(), RecorderError> {
             IS_RECORDING.store(false, Ordering::SeqCst);
             Ok(())
         }
-        Err(message) => Err(RecorderError::DeviceFailed(shorten(&message.to_string()))),
+        Err(message) => Err(classify(&format!("{message:?}"))),
     }
 }
 
@@ -220,4 +287,45 @@ pub fn get_audio_device_name(idx: i32) -> String {
 
     // return first device as default, if none were matched
     first_device
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_refused_device_is_permission_denied_and_everything_else_is_device_failed() {
+        for message in [
+            "Access is denied.",
+            "PERMISSION error",
+            "The device is not permitted",
+            "EACCES",
+        ] {
+            assert_eq!(
+                classify(message).code(),
+                "permission_denied",
+                "{message} must be a permission problem"
+            );
+        }
+        for message in ["buffer underrun", "device disconnected"] {
+            assert_eq!(classify(message).code(), "device_failed");
+        }
+    }
+
+    #[test]
+    fn a_classified_failure_never_carries_the_native_sentence_of_a_refusal() {
+        let error = classify("Access is denied for microphone \"FICTIONAL DEVICE\" at C:\\secret");
+        assert_eq!(error.code(), "permission_denied");
+        let rendered = error.to_string();
+        assert!(!rendered.contains("FICTIONAL"), "{rendered}");
+        assert!(!rendered.contains("secret"), "{rendered}");
+    }
+
+    #[test]
+    fn a_device_failure_stays_bounded_and_free_of_a_path() {
+        let long = "x".repeat(500);
+        let rendered = classify(&format!("disconnected {long} C:\\users\\angel")).to_string();
+        assert!(rendered.len() < 300, "the reason must stay short");
+        assert!(!rendered.contains("angel"), "{rendered}");
+    }
 }

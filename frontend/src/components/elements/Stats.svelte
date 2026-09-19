@@ -33,8 +33,11 @@
             }
 
             wakeWordEngine = await invoke<string>("db_read", { key: "selected_wake_word_engine" }) || "Rustpotter"
-            sttEngine = await invoke<string>("db_read", { key: "selected_stt_engine" }) || "Vosk"
-            vadInfo = await invoke<string>("db_read", { key: "vad" }) || "Vosk"
+            // The keys are the ones the settings document actually knows:
+            // `selected_stt_engine` and `vad` were never in the schema, so these
+            // two reads always came back empty and the fallbacks were shown.
+            sttEngine = await invoke<string>("db_read", { key: "speech_to_text_engine" }) || "Vosk"
+            vadInfo = await invoke<string>("db_read", { key: "vad_backend" }) || "Vosk"
         } catch (err) {
             console.error("Failed to load stats:", err)
             microphoneName = t('stats-not-selected')

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import {
     LANGUAGES,
     NOTE_CODES,
+    RECORDER_CODES,
     candidateSourceKey,
     errorKey,
     modelKindKey,
@@ -13,6 +14,19 @@ import {
     readinessKey,
     stateKey
 } from "../src/lib/whisper-model.ts"
+
+/** The codes `RecorderError::code()` can produce, read from its own arms. */
+function coreRecorderCodes() {
+    const source = readFileSync(
+        fileURLToPath(new URL("../../crates/jarvis-core/src/recorder/error.rs", import.meta.url)),
+        "utf8"
+    )
+    const codes = new Set()
+    for (const match of source.matchAll(/=>\s*"([a-z_]+)"/g)) {
+        codes.add(match[1])
+    }
+    return codes
+}
 
 /** The error codes the core can produce, read from its own match arms. */
 function coreNoteCodes() {
@@ -81,6 +95,9 @@ const FAMILY_KEYS = [
     ].map(errorKey),
     "whisper-error-unknown",
     "whisper-error-threads",
+    // The recorder's own codes, so a refused microphone is never shown as a
+    // generic "unknown error".
+    ...RECORDER_CODES.map(errorKey),
     "whisper-error-seconds",
     "whisper-error-silence",
     "whisper-error-timeout",
@@ -216,6 +233,28 @@ test("a key is never built in a template inside the panel", () => {
     assert.ok(source.includes("noteKey("))
     assert.ok(source.includes("modelKindKey("))
     assert.ok(source.includes("stateKey("))
+})
+
+test("the recorder codes the panel translates are the core's own", () => {
+    // The defect this guards: a recorder failure was flattened into
+    // `audio_unavailable`, so the window could not tell "never initialised"
+    // from "no input device". The list has to follow the core.
+    const core = coreRecorderCodes()
+    assert.ok(core.size >= 6, `expected the recorder codes, got ${core.size}`)
+    const missing = [...core].filter((code) => !RECORDER_CODES.includes(code)).sort()
+    assert.deepEqual(missing, [], "the panel does not know every recorder code")
+    const extra = RECORDER_CODES.filter((code) => !core.has(code)).sort()
+    assert.deepEqual(extra, [], "the panel invents a recorder code the core cannot send")
+})
+
+test("every recorder code has a sentence in all three locales", () => {
+    for (const language of LOCALES) {
+        const available = messageKeys(language)
+        const missing = RECORDER_CODES.map(errorKey)
+            .filter((key) => !available.has(key))
+            .sort()
+        assert.deepEqual(missing, [], `${language}.ftl is missing a recorder message`)
+    }
 })
 
 test("the interface keeps no transcript and opens no browser dialog", () => {

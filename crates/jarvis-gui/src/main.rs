@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use jarvis_core::{config, db, i18n, voices, DB, SettingsManager};
+use jarvis_core::{config, db, i18n, voices, SettingsManager, DB};
 use tauri::Manager;
 
 #[macro_use]
@@ -9,8 +9,8 @@ extern crate simple_log;
 
 mod events;
 
-mod tauri_commands;
 mod desktop;
+mod tauri_commands;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -29,7 +29,7 @@ pub struct AppState {
 
 fn main() {
     config::init_dirs().expect("Failed to init dirs");
-    
+
     // basic logging setup (simpler for GUI)
     simple_log::quick!("info");
 
@@ -51,7 +51,7 @@ fn main() {
 
     // set global DB (for core modules that read settings at init time)
     DB.set(manager.arc().clone())
-            .expect("DB already initialized");
+        .expect("DB already initialized");
 
     // open the encrypted notes storage eagerly; a failure is logged and the
     // notes page can still show the storage gate
@@ -98,22 +98,34 @@ fn main() {
         let mut manager = jarvis_core::lifecycle::LifecycleManager::new();
         {
             let local_ai = local_ai.clone();
-            manager.add("cancel-generation", std::time::Duration::from_secs(2), move || {
-                local_ai.gateway().cancel();
-                Ok(())
-            });
+            manager.add(
+                "cancel-generation",
+                std::time::Duration::from_secs(2),
+                move || {
+                    local_ai.gateway().cancel();
+                    Ok(())
+                },
+            );
         }
         {
             let whisper = whisper.clone();
-            manager.add_ok("stop-dictation", std::time::Duration::from_secs(3), move || {
-                whisper.shutdown();
-            });
+            manager.add_ok(
+                "stop-dictation",
+                std::time::Duration::from_secs(3),
+                move || {
+                    whisper.shutdown();
+                },
+            );
         }
         {
             let windows_actions = windows_actions.clone();
-            manager.add_ok("stop-timers", std::time::Duration::from_secs(2), move || {
-                windows_actions.shutdown();
-            });
+            manager.add_ok(
+                "stop-timers",
+                std::time::Duration::from_secs(2),
+                move || {
+                    windows_actions.shutdown();
+                },
+            );
         }
         {
             let autocorrect = autocorrect.clone();
@@ -127,24 +139,36 @@ fn main() {
             // The managed model server is stopped last among the child
             // processes, after nothing can ask it for anything.
             let local_ai = local_ai.clone();
-            manager.add_ok("stop-llama-server", std::time::Duration::from_secs(5), move || {
-                local_ai.shutdown();
-            });
+            manager.add_ok(
+                "stop-llama-server",
+                std::time::Duration::from_secs(5),
+                move || {
+                    local_ai.shutdown();
+                },
+            );
         }
         {
             let memory = memory.clone();
-            manager.add_ok("close-databases", std::time::Duration::from_secs(3), move || {
-                memory.shutdown();
-            });
+            manager.add_ok(
+                "close-databases",
+                std::time::Duration::from_secs(3),
+                move || {
+                    memory.shutdown();
+                },
+            );
         }
         {
             // The key session is dropped before the window is gone, and the
             // report says whether it worked.
             let vault = vault.clone();
-            manager.add("zeroize-keys", std::time::Duration::from_secs(2), move || {
-                vault.lock_for_exit();
-                Ok(())
-            });
+            manager.add(
+                "zeroize-keys",
+                std::time::Duration::from_secs(2),
+                move || {
+                    vault.lock_for_exit();
+                    Ok(())
+                },
+            );
         }
         manager.add_ok("exit", std::time::Duration::from_millis(200), || {});
         std::sync::Arc::new(manager)
@@ -402,6 +426,7 @@ fn main() {
             tauri_commands::whisper_transcribe_file,
             tauri_commands::whisper_cancel,
             tauri_commands::whisper_clear_last,
+            tauri_commands::whisper_check_microphone,
             desktop::whisper_discover,
             desktop::whisper_apply_discovered,
             // the desktop shell: state, close behaviour, autostart, first run
@@ -435,6 +460,16 @@ fn main() {
                 // A missing tray is not fatal: the window still works, and the
                 // diagnostics report says so.
                 log::error!("desktop: the tray could not be created: {error}");
+            }
+            // The recorder is prepared here, in the one startup route, and not
+            // lazily on the first read: the window's dictation command, the tray,
+            // and the microphone check all find it ready, and a machine where it
+            // cannot be prepared says so once at startup with its exact code.
+            match desktop::ensure_recorder_ready() {
+                Ok(_) => {}
+                Err(code) => log::warn!(
+                    "recorder: not prepared at startup (error_code={code}); the recording paths will retry"
+                ),
             }
             // An autostart launch stays in the tray: the window is hidden here,
             // after the icon exists, so an invisible application cannot happen.

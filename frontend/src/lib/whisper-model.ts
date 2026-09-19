@@ -117,26 +117,75 @@ export function modelKindKey(kind: ModelKind): string {
 
 /** The Fluent key of a content-free error code. */
 export function errorKey(code: string): string {
-    const known = [
-        "disabled",
-        "not_configured",
-        "invalid_configuration",
-        "binary_unavailable",
-        "model_unavailable",
-        "model_unknown",
-        "wrong_architecture",
-        "audio_unavailable",
-        "audio_empty",
-        "busy",
-        "process_unavailable",
-        "process_failed",
-        "timed_out",
-        "invalid_response",
-        "cancelled",
-        "unsupported_language",
-        "storage"
-    ]
-    return known.includes(code) ? `whisper-error-${code}` : "whisper-error-unknown"
+    return KNOWN_ERROR_CODES.includes(code) ? `whisper-error-${code}` : "whisper-error-unknown"
+}
+
+/**
+ * The recorder's own codes, mirroring `RecorderError::code()` in the core.
+ *
+ * They are separate from the whisper codes because they answer a different
+ * question — whether this machine can record at all — and the panel shows them
+ * beside the microphone check, not beside a transcription.
+ */
+export const RECORDER_CODES: readonly string[] = [
+    "not_initialized",
+    "no_input_device",
+    "unsupported_configuration",
+    "device_failed",
+    "already_running",
+    "not_running",
+    "backend_unavailable",
+    "permission_denied"
+]
+
+/** Every code the core can put in an error, so none reaches the user raw. */
+export const KNOWN_ERROR_CODES: readonly string[] = [
+    "disabled",
+    "not_configured",
+    "invalid_configuration",
+    "binary_unavailable",
+    "model_unavailable",
+    "model_unknown",
+    "wrong_architecture",
+    "audio_unavailable",
+    "audio_empty",
+    "busy",
+    "process_unavailable",
+    "process_failed",
+    "timed_out",
+    "invalid_response",
+    "cancelled",
+    "unsupported_language",
+    "storage",
+    ...RECORDER_CODES
+]
+
+/** The result of the microphone check, as the core sends it. */
+export interface MicrophoneCheck {
+    status: {
+        backend: string
+        native_ready: boolean
+        device_count: number
+        selected_index: number
+        frame_length: number
+    }
+    frames_read: number
+    level: number
+    released: boolean
+    error_code: string | null
+}
+
+/**
+ * A one-line answer for the microphone check.
+ *
+ * The level is a number, not a verdict: a quiet room really is quiet, so the
+ * sentence says what was measured and leaves the conclusion to the person.
+ */
+export function microphoneCheckKey(check: MicrophoneCheck): string {
+    if (check.error_code) return errorKey(check.error_code)
+    if (!check.released) return errorKey("device_failed")
+    if (check.frames_read === 0) return "whisper-mic-check-silent"
+    return "whisper-mic-check-heard"
 }
 
 /**

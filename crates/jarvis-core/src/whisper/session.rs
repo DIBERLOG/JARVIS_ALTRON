@@ -133,8 +133,13 @@ pub struct RecorderFrames;
 
 impl FrameSource for RecorderFrames {
     fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError> {
-        crate::recorder::try_read_microphone(buffer)
-            .map_err(|error| WhisperError::AudioUnavailable(error.to_string()))
+        // The recorder's own code travels with the error, so the interface can
+        // say *why* the microphone is unavailable instead of "audio".
+        crate::recorder::try_read_microphone(buffer).map_err(|error| {
+            WhisperError::RecorderUnavailable {
+                code: error.code().to_string(),
+            }
+        })
     }
 }
 

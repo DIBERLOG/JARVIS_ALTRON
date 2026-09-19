@@ -1232,3 +1232,23 @@ whisper-discovery-rejected = Checked and refused
 whisper-discovery-source-bundled = next to the application
 whisper-discovery-source-known = in the known folder
 whisper-discovery-source-path = on PATH
+
+# The recorder's own codes. Each one is the answer to "why can this machine not
+# record", and each is shown instead of the one flattened "audio unavailable".
+whisper-error-not_initialized = The recorder was not prepared in this process.
+whisper-error-no_input_device = No microphone was found.
+whisper-error-unsupported_configuration = This microphone cannot be used with the current settings.
+whisper-error-device_failed = The microphone stopped answering.
+whisper-error-already_running = A recording is already running.
+whisper-error-not_running = Nothing is recording.
+whisper-error-backend_unavailable = This build cannot record from that device.
+whisper-error-permission_denied = Windows or another program is holding the microphone.
+
+# The microphone check in the settings, which records nothing.
+whisper-mic-check-button = Check the microphone
+whisper-mic-check-hint = The microphone is opened for a moment and released again. Nothing is recorded and nothing is transcribed.
+whisper-mic-check-heard = The microphone answered.
+whisper-mic-check-level = Level
+whisper-mic-check-devices = Input devices
+whisper-mic-check-backend = Recorder
+whisper-mic-check-silent = Nothing was heard. That is normal in a quiet room; speak and check again.

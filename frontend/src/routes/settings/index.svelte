@@ -116,13 +116,13 @@
                 invoke("db_write", { key: "assistant_voice", val: voiceVal }),
                 invoke("db_write", { key: "selected_microphone", val: selectedMicrophone }),
                 invoke("db_write", { key: "selected_wake_word_engine", val: selectedWakeWordEngine }),
-                invoke("db_write", { key: "selected_intent_recognition_engine", val: selectedIntentRecognitionEngine }),
-                invoke("db_write", { key: "selected_slot_extraction_engine", val: selectedSlotExtractionEngine }),
+                invoke("db_write", { key: "intent_backend", val: selectedIntentRecognitionEngine }),
+                invoke("db_write", { key: "slots_backend", val: selectedSlotExtractionEngine }),
                 invoke("db_write", { key: "selected_gliner_model", val: selectedGlinerModel }),
                 invoke("db_write", { key: "selected_vosk_model", val: selectedVoskModel }),
 
                 invoke("db_write", { key: "noise_suppression", val: selectedNoiseSuppression }),
-                invoke("db_write", { key: "vad", val: selectedVad }),
+                invoke("db_write", { key: "vad_backend", val: selectedVad }),
                 invoke("db_write", { key: "gain_normalizer", val: gainNormalizerEnabled.toString() }),
 
                 invoke("db_write", { key: "api_key__picovoice", val: apiKeyPicovoice }),
@@ -206,13 +206,13 @@
                    pico, openai] = await Promise.all([
                 invoke<string>("db_read", { key: "selected_microphone" }),
                 invoke<string>("db_read", { key: "selected_wake_word_engine" }),
-                invoke<string>("db_read", { key: "selected_intent_recognition_engine" }),
-                invoke<string>("db_read", { key: "selected_slot_extraction_engine" }),
+                invoke<string>("db_read", { key: "intent_backend" }),
+                invoke<string>("db_read", { key: "slots_backend" }),
                 invoke<string>("db_read", { key: "selected_gliner_model" }),
                 invoke<string>("db_read", { key: "selected_vosk_model" }),
 
                 invoke<string>("db_read", { key: "noise_suppression" }),
-                invoke<string>("db_read", { key: "vad" }),
+                invoke<string>("db_read", { key: "vad_backend" }),
                 invoke<string>("db_read", { key: "gain_normalizer" }),
 
                 invoke<string>("db_read", { key: "api_key__picovoice" }),

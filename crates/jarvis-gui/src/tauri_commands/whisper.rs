@@ -19,6 +19,7 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use jarvis_core::notes::vault::VaultPaths;
+use jarvis_core::recorder::MicrophoneCheck;
 use jarvis_core::whisper::{
     DictationStatus, RecorderFrames, Transcript, WhisperError, WhisperSession, WhisperSettings,
 };
@@ -188,12 +189,36 @@ pub async fn whisper_select_model(
 pub async fn whisper_dictate(state: tauri::State<'_, AppState>) -> Result<Transcript, String> {
     let handle = state.whisper.clone();
     on_blocking(move || {
+        // The recorder is prepared in the startup route; this call is the
+        // recovery path for a machine where that first attempt failed. The code
+        // itself is what the window receives — `not_initialized`,
+        // `no_input_device`, `permission_denied` — so the panel names the real
+        // cause instead of showing one flattened "audio unavailable".
+        crate::desktop::ensure_recorder_ready().map_err(|code| {
+            log::warn!("whisper: recorder_unavailable ({code})");
+            code
+        })?;
         let mut source = RecorderFrames;
         let transcript = handle.session().dictate(&mut source).map_err(describe)?;
         handle.remember(transcript.clone());
         Ok(transcript)
     })
     .await
+}
+
+/// Checks the microphone without recording anything.
+///
+/// This is the diagnostic the settings page offers: the device is opened, a few
+/// frames are read so a signal level can be reported, and the device is released
+/// again on every path, including a failure. Nothing is written, nothing is sent
+/// to whisper, and no audio is kept: the answer is the recorder status, the
+/// number of frames that were read, and a level between 0 and 1.
+#[tauri::command]
+pub async fn whisper_check_microphone(
+    state: tauri::State<'_, AppState>,
+) -> Result<MicrophoneCheck, String> {
+    let session = std::sync::Arc::clone(state.whisper.session());
+    on_blocking(move || crate::desktop::check_microphone(&session)).await
 }
 
 /// Transcribes an audio file the user picks.

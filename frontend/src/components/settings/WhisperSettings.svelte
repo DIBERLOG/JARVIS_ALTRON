@@ -15,7 +15,7 @@
     import { translate, translations } from "@/stores"
     import { whisperApi } from "@/lib/whisper"
     import type { WhisperPanelView } from "@/lib/whisper"
-    import type { DiscoveryReport, WhisperSettings } from "@/lib/whisper-model"
+    import type { DiscoveryReport, MicrophoneCheck, WhisperSettings } from "@/lib/whisper-model"
     import {
         candidateSourceKey,
         discoverySummaryKey,
@@ -30,6 +30,7 @@
         defaultSettings,
         errorKey,
         isBusy,
+        microphoneCheckKey,
         modelIsUnverified,
         modelKindKey,
         noteKey,
@@ -50,6 +51,7 @@
     let actionError = ""
     let saved = false
     let discovery: DiscoveryReport | null = null
+    let microphone: MicrophoneCheck | null = null
 
     $: status = view?.status ?? null
     $: transcript = view?.last ?? null
@@ -172,6 +174,31 @@
         } finally {
             busy = false
         }
+    }
+
+    /**
+     * Opens the microphone for a moment.
+     *
+     * Nothing is recorded and nothing is transcribed: the core reads a few
+     * frames, measures a level, and releases the device on every path. The code
+     * it answers with is the recorder's own, so the panel can name the cause.
+     */
+    async function checkMicrophone() {
+        busy = true
+        try {
+            microphone = await whisperApi.checkMicrophone()
+            actionError = ""
+        } catch (error) {
+            microphone = null
+            actionError = describe(error)
+        } finally {
+            busy = false
+        }
+    }
+
+    /** The measured level as a percentage: a fraction is unreadable. */
+    function levelLabel(level: number): string {
+        return `${Math.round(level * 100)} %`
     }
 
     async function forget() {
@@ -315,6 +342,33 @@
             <Text size="xs" color="dimmed">{candidate.name}: {candidate.detail}</Text>
         {/each}
     {/if}
+{/if}
+<Space h="xs" />
+
+<!-- The microphone check records nothing: it opens the device, measures a level,
+     and gives the device straight back. It is the answer to "is dictation even
+     possible on this machine" without a transcription in between. -->
+<Group spacing="xs">
+    <Button
+        size="sm"
+        variant="default"
+        loading={busy}
+        disabled={running}
+        on:click={checkMicrophone}
+    >
+        {t("whisper-mic-check-button")}
+    </Button>
+</Group>
+<Text size="xs" color="dimmed">{t("whisper-mic-check-hint")}</Text>
+{#if microphone}
+    <Text size="xs" color={microphone.error_code ? "orange" : "dimmed"}>
+        {t(microphoneCheckKey(microphone))}
+        {#if !microphone.error_code}
+            · {t("whisper-mic-check-level")}: {levelLabel(microphone.level)}
+            · {t("whisper-mic-check-devices")}: {microphone.status.device_count}
+            · {t("whisper-mic-check-backend")}: {microphone.status.backend}
+        {/if}
+    </Text>
 {/if}
 <Space h="xs" />
 
