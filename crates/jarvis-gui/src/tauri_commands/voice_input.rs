@@ -68,6 +68,9 @@ pub struct VoiceInputView {
     /// Whether the listener is reachable. It lives in the voice host process, so
     /// this says whether the route can hand the microphone over.
     pub vosk_available: bool,
+    /// The voice host, as its own typed state: a running process is not a
+    /// listener until it has completed the handshake.
+    pub host: crate::tauri_commands::VoiceHostView,
     pub clipboard: ClipboardStatus,
     /// A content-free code for the last failure.
     pub error_code: Option<String>,
@@ -195,7 +198,9 @@ impl VoiceInputHandle {
         VoiceInputView {
             settings,
             whisper_configured,
-            vosk_available: true,
+            vosk_available: crate::tauri_commands::voice_host::state()
+                == crate::tauri_commands::VoiceHostState::Listening,
+            host: crate::tauri_commands::voice_host::view(),
             clipboard: self.clipboard.lock().status(),
             error_key: error_code
                 .as_ref()

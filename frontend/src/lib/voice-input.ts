@@ -45,6 +45,21 @@ export interface VoiceInputView {
         has_text: boolean
     }
     whisper_configured: boolean
+    /** The voice host, as its own typed state. */
+    host: {
+        state:
+            | "stopped"
+            | "starting"
+            | "listening"
+            | "stopping"
+            | "incompatible_version"
+            | "executable_missing"
+            | "ipc_unavailable"
+            | "crashed"
+        state_key: string
+        protocol_version: number | null
+        expected_version: number
+    }
     vosk_available: boolean
     clipboard: {
         armed: boolean

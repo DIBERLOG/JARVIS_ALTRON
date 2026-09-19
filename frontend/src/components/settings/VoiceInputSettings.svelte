@@ -211,9 +211,12 @@
         title={t(stageKey(view.status.stage))}
     >
         <Text size="xs" color="dimmed">
-            {t("voice-input-vosk")}: {view.vosk_available ? t("voice-input-ready") : t("voice-input-missing")} ·
+            {t("voice-input-vosk")}: {t(view.host.state_key)} ·
             {t("voice-input-whisper")}: {view.whisper_configured ? t("voice-input-ready") : t("voice-input-missing")}
         </Text>
+        {#if view.host.state !== "listening"}
+            <Text size="xs" color="orange">{t("voice-host-hint")}</Text>
+        {/if}
         {#if view.has_result}
             <Text size="xs" color="dimmed">
                 {t("voice-input-last-result")}: {view.characters} {t("voice-input-characters")}

@@ -14,7 +14,8 @@ pub const IPC_PORT: u16 = 9712;
 pub const IPC_ADDR: &str = "127.0.0.1";
 
 static BROADCAST_TX: OnceCell<broadcast::Sender<IpcEvent>> = OnceCell::new();
-static ACTION_HANDLER: OnceCell<Arc<RwLock<Option<Box<dyn Fn(IpcAction) + Send + Sync>>>>> = OnceCell::new();
+static ACTION_HANDLER: OnceCell<Arc<RwLock<Option<Box<dyn Fn(IpcAction) + Send + Sync>>>>> =
+    OnceCell::new();
 
 // Initialize the IPC broadcast channel
 pub fn init() -> broadcast::Sender<IpcEvent> {
@@ -25,7 +26,7 @@ pub fn init() -> broadcast::Sender<IpcEvent> {
     let (tx, _) = broadcast::channel::<IpcEvent>(32);
     BROADCAST_TX.set(tx.clone()).ok();
     ACTION_HANDLER.set(Arc::new(RwLock::new(None))).ok();
-    
+
     info!("IPC: Broadcast channel initialized");
     tx
 }
@@ -58,13 +59,13 @@ where
 
 fn handle_action(action: IpcAction) {
     info!("IPC: Received action {:?}", action);
-    
+
     // handle ping internally
     if matches!(action, IpcAction::Ping) {
         send(IpcEvent::Pong);
         return;
     }
-    
+
     // forward to registered handler
     if let Some(handler_lock) = ACTION_HANDLER.get() {
         let handler = handler_lock.read();
@@ -95,7 +96,7 @@ pub async fn start_server() {
 
     while let Ok((stream, peer_addr)) = listener.accept().await {
         info!("IPC: Client connecting from {}", peer_addr);
-        
+
         let rx = BROADCAST_TX
             .get()
             .map(|tx| tx.subscribe())
@@ -122,6 +123,26 @@ async fn handle_client(
     };
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
+
+    // The handshake: the version is the first thing a client is told, before any
+    // other event. "Connected" and "usable" are two different facts for the
+    // window, and this is the one that separates them.
+    let hello = match serde_json::to_string(&IpcEvent::Hello {
+        protocol_version: super::events::IPC_PROTOCOL_VERSION,
+    }) {
+        Ok(json) => json,
+        Err(_) => {
+            error!("IPC: the handshake could not be serialized");
+            return;
+        }
+    };
+    if ws_tx.send(Message::Text(hello.into())).await.is_err() {
+        info!(
+            "IPC: client {} disconnected during the handshake",
+            peer_addr
+        );
+        return;
+    }
 
     loop {
         tokio::select! {

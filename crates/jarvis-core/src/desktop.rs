@@ -27,6 +27,12 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 /// File name of the desktop settings document inside the feature directory.
+/// Version of the events and actions jarvis-gui and jarvis-app exchange.
+///
+/// Both processes read it, and the window reports a mismatch as
+/// incompatible_version instead of showing a listener that answers nothing.
+pub const VOICE_PROTOCOL_VERSION: u32 = 1;
+
 pub const DESKTOP_SETTINGS_FILE: &str = "desktop.json";
 /// Schema version of the desktop settings document.
 pub const DESKTOP_SCHEMA_VERSION: u32 = 1;

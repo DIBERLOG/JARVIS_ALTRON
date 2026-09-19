@@ -68,6 +68,7 @@ export function connectIpc(port: number = 9712) {
     }
 
     ws.onclose = () => {
+        void invoke("voice_host_note_ipc_closed")
         ipcConnected.set(false)
         console.log("[IPC] disconnected")
     }
@@ -122,6 +123,13 @@ function handleEvent(data: any) {
         case "wake_word_detected":
         case "listening":
             jarvisState.set("listening")
+            break
+
+        // The handshake: only a host that introduced itself with the version
+        // this build speaks counts as a listener. Anything else is reported as
+        // its own state, never as "running".
+        case "hello":
+            void invoke("voice_host_note_handshake", { protocolVersion: data.protocol_version })
             break
 
         case "speech_recognized":

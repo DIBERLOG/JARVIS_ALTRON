@@ -1,3 +1,13 @@
+/// Version of the events and actions the two processes exchange.
+///
+/// A mismatch is reported by the window as incompatible_version instead of a
+/// listener that looks ready and answers nothing. It is bumped whenever an event
+/// or an action changes shape.
+/// The value lives in jarvis_core::desktop because the window process does not
+/// compile the IPC module (it is behind the voice-host feature) and still has to
+/// know which version it expects.
+pub const IPC_PROTOCOL_VERSION: u32 = crate::desktop::VOICE_PROTOCOL_VERSION;
+
 use serde::{Deserialize, Serialize};
 
 // Events sent from jarvis-app to GUI
@@ -24,6 +34,12 @@ pub enum IpcEvent {
 
     // App started
     Started,
+
+    // The version the voice host speaks, sent to every client the moment it
+    // connects. This is the handshake the window waits for before it calls the
+    // listener ready: a process that is running but has not said hello is not a
+    // listener yet, and one that says another version is not a usable one.
+    Hello { protocol_version: u32 },
 
     // App is shutting down
     Stopping,
@@ -52,6 +68,10 @@ pub enum IpcAction {
 
     // Ping to check connection
     Ping,
+
+    // The version the window speaks, so the host can refuse an incompatible
+    // client instead of ignoring it.
+    Hello { protocol_version: u32 },
 
     // Mute/unmute listening
     SetMuted { muted: bool },

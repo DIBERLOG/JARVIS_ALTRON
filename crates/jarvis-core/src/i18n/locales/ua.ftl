@@ -1412,3 +1412,16 @@ voice-input-error-voice-host-unavailable = Слухач не зміг повер
 voice-input-error-window-changed = Активне вікно змінилося, тому нічого не доставлено.
 voice-input-error-target-refused = Це поле не може приймати текст.
 voice-input-error-unavailable = Ця частина маршруту недоступна в цій збірці.
+
+# --------------------------------------------------- голосовий хост
+voice-host-state-stopped = Голосовий хост не запущено
+voice-host-state-starting = Голосовий хост запускається…
+voice-host-state-listening = Слухає
+voice-host-state-stopping = Голосовий хост зупиняється…
+voice-host-state-incompatible = Несумісна версія голосового хоста
+voice-host-state-missing = Виконуваний файл голосового хоста не знайдено поруч із застосунком
+voice-host-state-ipc = Голосовий хост запущено, але канал недоступний
+voice-host-state-crashed = Голосовий хост несподівано завершився
+voice-host-start = Запустити
+voice-host-stop = Зупинити
+voice-host-hint = Слухач працює окремим процесом, тому продовжує слухати, коли вікно приховано в треї.

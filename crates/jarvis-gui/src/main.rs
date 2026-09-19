@@ -213,6 +213,13 @@ fn main() {
                 },
             );
         }
+        {
+            // The voice host is a child of this process: a full exit stops it,
+            // and a hidden window does not.
+            manager.add_ok("stop-voice-host", std::time::Duration::from_secs(3), || {
+                tauri_commands::stop();
+            });
+        }
         manager.add_ok("exit", std::time::Duration::from_millis(200), || {});
         std::sync::Arc::new(manager)
     };
@@ -489,6 +496,13 @@ fn main() {
             tauri_commands::voice_input_clear_result,
             tauri_commands::voice_input_preview,
             tauri_commands::voice_input_copy_again,
+
+            // the voice host: start it once, know what it is doing
+            tauri_commands::voice_host_status,
+            tauri_commands::voice_host_start,
+            tauri_commands::voice_host_stop,
+            tauri_commands::voice_host_note_handshake,
+            tauri_commands::voice_host_note_ipc_closed,
             desktop::whisper_discover,
             desktop::whisper_apply_discovered,
             // the desktop shell: state, close behaviour, autostart, first run

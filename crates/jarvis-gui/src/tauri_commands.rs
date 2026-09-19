@@ -68,6 +68,8 @@ pub use whisper::*;
 mod backup;
 pub use backup::*;
 // import global voice input (one microphone, clipboard delivery)
+mod voice_host;
+pub use voice_host::*;
 mod voice_input;
 pub use voice_input::*;
 // import desktop shell commands (tray, close behaviour, autostart, first run)

@@ -1419,3 +1419,16 @@ voice-input-error-voice-host-unavailable = The listener could not take the micro
 voice-input-error-window-changed = The active window changed, so nothing was delivered.
 voice-input-error-target-refused = That field may not receive text.
 voice-input-error-unavailable = That part of the route is not available in this build.
+
+# --------------------------------------------------- voice host
+voice-host-state-stopped = Voice host is not running
+voice-host-state-starting = Starting the voice host…
+voice-host-state-listening = Listening
+voice-host-state-stopping = Stopping the voice host…
+voice-host-state-incompatible = The voice host speaks an incompatible version
+voice-host-state-missing = The voice host executable was not found next to this application
+voice-host-state-ipc = The voice host is running but the channel is unavailable
+voice-host-state-crashed = The voice host stopped unexpectedly
+voice-host-start = Start
+voice-host-stop = Stop
+voice-host-hint = The listener runs in its own process so it keeps working while this window is hidden in the tray.
