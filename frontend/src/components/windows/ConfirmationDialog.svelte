@@ -63,6 +63,14 @@
             <td class="value">{t(sourceKey(preview.source))}</td>
         </tr>
     </table>
+    {#if preview.consequences.length > 0}
+        <Space h="sm" />
+        <ul class="consequences">
+            {#each preview.consequences as consequence (consequence)}
+                <li>{t(consequence)}</li>
+            {/each}
+        </ul>
+    {/if}
     <Space h="sm" />
     <Text size="sm" color="dimmed">
         {t("windows-actions-confirm-expires")}
@@ -105,5 +113,12 @@
 
     .value {
         word-break: break-word;
+    }
+
+    .consequences {
+        margin: 0;
+        padding-left: 1.1rem;
+        font-size: 0.82rem;
+        opacity: 0.85;
     }
 </style>

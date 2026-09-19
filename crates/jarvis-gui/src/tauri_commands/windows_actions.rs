@@ -201,6 +201,7 @@ pub async fn windows_actions_overview(
     state: tauri::State<'_, AppState>,
 ) -> Result<WindowsActionsOverview, String> {
     let handle = state.windows_actions.clone();
+    let tools_supported = state.local_ai.tools_supported();
     on_blocking(move || {
         let session = handle.session.lock();
         let allowed_applications = session
@@ -227,9 +228,7 @@ pub async fn windows_actions_overview(
                 note: note.to_string(),
             })
             .collect();
-        // `false` says the client cannot carry structured tools yet; the model path reports
-        // the honest reason instead of offering an action it cannot deliver.
-        let (tools, _catalogue) = session.ai_tools(false);
+        let (tools, _catalogue) = session.ai_tools(tools_supported);
         Ok(WindowsActionsOverview {
             capabilities: session.capabilities(),
             settings: session.settings().clone(),
@@ -293,14 +292,7 @@ pub async fn windows_actions_confirm(
     token: String,
 ) -> Result<ActionResult, String> {
     let handle = state.windows_actions.clone();
-    on_blocking(move || {
-        handle
-            .session
-            .lock()
-            .confirm(&token)
-            .map_err(describe)
-    })
-    .await
+    on_blocking(move || handle.session.lock().confirm(&token).map_err(describe)).await
 }
 
 /// Refuses the pending action.
@@ -499,14 +491,7 @@ pub async fn windows_actions_route_voice(
     text: String,
 ) -> Result<VoiceRoute, String> {
     let handle = state.windows_actions.clone();
-    on_blocking(move || {
-        handle
-            .session
-            .lock()
-            .route_voice(&text)
-            .map_err(describe)
-    })
-    .await
+    on_blocking(move || handle.session.lock().route_voice(&text).map_err(describe)).await
 }
 
 /// The structured tools the local model may call, as the interface documents them.
@@ -515,10 +500,78 @@ pub async fn windows_actions_tools(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<jarvis_core::windows_actions::ToolDefinition>, String> {
     let handle = state.windows_actions.clone();
+    let supported = state.local_ai.tools_supported();
     on_blocking(move || {
         let session = handle.session.lock();
-        let (_availability, catalogue) = session.ai_tools(false);
+        let (_availability, catalogue) = session.ai_tools(supported);
         Ok(catalogue)
+    })
+    .await
+}
+
+/// The answer to one phrase sent to the local model.
+///
+/// It is either an action request — the model asked for a tool, the call was decoded against
+/// the tool's own schema, and the policy has already seen it — or plain text. Text is never
+/// read as an action: that is the whole point of offering a catalogue.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AiActionOutcome {
+    /// The model answered with prose. Nothing was done with it.
+    Answer { text: String },
+    /// The model asked for a tool, and the request went through the usual pipeline.
+    Requested { outcome: ActionRequestOutcome },
+    /// The catalogue cannot be offered right now, with the reason the core reported.
+    Unavailable { reason: String },
+}
+
+/// Asks the local model for one action, with the catalogue attached.
+#[tauri::command]
+pub async fn windows_actions_ai_request(
+    state: tauri::State<'_, AppState>,
+    phrase: String,
+) -> Result<AiActionOutcome, String> {
+    let handle = state.windows_actions.clone();
+    let gateway = state.local_ai.shared();
+    let supported = state.local_ai.tools_supported();
+    on_blocking(move || {
+        let catalogue = {
+            let session = handle.session.lock();
+            let (availability, catalogue) = session.ai_tools(supported);
+            if !availability.is_available() {
+                let reason = match availability {
+                    ToolAvailability::Unavailable { reason } => reason.to_string(),
+                    ToolAvailability::Available => "windows-ai-tools-disabled".to_string(),
+                };
+                return Ok(AiActionOutcome::Unavailable { reason });
+            }
+            catalogue
+        };
+        let turn = gateway
+            .generate_with_tools(
+                jarvis_core::ai::local::GenerationRequest::user_message(phrase),
+                catalogue,
+            )
+            .map_err(|error| describe_gateway(&error))?;
+        // Only the first call is acted on, and only if it decodes against its own schema. A
+        // turn with several calls is not guessed at: the model answers one thing at a time.
+        match turn.tool_calls.first() {
+            Some(call) => {
+                let arguments: serde_json::Value = serde_json::from_str(&call.function.arguments)
+                    .map_err(|_| {
+                    describe(ActionError::InvalidArguments {
+                        detail: "the tool call was not valid JSON".to_string(),
+                    })
+                })?;
+                let outcome = handle
+                    .session
+                    .lock()
+                    .request_from_tool_call(&call.function.name, &arguments)
+                    .map_err(describe)?;
+                Ok(AiActionOutcome::Requested { outcome })
+            }
+            None => Ok(AiActionOutcome::Answer { text: turn.text }),
+        }
     })
     .await
 }
@@ -545,6 +598,15 @@ fn data_directory() -> PathBuf {
     VaultPaths::production()
         .map(|paths| paths.data_dir)
         .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Turns a gateway error into a message that is safe to show and to log.
+///
+/// The gateway's own messages are content-free by construction; nothing here formats a prompt,
+/// an answer, or a tool call.
+fn describe_gateway(error: &jarvis_core::ai::ChatError) -> String {
+    log::warn!("windows actions: the model path failed");
+    error.to_string()
 }
 
 /// Turns an action error into a message that is safe to show and to log.

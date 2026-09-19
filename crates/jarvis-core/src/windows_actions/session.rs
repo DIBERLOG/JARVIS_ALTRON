@@ -1567,7 +1567,10 @@ mod tests {
             .any(|entry| entry.action_type == "timer_fired"));
         // The host is told exactly once, and the item is no longer active.
         assert!(receiver.try_recv().is_err());
-        assert_eq!(session.scheduled()[0].status, super::super::timers::ScheduledStatus::Fired);
+        assert_eq!(
+            session.scheduled()[0].status,
+            super::super::timers::ScheduledStatus::Fired
+        );
         session.shutdown();
     }
 }

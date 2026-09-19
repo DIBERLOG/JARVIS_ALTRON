@@ -23,6 +23,7 @@
     import { windowsActionsApi, onFired } from "@/lib/windows-actions"
     import type {
         ActionPreview,
+        ActionRequestOutcome,
         ActionResult,
         AllowedApplicationView,
         AuditEntry,
@@ -88,6 +89,8 @@
     let reminderMessage = ""
     let applicationName = ""
     let voicePhrase = ""
+    let aiPhrase = ""
+    let answer = ""
 
     let busy = false
     let notice = ""
@@ -151,20 +154,33 @@
         busy = true
         notice = ""
         try {
-            const outcome = await windowsActionsApi.request(action)
-            if (outcome.outcome === "awaiting_confirmation") {
-                preview = outcome.preview
-            } else {
-                lastResult = outcome.result
-                preview = null
-                await refreshAfterAction()
-            }
+            lastResult = await handleOutcome(await windowsActionsApi.request(action))
             actionError = ""
         } catch (error) {
             actionError = describe(error)
         } finally {
             busy = false
         }
+    }
+
+    /**
+     * Reacts to the three answers the core can give.
+     *
+     * A refusal is answered with a message, never with a confirmation: the interface never
+     * decides which of the three applies.
+     */
+    async function handleOutcome(outcome: ActionRequestOutcome): Promise<ActionResult | null> {
+        if (outcome.outcome === "awaiting_confirmation") {
+            preview = outcome.preview
+            return null
+        }
+        preview = null
+        if (outcome.outcome === "rejected") {
+            actionError = describe(outcome.detail)
+            return null
+        }
+        await refreshAfterAction()
+        return outcome.result
     }
 
     async function refreshAfterAction() {
@@ -337,12 +353,7 @@
         try {
             const route: VoiceRoute = await windowsActionsApi.routeVoice(phrase)
             if (route.result === "requested") {
-                if (route.outcome.outcome === "awaiting_confirmation") {
-                    preview = route.outcome.preview
-                } else {
-                    lastResult = route.outcome.result
-                    await refreshAfterAction()
-                }
+                lastResult = await handleOutcome(route.outcome)
             } else if (route.result === "ambiguous") {
                 // The router says what it could not decide, in its own words.
                 notice = t(voiceReasonKey(route.reason))
@@ -350,6 +361,34 @@
                 notice = t("windows-actions-voice-disabled")
             } else {
                 notice = t("windows-actions-voice-not-an-action")
+            }
+            actionError = ""
+        } catch (error) {
+            actionError = describe(error)
+        } finally {
+            busy = false
+        }
+    }
+
+    /**
+     * Sends the phrase to the local model with the catalogue attached.
+     *
+     * An answer in prose is shown and nothing else happens with it: this function has no path
+     * that turns text into an action.
+     */
+    async function askModel() {
+        const phrase = aiPhrase.trim()
+        if (phrase.length === 0) return
+        busy = true
+        answer = ""
+        try {
+            const result = await windowsActionsApi.aiRequest(phrase)
+            if (result.kind === "requested") {
+                lastResult = await handleOutcome(result.outcome)
+            } else if (result.kind === "answer") {
+                answer = result.text
+            } else {
+                notice = t(toolAvailabilityKey({ available: "unavailable", reason: result.reason }))
             }
             actionError = ""
         } catch (error) {
@@ -666,6 +705,25 @@
 </Group>
 {#if notice}
     <Text size="sm">{notice}</Text>
+{/if}
+<Space h="md" />
+
+<!-- The local model -->
+<Text weight={600}>{t("windows-actions-ai-title")}</Text>
+<Space h="xs" />
+<Text size="xs" color="dimmed">
+    {t("windows-actions-ai-hint")} {tools ? t(toolAvailabilityKey(tools)) : ""}
+</Text>
+<Space h="xs" />
+<Group spacing="xs">
+    <label class="field">
+        <span>{t("windows-actions-ai-title")}</span>
+        <input class="line wide" placeholder={t("windows-actions-voice-placeholder")} bind:value={aiPhrase} />
+    </label>
+    <Button size="sm" disabled={busy} on:click={askModel}>{t("windows-actions-ai-run")}</Button>
+</Group>
+{#if answer}
+    <Text size="sm">{t("windows-actions-ai-answer")}: {answer}</Text>
 {/if}
 <Space h="md" />
 

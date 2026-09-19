@@ -21,7 +21,6 @@ export type ActionSource = "direct_gui" | "voice" | "local_ai" | "internal_timer
 export type ActionRisk = "safe" | "confirm" | "forbidden"
 export type ActionStatus =
     | "requested"
-    | "awaiting_confirmation"
     | "confirmed"
     | "cancelled"
     | "expired"
@@ -59,40 +58,48 @@ export interface PreviewField {
     value: string
 }
 
+/**
+ * What the interface shows before a confirmed action runs.
+ *
+ * `title_key` and `consequences` are Fluent keys the core chose, so the dialog renders the
+ * description the core wrote and never one this window invented.
+ */
 export interface ActionPreview {
     token: string
-    action_type: string
-    action_id: string
+    action_kind: string
     risk: ActionRisk
     source: ActionSource
-    requested_at: string
-    expires_in_seconds: number
+    title_key: string
     fields: PreviewField[]
+    consequences: string[]
+    expires_in_seconds: number
+    cancellable: boolean
 }
 
 export interface ActionResult {
     action_id: string
-    action_type: string
-    source: ActionSource
+    action_kind: string
     status: ActionStatus
+    source: ActionSource
     value: ActionValue
+    detail: string | null
     duration_ms: number
-    finished_at: string
 }
 
 export type ActionValue =
     | { value: "none" }
     | { value: "volume"; percent: number; muted: boolean }
     | { value: "screenshot_path"; path: string; bytes: number }
-    | { value: "locked" }
-    | { value: "timer"; timer_id: string; kind: ScheduledKind; fires_at: string }
-    | { value: "cancelled"; timer_id: string }
+    | { value: "launched"; application: string; process_id: number }
     | { value: "windows"; windows: WindowSummary[] }
-    | { value: "application_started"; application_id: string; process_id: number }
+    | { value: "timer"; timer_id: string; fires_in_seconds: number }
+    | { value: "cancelled"; timer_id: string }
+    | { value: "locked" }
 
 export type ActionRequestOutcome =
     | { outcome: "executed"; result: ActionResult }
     | { outcome: "awaiting_confirmation"; preview: ActionPreview }
+    | { outcome: "rejected"; detail: string }
 
 export interface WindowSummary {
     id: string
@@ -188,6 +195,17 @@ export interface WindowsActionsOverview {
     policy: PolicyRowView[]
 }
 
+/**
+ * The answer to one phrase sent to the local model.
+ *
+ * `answer` is prose, and prose is never read as an action; `requested` means the model asked
+ * for a tool and the call was decoded against that tool's own schema.
+ */
+export type AiActionOutcome =
+    | { kind: "answer"; text: string }
+    | { kind: "requested"; outcome: ActionRequestOutcome }
+    | { kind: "unavailable"; reason: string }
+
 export type VoiceRoute =
     | { result: "requested"; outcome: ActionRequestOutcome }
     | { result: "ambiguous"; reason: string }
@@ -222,7 +240,6 @@ export const ACTION_SOURCES: readonly ActionSource[] = [
 export const ACTION_RISKS: readonly ActionRisk[] = ["safe", "confirm", "forbidden"]
 export const ACTION_STATUSES: readonly ActionStatus[] = [
     "requested",
-    "awaiting_confirmation",
     "confirmed",
     "cancelled",
     "expired",
@@ -568,12 +585,16 @@ export function previewValueKey(labelKey: string, value: string): string | null 
 
 /** Whether the confirm button should be shown as the dangerous one. */
 export function isDangerous(preview: ActionPreview): boolean {
-    return preview.action_type === "lock_workstation" || preview.action_type === "window"
+    return preview.action_kind === "lock_workstation" || preview.action_kind === "window"
 }
 
-/** The title of the confirmation dialog, which names the action and nothing more. */
+/**
+ * The title of the confirmation dialog.
+ *
+ * The core sends the key, so the wording is written once, in the core's own vocabulary.
+ */
 export function confirmationTitleKey(preview: ActionPreview): string {
-    return actionTypeKey(preview.action_type)
+    return preview.title_key
 }
 
 /** A one-line summary of a finished action, for the "last action" strip. */
@@ -594,10 +615,14 @@ export function resultSummary(result: ActionResult): {
         case "locked":
             return { key: "windows-actions-result-locked", value: null, path: null }
         case "timer":
-            return { key: "windows-actions-result-scheduled", value: result.value.fires_at, path: null }
+            return {
+                key: "windows-actions-result-scheduled",
+                value: formatSeconds(result.value.fires_in_seconds),
+                path: null
+            }
         case "cancelled":
             return { key: "windows-actions-result-cancelled", value: null, path: null }
-        case "application_started":
+        case "launched":
             return {
                 key: "windows-actions-result-started",
                 value: `PID ${result.value.process_id}`,

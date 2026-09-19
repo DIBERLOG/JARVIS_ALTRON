@@ -25,6 +25,7 @@ import {
     WINDOW_STATES,
     actionTypeKey,
     cancelScheduled,
+    confirmationTitleKey,
     captureWindow,
     clampReminderSeconds,
     clampTimerSeconds,
@@ -63,13 +64,14 @@ import {
 function preview(overrides = {}) {
     return {
         token: "0123456789abcdef0123456789abcdef",
-        action_type: "change_volume",
-        action_id: "aabbccdd",
+        action_kind: "change_volume",
         risk: "safe",
         source: "direct_gui",
-        requested_at: "2026-01-01T00:00:00Z",
-        expires_in_seconds: 45,
+        title_key: "windows-confirm-volume",
         fields: [],
+        consequences: [],
+        expires_in_seconds: 45,
+        cancellable: true,
         ...overrides
     }
 }
@@ -211,9 +213,11 @@ test("a preview value is translated only when it is one of the small vocabularie
 })
 
 test("the dialog marks the actions that deserve attention", () => {
-    assert.equal(isDangerous(preview({ action_type: "lock_workstation" })), true)
-    assert.equal(isDangerous(preview({ action_type: "window" })), true)
-    assert.equal(isDangerous(preview({ action_type: "change_volume" })), false)
+    assert.equal(isDangerous(preview({ action_kind: "lock_workstation" })), true)
+    assert.equal(isDangerous(preview({ action_kind: "window" })), true)
+    assert.equal(isDangerous(preview({ action_kind: "change_volume" })), false)
+    // The dialog shows the wording the core chose, not one of its own.
+    assert.equal(confirmationTitleKey(preview({ title_key: "windows-confirm-lock" })), "windows-confirm-lock")
 })
 
 test("durations are readable", () => {
@@ -253,6 +257,11 @@ test("a finished action is summarised from its value only", () => {
         "C:/shots/a.png"
     )
     assert.equal(resultSummary({ value: { value: "locked" } }).key, "windows-actions-result-locked")
+    assert.equal(
+        resultSummary({ value: { value: "launched", application: "app_1", process_id: 42 } }).value,
+        "PID 42"
+    )
+    assert.equal(resultSummary({ value: { value: "timer", timer_id: "a", fires_in_seconds: 600 } }).value, "10 min")
     assert.equal(resultSummary({ value: { value: "none" } }).key, "windows-actions-result-done")
 })
 

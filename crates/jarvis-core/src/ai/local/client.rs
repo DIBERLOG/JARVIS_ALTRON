@@ -118,6 +118,66 @@ pub struct ChatCompletionRequest {
     /// Ask for the token accounting on the final chunk.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
+    /// Structured tools the model may call. Absent unless the caller supplied a catalogue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ApiTool>>,
+    /// How the model may choose a tool. Absent with `tools`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<&'static str>,
+}
+
+/// One tool in the shape llama-server (and the OpenAI schema) expects.
+#[derive(Clone, Debug, Serialize)]
+pub struct ApiTool {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub function: ApiFunction,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ApiFunction {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+impl ApiTool {
+    /// Builds the wire form of one catalogue entry.
+    pub fn from_definition(definition: &crate::windows_actions::ToolDefinition) -> Self {
+        Self {
+            kind: "function",
+            function: ApiFunction {
+                name: definition.name.clone(),
+                description: definition.description.clone(),
+                parameters: definition.parameters.clone(),
+            },
+        }
+    }
+}
+
+/// One tool call the model asked for.
+///
+/// The arguments arrive as a JSON *string*, exactly as the model wrote them; they are parsed
+/// against the tool's own schema by the action decoder, never by this module.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ApiToolCall {
+    #[serde(default)]
+    pub id: String,
+    pub function: ApiToolCallFunction,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ApiToolCallFunction {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: String,
+}
+
+/// What one non-streaming turn produced: text, tool calls, or both.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChatTurn {
+    pub text: String,
+    pub tool_calls: Vec<ApiToolCall>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -215,7 +275,20 @@ impl ChatCompletionRequest {
             stream_options: options.stream.then_some(StreamOptions {
                 include_usage: true,
             }),
+            // A request carries no tool unless the caller attached a catalogue, so the model
+            // path is opt-in and the plain chat path is unchanged.
+            tools: None,
+            tool_choice: None,
         }
+    }
+
+    /// Offers the catalogue to the model, and lets it decide whether to call one.
+    pub fn with_tools(mut self, tools: Vec<ApiTool>) -> Self {
+        if !tools.is_empty() {
+            self.tools = Some(tools);
+            self.tool_choice = Some("auto");
+        }
+        self
     }
 }
 
@@ -337,6 +410,8 @@ pub struct ServerProbe {
     pub chat_template_present: bool,
     /// The template mentions a thinking switch.
     pub thinking_switch_in_template: bool,
+    /// The template can carry tool calls, so an action catalogue may be offered to it.
+    pub tools_in_template: bool,
     pub build_info: Option<String>,
     pub notes: Vec<String>,
 }
@@ -434,6 +509,7 @@ impl LocalAiClient {
                         // references it. This depends on the llama.cpp build.
                         probe.thinking_switch_in_template =
                             lowered.contains("enable_thinking") || lowered.contains("thinking");
+                        probe.tools_in_template = template_supports_tools(template);
                     }
                     if let Some(build) = value.get("build_info").and_then(|v| v.as_str()) {
                         probe.build_info = Some(build.to_string());
@@ -552,6 +628,67 @@ impl LocalAiClient {
         }
         Ok(content)
     }
+
+    /// One non-streaming turn that may answer with a tool call.
+    ///
+    /// A turn with neither text nor a tool call is an invalid response, not an empty answer:
+    /// the caller must never be given something it could mistake for a decision.
+    pub fn chat_once_turn(&self, request: &ChatCompletionRequest) -> Result<ChatTurn, ChatError> {
+        let mut request = request.clone();
+        request.stream = false;
+        request.stream_options = None;
+        let body = serde_json::to_string(&request).map_err(|_| {
+            ChatError::InvalidConfiguration("request cannot be encoded".to_string())
+        })?;
+        let (status, bytes) = self.endpoint.post_json(CHAT_COMPLETIONS_PATH, &body)?;
+        if status != 200 {
+            return Err(ChatError::HttpStatus(status));
+        }
+        let parsed: CompletionResponse =
+            serde_json::from_slice(&bytes).map_err(|_| ChatError::InvalidResponse)?;
+        let mut turn = ChatTurn::default();
+        for choice in parsed
+            .choices
+            .into_iter()
+            .filter_map(|choice| choice.message)
+        {
+            turn.text.push_str(&choice.content);
+            turn.tool_calls.extend(choice.tool_calls);
+        }
+        if turn.text.is_empty() && turn.tool_calls.is_empty() {
+            return Err(ChatError::InvalidResponse);
+        }
+        Ok(turn)
+    }
+
+    /// Whether the loaded chat template can carry tool calls.
+    ///
+    /// The check reads the server's own `/props`, which reports the template it is using: a
+    /// template without the tool markers cannot express a call, and a client that pretended
+    /// otherwise would have to read the model's prose instead. That is exactly what this
+    /// feature refuses to do, so "no" here means the catalogue is not offered at all.
+    pub fn tools_in_template(&self) -> Result<bool, ChatError> {
+        let (status, bytes) = self.endpoint.get_json(PROPS_PATH)?;
+        if status != 200 {
+            return Err(ChatError::HttpStatus(status));
+        }
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|_| ChatError::InvalidResponse)?;
+        let template = value
+            .get("chat_template")
+            .and_then(|template| template.as_str())
+            .unwrap_or_default();
+        Ok(template_supports_tools(template))
+    }
+}
+
+/// Whether a Jinja chat template mentions tools at all.
+///
+/// llama.cpp templates that support tools check `tools`, `tool_call`, or `tool_choice`; anything
+/// else is treated as unable to carry one.
+pub fn template_supports_tools(template: &str) -> bool {
+    let lowered = template.to_lowercase();
+    lowered.contains("tool_call") || lowered.contains("tools") || lowered.contains("tool_choice")
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -582,6 +719,8 @@ struct CompletionChoice {
 struct CompletionMessage {
     #[serde(default)]
     content: String,
+    #[serde(default)]
+    tool_calls: Vec<ApiToolCall>,
 }
 
 /// Tracks a stream wall-clock duration for the completion event.
@@ -882,6 +1021,121 @@ mod tests {
         assert!(!rendered.contains("FICTIONAL_STORED_DATA"));
     }
 
+    #[test]
+    fn a_request_without_a_catalogue_carries_no_tools() {
+        let request =
+            ChatCompletionRequest::build("m", Persona::Jarvis, &[], CompletionOptions::default());
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(!json.contains("\"tools\""));
+        assert!(!json.contains("tool_choice"));
+    }
+
+    #[test]
+    fn a_catalogue_is_sent_in_the_shape_the_server_expects() {
+        let catalogue = crate::windows_actions::tool_catalogue();
+        let request =
+            ChatCompletionRequest::build("m", Persona::Jarvis, &[], CompletionOptions::default())
+                .with_tools(
+                    catalogue
+                        .iter()
+                        .map(ApiTool::from_definition)
+                        .collect::<Vec<_>>(),
+                );
+        let value = serde_json::to_value(&request).unwrap();
+        let tools = value
+            .get("tools")
+            .and_then(|tools| tools.as_array())
+            .unwrap();
+        assert_eq!(tools.len(), catalogue.len());
+        assert_eq!(
+            value.get("tool_choice").and_then(|c| c.as_str()),
+            Some("auto")
+        );
+        let first = &tools[0];
+        assert_eq!(first.get("type").and_then(|t| t.as_str()), Some("function"));
+        let function = first.get("function").unwrap();
+        assert_eq!(
+            function.get("name").and_then(|n| n.as_str()),
+            Some(catalogue[0].name.as_str())
+        );
+        // The schema travels verbatim and stays strict: no tool accepts an extra field.
+        assert_eq!(
+            function
+                .get("parameters")
+                .and_then(|parameters| parameters.get("additionalProperties"))
+                .and_then(|allowed| allowed.as_bool()),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn an_empty_catalogue_adds_nothing_to_the_request() {
+        let request =
+            ChatCompletionRequest::build("m", Persona::Jarvis, &[], CompletionOptions::default())
+                .with_tools(Vec::new());
+        assert!(request.tools.is_none());
+        assert!(request.tool_choice.is_none());
+    }
+
+    #[test]
+    fn a_template_is_read_for_tool_support_only_when_it_says_so() {
+        assert!(template_supports_tools("{{ tools }}"));
+        assert!(template_supports_tools("{% for tool in tools %}"));
+        assert!(template_supports_tools("{{ tool_call.name }}"));
+        assert!(template_supports_tools("TOOL_CHOICE"));
+        assert!(!template_supports_tools("{% for message in messages %}"));
+        assert!(!template_supports_tools(""));
+    }
+
+    #[test]
+    fn a_turn_reads_the_text_and_the_calls_the_server_sent() {
+        // The wire shape llama-server answers with, including a call whose arguments are a
+        // JSON string: the string is what the action decoder parses, never this module.
+        let body = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "change_volume",
+                            "arguments": "{\"direction\":\"down\",\"step\":10}"
+                        }
+                    }]
+                }
+            }]
+        });
+        let parsed: CompletionResponse = serde_json::from_value(body).unwrap();
+        let message = parsed
+            .choices
+            .into_iter()
+            .filter_map(|c| c.message)
+            .next()
+            .unwrap();
+        assert_eq!(message.tool_calls.len(), 1);
+        assert_eq!(message.tool_calls[0].function.name, "change_volume");
+        let arguments: serde_json::Value =
+            serde_json::from_str(&message.tool_calls[0].function.arguments).unwrap();
+        assert_eq!(arguments["direction"], "down");
+        assert_eq!(arguments["step"], 10);
+    }
+
+    #[test]
+    fn a_message_with_no_tool_calls_parses_as_text_only() {
+        let body = serde_json::json!({
+            "choices": [{ "message": { "content": "Привет" } }]
+        });
+        let parsed: CompletionResponse = serde_json::from_value(body).unwrap();
+        let message = parsed
+            .choices
+            .into_iter()
+            .filter_map(|c| c.message)
+            .next()
+            .unwrap();
+        assert!(message.tool_calls.is_empty());
+        assert_eq!(message.content, "Привет");
+    }
     #[test]
     fn a_non_streaming_request_omits_stream_options() {
         let mut request = ChatCompletionRequest::build(

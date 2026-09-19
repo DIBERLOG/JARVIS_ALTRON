@@ -60,6 +60,18 @@ impl LocalAiHandle {
         &self.gateway
     }
 
+    /// Whether the running model can carry structured tool calls.
+    ///
+    /// This is the probe's answer, not a guess: a model whose template cannot express a call is
+    /// never offered the action catalogue, because the alternative would be reading an action
+    /// out of its prose.
+    pub fn tools_supported(&self) -> bool {
+        self.gateway
+            .status()
+            .map(|status| status.capabilities.tools_in_template)
+            .unwrap_or(false)
+    }
+
     /// The shared gateway, for a caller that needs to keep it alive on a worker.
     ///
     /// The memory summarizer uses this so it runs against the same managed server

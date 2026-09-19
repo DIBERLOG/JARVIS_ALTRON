@@ -308,6 +308,7 @@ fn main() {
             tauri_commands::windows_actions_reaccept_allowed_application,
             tauri_commands::windows_actions_route_voice,
             tauri_commands::windows_actions_tools,
+            tauri_commands::windows_actions_ai_request,
         ])
         .setup(|app| {
             // When a timer or reminder fires the window is poked; the item itself is

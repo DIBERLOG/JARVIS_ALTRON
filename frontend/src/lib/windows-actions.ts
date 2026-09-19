@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 
 import type {
+    AiActionOutcome,
     ActionPreview,
     ActionRequestOutcome,
     ActionResult,
@@ -78,7 +79,16 @@ export const windowsActionsApi = {
         invoke<AllowedApplicationView>("windows_actions_reaccept_allowed_application", { id }),
 
     routeVoice: (text: string) => invoke<VoiceRoute>("windows_actions_route_voice", { text }),
-    tools: () => invoke<unknown[]>("windows_actions_tools")
+    tools: () => invoke<unknown[]>("windows_actions_tools"),
+
+    /**
+     * Sends one phrase to the local model with the action catalogue attached.
+     *
+     * The model's answer is either prose — which is shown and never acted on — or a structured
+     * tool call, which the core decodes against the tool's schema and puts through the usual
+     * policy and confirmation. A model that cannot carry tool calls is reported as such.
+     */
+    aiRequest: (phrase: string) => invoke<AiActionOutcome>("windows_actions_ai_request", { phrase })
 }
 
 /**

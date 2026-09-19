@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::client::{
-    cancellation_flag, ChatCompletionRequest, ChunkOutcome, CompletionOptions, HealthState,
-    LocalAiClient, ServerProbe, StreamTimer,
+    cancellation_flag, ChatCompletionRequest, ChatTurn, ChunkOutcome, CompletionOptions,
+    HealthState, LocalAiClient, ServerProbe, StreamTimer,
 };
 use super::config::LocalAiConfig;
 use super::config::ThinkingMode;
@@ -82,6 +82,8 @@ pub struct LocalAiCapabilities {
     pub streaming: bool,
     /// The chat template mentions a thinking switch, so a preference can be sent.
     pub thinking_switch: bool,
+    /// The chat template can carry tool calls, so the action catalogue may be offered to it.
+    pub tools_in_template: bool,
     /// A `reasoning_content` field has been observed in a response.
     pub reasoning_field_observed: bool,
     pub build_info: Option<String>,
@@ -825,6 +827,91 @@ impl LocalAiGateway {
             }
         }
     }
+
+    /// Runs one non-streaming turn with a catalogue of tools.
+    ///
+    /// This is the whole of the model path for actions: the model is handed the catalogue and
+    /// answers either with text or with a tool call. The caller decodes the call against the
+    /// tool's own schema; nothing here reads an action out of the model's prose, and a turn
+    /// with neither text nor a call is an error.
+    pub fn generate_with_tools(
+        &self,
+        request: GenerationRequest,
+        tools: Vec<crate::windows_actions::ToolDefinition>,
+    ) -> Result<ChatTurn, ChatError> {
+        if request.is_empty() {
+            return Err(ChatError::InvalidConfiguration(
+                "write a message first".to_string(),
+            ));
+        }
+        if tools.is_empty() {
+            return Err(ChatError::InvalidConfiguration(
+                "no tools are available".to_string(),
+            ));
+        }
+        let config = {
+            let mut state = self.lock();
+            if state.server.is_none() {
+                return Err(ChatError::ServerNotRunning);
+            }
+            if state.generating {
+                return Err(ChatError::GenerationInProgress);
+            }
+            if !state.capabilities.tools_in_template {
+                return Err(ChatError::InvalidConfiguration(
+                    "the running model cannot carry tool calls".to_string(),
+                ));
+            }
+            state.generating = true;
+            state.config.clone()
+        };
+        let capabilities = self.lock().capabilities.clone();
+        let profile = request.profile.unwrap_or(config.profile);
+        let thinking = request.thinking.unwrap_or(config.thinking);
+        let model = capabilities
+            .model_id
+            .clone()
+            .unwrap_or_else(|| model_label(&config));
+        let built = ChatCompletionRequest::build(
+            &model,
+            profile,
+            &request.messages,
+            CompletionOptions {
+                thinking,
+                max_tokens: request.max_tokens.unwrap_or(config.max_tokens),
+                temperature: request.temperature.unwrap_or(config.temperature),
+                top_p: request.top_p.unwrap_or(config.top_p),
+                stream: false,
+                thinking_supported: capabilities.thinking_switch,
+            },
+        )
+        .with_tools(
+            tools
+                .iter()
+                .map(super::client::ApiTool::from_definition)
+                .collect(),
+        );
+
+        let result = LocalAiClient::new(config.server.host.trim(), config.server.port)
+            .and_then(|client| client.chat_once_turn(&built));
+
+        let mut state = self.lock();
+        state.generating = false;
+        state.cancel = None;
+        match result {
+            Ok(turn) => {
+                if state.server.is_some() {
+                    state.state = LocalAiState::Ready;
+                }
+                Ok(turn)
+            }
+            Err(error) => {
+                state.last_error = Some(error.to_string());
+                state.state = LocalAiState::Failed;
+                Err(error)
+            }
+        }
+    }
 }
 
 /// Runs one streaming generation and reports events.
@@ -906,6 +993,7 @@ fn capabilities_from_probe(probe: &ServerProbe) -> LocalAiCapabilities {
         // llama-server always offers the streaming endpoint this client uses.
         streaming: probe.reachable,
         thinking_switch: probe.thinking_switch_in_template,
+        tools_in_template: probe.tools_in_template,
         reasoning_field_observed: false,
         build_info: probe.build_info.clone(),
         notes: probe.notes.clone(),

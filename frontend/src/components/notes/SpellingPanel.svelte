@@ -148,7 +148,7 @@
     {/if}
 
     {#if report && report.timed_out}
-        <Text size="xs" color="gray">{t('autocorrect-timeout')}</Text>
+        <Text size="xs" color="gray">{t('autocorrect-incomplete')}</Text>
     {/if}
 
     {#if actionError}

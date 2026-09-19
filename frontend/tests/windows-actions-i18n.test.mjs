@@ -55,6 +55,21 @@ function sources() {
  * They are not built by this interface, so they cannot be found by reading its sources; they
  * are listed here because a missing one would show the user a raw key in the dialog.
  */
+const CORE_KEYS = [
+    "windows-confirm-action",
+    "windows-confirm-volume",
+    "windows-confirm-screenshot",
+    "windows-confirm-launch",
+    "windows-confirm-close",
+    "windows-confirm-lock",
+    "windows-confirm-reminder",
+    "windows-consequence-launch",
+    "windows-consequence-screenshot",
+    "windows-consequence-close",
+    "windows-consequence-lock",
+    "windows-consequence-reminder"
+]
+
 const FIELD_KEYS = [
     "windows-field-action",
     "windows-field-application",
@@ -136,7 +151,9 @@ function stripMarkupNoise(source) {
 /** Literal `t('windows-actions-...')` and `t("windows-field-...")` usages in every source. */
 function literalKeys() {
     const keys = new Set()
+    // The core chooses these keys and the dialog renders them verbatim.
     for (const key of FIELD_KEYS) keys.add(key)
+    for (const key of CORE_KEYS) keys.add(key)
     // The settings page names the tab, and it is the only place that does.
     const settingsRoute = stripMarkupNoise(readFileSync(SETTINGS_ROUTE, "utf8"))
     for (const match of settingsRoute.matchAll(/\bt\(\s*['"](windows-(?:actions|field)-[a-z0-9_-]+)['"]/g)) {
@@ -197,8 +214,13 @@ test("the three locales stay in sync for windows-actions messages", () => {
         assert.deepEqual(missing, [], `${language}.ftl is missing windows-actions messages`)
     }
     // The dialog's field labels are part of the same surface.
-    const fields = [...reference].filter((key) => key.startsWith("windows-field-"))
-    assert.ok(fields.length >= 12, `expected the dialog's field labels, got ${fields.length}`)
+    const fields = [...reference].filter(
+        (key) =>
+            key.startsWith("windows-field-") ||
+            key.startsWith("windows-confirm-") ||
+            key.startsWith("windows-consequence-")
+    )
+    assert.ok(fields.length >= 24, `expected the dialog's own wording, got ${fields.length}`)
     for (const language of LOCALES.slice(1)) {
         const available = messageKeys(language)
         const missing = fields.filter((key) => !available.has(key)).sort()
@@ -210,7 +232,11 @@ test("no windows-actions message is left unused", () => {
     const required = requiredKeys()
     const english = messageKeys("en")
     const keys = [...english].filter(
-        (key) => key.startsWith("windows-actions-") || key.startsWith("windows-field-")
+        (key) =>
+            key.startsWith("windows-actions-") ||
+            key.startsWith("windows-field-") ||
+            key.startsWith("windows-confirm-") ||
+            key.startsWith("windows-consequence-")
     )
     const unused = keys.filter((key) => !required.has(key)).sort()
     assert.deepEqual(unused, [], "these windows-actions messages are defined but never used")
