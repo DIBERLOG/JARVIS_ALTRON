@@ -49,10 +49,9 @@ pub fn init() -> SettingsManager {
 pub fn save_settings(settings: &structs::Settings) -> Result<(), std::io::Error> {
     let db_file_path = get_db_file_path();
 
-    std::fs::write(
-        &db_file_path,
-        serde_json::to_string_pretty(&settings).unwrap(),
-    )?;
+    // Atomic: a crash mid-write must never leave a truncated settings file, and a
+    // damaged file must not stop the application on the next start.
+    crate::fsutil::write_json_atomic(&db_file_path, settings)?;
 
     info!("Settings saved to: {:#}", db_file_path.display());
     Ok(())
