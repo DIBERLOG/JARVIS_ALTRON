@@ -8,6 +8,7 @@
     import Stats from "@/components/elements/Stats.svelte"
     import Footer from "@/components/Footer.svelte"
     import LocalChat from "@/components/ai/LocalChat.svelte"
+    import ConversationPanel from "@/components/ai/ConversationPanel.svelte"
     import CloseDialog from "@/components/desktop/CloseDialog.svelte"
     import FirstRunWizard from "@/components/desktop/FirstRunWizard.svelte"
     import { onCloseRequested, onStateChanged, onOpenSettings, desktopApi } from "@/lib/desktop"
@@ -105,6 +106,8 @@
 
     <HDivider noMargin />
     <div class="local-ai-section">
+        <ConversationPanel />
+        <HDivider noMargin />
         <LocalChat />
     </div>
     <HDivider noMargin />

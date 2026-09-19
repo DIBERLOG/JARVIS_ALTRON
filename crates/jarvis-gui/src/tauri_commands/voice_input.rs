@@ -274,6 +274,8 @@ impl VoiceInputHandle {
                     // The production mode: the clipboard, never a keystroke.
                     preference: VoiceInputPreference::Clipboard,
                     speak_confirmation: false,
+                    // The dictation delivers; it does not hand the text back.
+                    keep_text: false,
                 },
                 dictation::EngineDeps {
                     host: &host,
@@ -301,6 +303,70 @@ impl VoiceInputHandle {
             self.handovers.load(Ordering::SeqCst)
         );
         Ok(outcome)
+    }
+
+    /// Listens for one question and returns it, without delivering it anywhere.
+    ///
+    /// This is the dictation route with one difference: the text comes back instead
+    /// of being typed or copied, because the caller has a model to ask. The
+    /// microphone handover, the Whisper call, the local passes and the guarantee
+    /// that the listener gets the device back are the same ones.
+    pub fn ask(&self) -> Result<String, String> {
+        if self.engine.is_running() {
+            return Err(DictationError::Busy.code().to_string());
+        }
+        let settings = self.settings();
+        let host = Host {
+            handovers: Arc::clone(&self.handovers),
+        };
+        let transcriber = Transcriber {
+            whisper: self.whisper.clone(),
+        };
+        let corrector = Corrector {
+            enabled: settings.autocorrect,
+        };
+        let clipboard = Clipboard {
+            guard: Arc::clone(&self.clipboard),
+            seconds: clamp_clear_seconds(settings.clipboard_seconds),
+        };
+        let inserter = NoInsertion;
+        let probe = ClipboardProbe;
+        let quiet = |_phrase: &str| {};
+        let outcome = self
+            .engine
+            .run(
+                dictation::DictationRequest {
+                    autocorrect: settings.autocorrect,
+                    punctuation: settings.punctuation,
+                    preference: VoiceInputPreference::Clipboard,
+                    speak_confirmation: false,
+                    // The question is asked, not written anywhere.
+                    keep_text: true,
+                },
+                dictation::EngineDeps {
+                    host: &host,
+                    transcriber: &transcriber,
+                    corrector: &corrector,
+                    probe: &probe,
+                    inserter: &inserter,
+                    clipboard: &clipboard,
+                    speak: &quiet,
+                },
+            )
+            .map_err(|error| {
+                *self.last_error.lock() = LastError {
+                    code: Some(error.code().to_string()),
+                };
+                error.code().to_string()
+            })?;
+        *self.last_error.lock() = LastError::default();
+        let question = outcome.text.unwrap_or_default();
+        log::info!(
+            "conversation: the question was recorded (characters={} handovers={})",
+            question.chars().count(),
+            self.handovers.load(Ordering::SeqCst)
+        );
+        Ok(question)
     }
 
     /// Handles a phrase the listener recognized.

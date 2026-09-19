@@ -59,6 +59,19 @@ pub enum IpcEvent {
     // request GUI to reveal/focus window
     RevealWindow,
 
+    // The listener recognised a conversational control phrase and has given the
+    // microphone up. The event carries the intent, never a transcript: the question
+    // is recorded in the window process and goes to the chosen provider.
+    ConversationRequested {
+        intent: String,
+    },
+
+    // The listener heard "end the conversation" or "cancel the conversation". The
+    // window stops whatever it is doing; nothing is asked.
+    ConversationStopped {
+        intent: String,
+    },
+
     // One stop of one spoken phrase on its way through the listener, with no
     // transcript in it: a stage name, the length of the text the matcher saw, a
     // reason code, a command id and an outcome. A phrase that is not accepted is

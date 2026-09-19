@@ -180,7 +180,7 @@ test("a conversation is decided before any command can match", () => {
     assert.equal(guard.includes("execute_command("), false, "and must not reach an executor")
     // The conversation core reaches no command, and the proof is a test of its source.
     const core = readFileSync(CONVERSATION, "utf8")
-    assert.ok(core.includes("pub trait ChatProvider"), "the provider interface must exist")
+    assert.ok(core.includes("pub use crate::ai::ChatProvider"), "one provider interface, reused")
     assert.ok(core.includes("pub enum ConversationIntent"), "the intents must be typed")
     for (const forbidden of ["execute_command", "WindowsAction", "SafetyGate", "Command::new"]) {
         assert.equal(core.includes(forbidden), false, `the route must not reach ${forbidden}`)

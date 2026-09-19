@@ -1,4 +1,4 @@
-import { writable, get } from "svelte/store"
+﻿import { writable, get } from "svelte/store"
 import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { noteCommandStage } from "@/stores"
@@ -117,6 +117,35 @@ export function disconnectIpc() {
 
 // ### EVENT HANDLING ###
 
+/**
+ * Asks one question by voice, once.
+ *
+ * The listener gave the microphone up and said so; the window records the question,
+ * asks the model, and shows the answer. One request at a time, whatever the trigger.
+ */
+let conversationRunning = false
+
+async function runConversation() {
+    if (conversationRunning) return
+    conversationRunning = true
+    try {
+        await invoke("conversation_ask")
+    } catch (error) {
+        // The panel shows the code; the console gets the name of the failure only.
+        console.log("IPC: conversation failed")
+    } finally {
+        conversationRunning = false
+    }
+}
+
+async function stopConversation() {
+    try {
+        await invoke("conversation_stop")
+    } catch (error) {
+        console.log("IPC: conversation stop failed")
+    }
+}
+
 function handleEvent(data: any) {
     // Only the name of the event is written to the console. A payload can be a
     // transcript, and a transcript is what a person said: it does not belong in a
@@ -159,6 +188,19 @@ function handleEvent(data: any) {
         // process, with its own session, and its result goes to the clipboard.
         case "global_dictation_requested":
             void runGlobalDictation()
+            break
+
+        // A conversational control phrase: the listener has handed the microphone
+        // over, and the window asks the model. The question never passes through a
+        // command: this is a different route, and it is the only thing this event
+        // starts.
+        case "conversation_requested":
+            void runConversation()
+            break
+
+        // "End the conversation" or "cancel the conversation" was heard.
+        case "conversation_stopped":
+            void stopConversation()
             break
 
         case "command_executed":

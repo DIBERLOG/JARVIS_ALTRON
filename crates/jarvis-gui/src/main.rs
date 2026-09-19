@@ -26,6 +26,9 @@ pub struct AppState {
     pub backup: tauri_commands::BackupHandle,
     /// Global voice input: the phrase, the handover, and the clipboard.
     pub voice_input: tauri_commands::VoiceInputHandle,
+    /// The conversation route: one question at a time, and no path from an answer
+    /// to a command.
+    pub conversation: std::sync::Arc<tauri_commands::ConversationRuntime>,
     /// The ordered exit, built once so a normal exit, a tray exit, and a second
     /// exit request all take the same route and produce the same report.
     pub lifecycle: std::sync::Arc<jarvis_core::lifecycle::LifecycleManager>,
@@ -91,6 +94,19 @@ fn main() {
     // existing session's, and the production mode puts the text on the
     // protected clipboard for the person to paste.
     let voice_input = tauri_commands::VoiceInputHandle::restore(whisper.clone());
+
+    // The conversation route reuses that engine for the question (the same
+    // microphone handover, the same Whisper) and asks the local model the settings
+    // already manage for the answer — one llama-server, not a second one. Until the
+    // server is configured it answers with a typed reason, and nothing about the
+    // isolation changes with the provider.
+    let conversation = std::sync::Arc::new(tauri_commands::ConversationRuntime::new(
+        voice_input.clone(),
+        local_ai.clone(),
+    ));
+    // The provider is the shared gateway: starting, readiness and stopping stay the
+    // existing lifecycle, and the route never starts a server of its own.
+    conversation.use_local_ai();
 
     // local spelling: dictionaries on disk, the user's own words in the shared
     // session under their own derived key, and an in-memory undo journal that is
@@ -236,6 +252,7 @@ fn main() {
             whisper,
             backup,
             voice_input,
+            conversation: std::sync::Arc::clone(&conversation),
             lifecycle: std::sync::Arc::clone(&lifecycle),
         })
         // One instance: a second launch hands the arguments to the copy that is
@@ -499,6 +516,14 @@ fn main() {
             tauri_commands::voice_input_preview,
             tauri_commands::voice_input_copy_again,
 
+            // the conversation: one question at a time, no command reaches it
+            tauri_commands::conversation_status,
+            tauri_commands::conversation_ask,
+            tauri_commands::conversation_cancel,
+            tauri_commands::conversation_stop,
+            tauri_commands::conversation_clear,
+            tauri_commands::conversation_set_profile,
+
             // the voice host: start it once, know what it is doing
             tauri_commands::voice_host_status,
             tauri_commands::voice_host_start,
@@ -535,6 +560,11 @@ fn main() {
             // The voice input notice needs the window, and the window needs
             // the handle: it is attached here, once, where both exist.
             app.state::<AppState>().voice_input.attach(app.handle().clone());
+            // The conversation emits its stages and its streamed deltas to the
+            // window, so it needs the handle the same way.
+            app.state::<AppState>()
+                .conversation
+                .attach(app.handle().clone());
             let desktop = std::sync::Arc::new(desktop::DesktopHandle::new(app.handle()));
             app.manage(std::sync::Arc::clone(&desktop));
             if let Err(error) = desktop::install_tray(app.handle()) {

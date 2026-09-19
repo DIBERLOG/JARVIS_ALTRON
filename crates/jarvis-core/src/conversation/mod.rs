@@ -440,60 +440,20 @@ pub fn cut_answer(answer: &str) -> String {
     answer.chars().take(MAX_ANSWER_CHARS).collect()
 }
 
-/// A model that can answer a question.
+/// The model that answers a question.
 ///
-/// The trait carries no tools, no permissions and no system access: a provider
-/// receives text and returns text. Adding anything else to it would be adding a
-/// capability, and capabilities are not part of a conversation.
-pub trait ChatProvider: Send + Sync {
-    /// The stable name shown next to an answer: `disabled`, `local_llama`, `deepseek`.
-    fn name(&self) -> &'static str;
-
-    /// Whether this provider can answer at all, without trying.
-    fn is_available(&self) -> bool;
-
-    /// Whether the text leaves the machine. The interface marks a cloud provider
-    /// with «Текст отправляется внешнему AI-провайдеру».
-    fn is_cloud(&self) -> bool {
-        false
-    }
-
-    /// Answers one question. `cancel` is set when the person abandons it.
-    fn answer(
-        &self,
-        system: &str,
-        question: &str,
-        cancel: &AtomicBool,
-        on_delta: &mut dyn FnMut(&str),
-    ) -> Result<String, ConversationError>;
-}
-
-/// The provider that exists when nothing is configured.
+/// There is exactly one provider interface in this build, and it is not declared
+/// here: [`crate::ai::ChatProvider`], which the local `llama-server` gateway already
+/// implements and which a cloud provider implements behind the same shape. A second
+/// trait would be a second place to decide what a model may see, so this route uses
+/// that one and adds nothing to it.
 ///
-/// It answers nothing, and it says why: the route works end to end, the isolation
-/// holds, and the person is told which setting is missing instead of being shown an
-/// invented answer.
-pub struct Disabled;
-
-impl ChatProvider for Disabled {
-    fn name(&self) -> &'static str {
-        "disabled"
-    }
-
-    fn is_available(&self) -> bool {
-        false
-    }
-
-    fn answer(
-        &self,
-        _system: &str,
-        _question: &str,
-        _cancel: &AtomicBool,
-        _on_delta: &mut dyn FnMut(&str),
-    ) -> Result<String, ConversationError> {
-        Err(ConversationError::NotConfigured)
-    }
-}
+/// The interface carries no tools, no permissions and no system access: a provider
+/// receives text and returns text, and the profile it is asked under is part of the
+/// request rather than something this route chooses. The provider that exists when
+/// nothing is configured is [`crate::ai::DisabledProvider`], and it answers with a
+/// typed refusal — the route never invents an answer for it.
+pub use crate::ai::ChatProvider;
 
 /// Runs what has to run when a conversation ends, however it ends.
 ///

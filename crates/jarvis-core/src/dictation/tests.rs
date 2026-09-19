@@ -240,6 +240,8 @@ impl Harness {
                 punctuation,
                 preference,
                 speak_confirmation: true,
+                // The default: the text is delivered, not handed back.
+                keep_text: false,
             },
             EngineDeps {
                 host: &self.host,
@@ -356,6 +358,8 @@ fn a_second_request_while_one_is_running_is_refused() {
                     punctuation: false,
                     preference: VoiceInputPreference::Clipboard,
                     speak_confirmation: false,
+                    // The default: the text is delivered, not handed back.
+                    keep_text: false,
                 },
                 EngineDeps {
                     host: &Passive,
@@ -446,6 +450,8 @@ fn a_second_request_while_one_is_running_is_refused() {
             punctuation: false,
             preference: VoiceInputPreference::Clipboard,
             speak_confirmation: false,
+            // The default: the text is delivered, not handed back.
+            keep_text: false,
         },
         EngineDeps {
             host: &Passive,
@@ -608,6 +614,8 @@ fn ui_automation_unavailable_falls_back_to_the_clipboard() {
                 punctuation: false,
                 preference: VoiceInputPreference::Clipboard,
                 speak_confirmation: false,
+                // The default: the text is delivered, not handed back.
+                keep_text: false,
             },
             EngineDeps {
                 host: &harness.host,
@@ -626,6 +634,75 @@ fn ui_automation_unavailable_falls_back_to_the_clipboard() {
     // The outcome says how it was delivered, and never what was delivered.
     let rendered = serde_json::to_string(&outcome).expect("json");
     assert!(!rendered.contains("привет"), "{rendered}");
+}
+
+#[test]
+fn a_request_that_asks_for_the_text_delivers_it_nowhere() {
+    const QUESTION: &str = "какая погода в москве";
+    // The conversation route is the one caller that needs the recognized question
+    // itself. It gets it — and nothing is typed, copied or pasted.
+    let harness = Harness::new(QUESTION);
+    let speak = |_: &str| {};
+    let outcome = harness
+        .engine
+        .run(
+            DictationRequest {
+                autocorrect: false,
+                punctuation: false,
+                preference: VoiceInputPreference::Clipboard,
+                speak_confirmation: false,
+                keep_text: true,
+            },
+            EngineDeps {
+                host: &harness.host,
+                transcriber: &harness.transcriber,
+                corrector: &harness.corrector,
+                probe: &harness.probe,
+                inserter: &harness.inserter,
+                clipboard: &harness.clipboard,
+                speak: &speak,
+            },
+        )
+        .expect("the request");
+    assert_eq!(outcome.text.as_deref(), Some(QUESTION));
+    assert_eq!(outcome.characters, QUESTION.chars().count());
+    // No delivery of any kind, and the microphone still went back to the listener.
+    assert_eq!(outcome.method, None);
+    assert_eq!(harness.copied(), None);
+    assert_eq!(harness.written(), None);
+    assert!(!harness.trace.calls().contains(&"uia.insert".to_string()));
+    assert!(!harness
+        .trace
+        .calls()
+        .contains(&"clipboard.write".to_string()));
+    assert!(harness.trace.calls().contains(&"vosk.start".to_string()));
+
+    // The default is still the other way round: a delivery request never carries the
+    // text back in its answer.
+    let delivered = Harness::new("привет");
+    let speak = |_: &str| {};
+    let outcome = delivered
+        .engine
+        .run(
+            DictationRequest {
+                autocorrect: false,
+                punctuation: false,
+                preference: VoiceInputPreference::Clipboard,
+                speak_confirmation: false,
+                keep_text: false,
+            },
+            EngineDeps {
+                host: &delivered.host,
+                transcriber: &delivered.transcriber,
+                corrector: &delivered.corrector,
+                probe: &delivered.probe,
+                inserter: &delivered.inserter,
+                clipboard: &delivered.clipboard,
+                speak: &speak,
+            },
+        )
+        .expect("the request");
+    assert_eq!(outcome.text, None);
 }
 
 #[test]
@@ -653,6 +730,8 @@ fn a_cancelled_request_delivers_nothing() {
                 punctuation: false,
                 preference: VoiceInputPreference::Clipboard,
                 speak_confirmation: false,
+                // The default: the text is delivered, not handed back.
+                keep_text: false,
             },
             EngineDeps {
                 host: &harness.host,

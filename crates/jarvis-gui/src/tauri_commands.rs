@@ -72,6 +72,9 @@ mod voice_host;
 pub use voice_host::*;
 mod voice_input;
 pub use voice_input::*;
+// import the conversation route (one question at a time; no command reaches it)
+mod conversation;
+pub use conversation::*;
 // import desktop shell commands (tray, close behaviour, autostart, first run)
 mod diagnostics;
 pub use diagnostics::*;

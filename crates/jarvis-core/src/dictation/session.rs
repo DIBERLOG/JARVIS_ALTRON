@@ -145,6 +145,16 @@ pub struct DictationOutcome {
     pub error_code: Option<&'static str>,
     /// Audio length that was transcribed, in milliseconds.
     pub audio_ms: u64,
+    /// The recognized text, and only for a caller that asked to keep it
+    /// ([`DictationRequest::keep_text`]).
+    ///
+    /// It is `None` for every delivery request, which is the whole point: text that
+    /// is about to be typed or copied does not need to travel back through an answer
+    /// object. The conversation route is the one caller that asks for it, because a
+    /// question has to reach a model — and that route logs it nowhere, stores it
+    /// nowhere, and copies it nowhere.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 impl DictationOutcome {
@@ -156,6 +166,21 @@ impl DictationOutcome {
             rule: delivery.rule,
             error_code: None,
             audio_ms,
+            text: None,
+        }
+    }
+
+    /// The outcome of a request that asked for the text instead of a delivery: it is
+    /// typed nowhere, copied nowhere and pasted nowhere.
+    fn kept(text: &str, audio_ms: u64) -> Self {
+        Self {
+            stage: DictationStage::Delivered,
+            characters: text.chars().count(),
+            method: None,
+            rule: None,
+            error_code: None,
+            audio_ms,
+            text: Some(text.to_string()),
         }
     }
 }
@@ -169,6 +194,13 @@ pub struct DictationRequest {
     pub preference: VoiceInputPreference,
     /// Whether the confirmation is spoken.
     pub speak_confirmation: bool,
+    /// Whether the caller wants the text back instead of a delivery.
+    ///
+    /// The microphone still changes hands, Whisper still runs, and the local passes
+    /// still happen; what does not happen is the clipboard and the typing. Only a
+    /// caller with a use for the text asks for this, and the route that does — the
+    /// conversation — is checked for it by name.
+    pub keep_text: bool,
 }
 
 /// Everything one request needs, so the engine itself holds no platform code.
@@ -387,6 +419,16 @@ impl DictationEngine {
             text = punctuated;
         }
         self.check_cancelled()?;
+
+        // 6. delivery, through the gate — or, for a caller that asked for the text,
+        //    no delivery at all: the question is returned to be asked, and is not
+        //    typed, copied or pasted anywhere.
+        if request.keep_text {
+            *self.last.lock() = Some(text.clone());
+            *self.last_characters.lock() = text.chars().count();
+            drop(guard);
+            return Ok(DictationOutcome::kept(&text, transcribed.audio_ms));
+        }
 
         // 6. delivery, through the gate.
         *self.stage.lock() = DictationStage::Inserting;

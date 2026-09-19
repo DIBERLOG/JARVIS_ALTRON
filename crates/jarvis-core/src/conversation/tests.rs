@@ -239,22 +239,33 @@ fn a_question_is_checked_and_an_answer_is_cut() {
 
 #[test]
 fn no_provider_means_a_typed_refusal_and_never_an_invented_answer() {
-    let provider = Disabled;
-    assert_eq!(provider.name(), "disabled");
-    assert!(!provider.is_available());
-    assert!(!provider.is_cloud());
-    let cancel = AtomicBool::new(false);
-    let mut deltas = |_: &str| {};
-    assert_eq!(
-        provider
-            .answer(DEFAULT_SYSTEM_PROMPT, "привет", &cancel, &mut deltas)
-            .expect_err("nothing is configured"),
-        ConversationError::NotConfigured
-    );
-    assert_eq!(
-        ConversationError::NotConfigured.code(),
-        "provider_not_configured"
-    );
+    // The provider this route uses when nothing is configured is the AI module's own
+    // `DisabledProvider` — there is one provider interface in this build, not two —
+    // and it refuses with a code rather than inventing an answer.
+    use crate::ai::{ChatProvider, ChatRequest, DisabledProvider, Persona};
+
+    let provider = DisabledProvider;
+    let request = ChatRequest {
+        persona: Persona::Jarvis,
+        model: String::new(),
+        messages: Vec::new(),
+    };
+    let error = block_on(provider.send_message(request)).expect_err("nothing is configured");
+    assert_eq!(error, crate::ai::ChatError::Disabled);
+}
+
+/// The smallest executor for one already-ready future, so the test needs no runtime.
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    use std::task::{Context, Poll, Waker};
+    let mut future = Box::pin(future);
+    let waker = Waker::noop();
+    let mut context = Context::from_waker(waker);
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => return value,
+            Poll::Pending => std::thread::yield_now(),
+        }
+    }
 }
 
 #[test]

@@ -452,14 +452,31 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
     // A conversation is not a command, and this is where that is decided — before the
     // safe actions and before the packs, so no conversational phrase can be matched,
     // executed or turned into a Windows action. The route itself (record, transcribe,
-    // ask a provider, speak the answer) belongs to the window process; until a
-    // provider is configured, the phrase is recognised, nothing runs, and the person
-    // is told exactly that.
+    // ask a provider, speak the answer) belongs to the window process, which owns
+    // Whisper and the dialog: the listener gives the microphone up and says which
+    // intent it heard.
     if let Some(intent) = jarvis_core::conversation::intent_of(&normalized) {
         diag::rejection(intent.as_str(), normalized.chars().count());
-        ipc::send(IpcEvent::Error {
-            message: "Разговор ещё не настроен: нужен AI-провайдер в настройках".to_string(),
-        });
+        match intent {
+            jarvis_core::conversation::ConversationIntent::Start
+            | jarvis_core::conversation::ConversationIntent::Continue => {
+                // The microphone changes hands here, exactly as it does for a
+                // dictation: the listener stops recording, then tells the window to
+                // ask. The window restores the listener when it is done, on every
+                // path.
+                jarvis_core::recorder::stop_recording().ok();
+                stt::reset_speech_recognizer();
+                ipc::send(IpcEvent::ConversationRequested {
+                    intent: intent.as_str().to_string(),
+                });
+            }
+            jarvis_core::conversation::ConversationIntent::Stop
+            | jarvis_core::conversation::ConversationIntent::Cancel => {
+                ipc::send(IpcEvent::ConversationStopped {
+                    intent: intent.as_str().to_string(),
+                });
+            }
+        }
         ipc::send(IpcEvent::Idle);
         return false;
     }
