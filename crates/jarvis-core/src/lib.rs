@@ -17,6 +17,7 @@ pub mod ai;
 pub mod sync;
 pub mod notes;
 pub mod vault;
+pub mod memory;
 pub mod config;
 pub mod db;
 pub mod i18n;

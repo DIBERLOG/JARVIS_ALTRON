@@ -40,6 +40,14 @@ pub struct Settings {
     #[serde(default)]
     pub local_ai_config: String,
 
+    /// AI-memory settings, stored as a JSON object.
+    ///
+    /// These are switches, limits, and budgets, so they are not secret either, and
+    /// keeping them here means the memory page can be configured while the encrypted
+    /// storage is still locked. Nothing about the stored memory itself is here.
+    #[serde(default)]
+    pub ai_memory_settings: String,
+
     pub api_keys: ApiKeys,
 }
 
@@ -67,6 +75,7 @@ impl Settings {
             "gain_normalizer"           => Some(self.gain_normalizer.to_string()),
             "language"                  => Some(self.language.clone()),
             "local_ai_config"           => Some(self.local_ai_config.clone()),
+            "ai_memory_settings"        => Some(self.ai_memory_settings.clone()),
             "api_key__picovoice"        => Some(self.api_keys.picovoice.clone()),
             "api_key__openai"           => Some(self.api_keys.openai.clone()),
             _ => None,
@@ -126,6 +135,9 @@ impl Settings {
             "local_ai_config" => {
                 self.local_ai_config = val.to_string();
             }
+            "ai_memory_settings" => {
+                self.ai_memory_settings = val.to_string();
+            }
             "api_key__picovoice" => {
                 self.api_keys.picovoice = val.to_string();
             }
@@ -153,6 +165,7 @@ impl Settings {
             "gain_normalizer",
             "language",
             "local_ai_config",
+            "ai_memory_settings",
             "api_key__picovoice",
             "api_key__openai",
         ]
@@ -183,6 +196,7 @@ impl Default for Settings {
             language: crate::i18n::detect_system_language().to_string(),
 
             local_ai_config: String::new(),
+            ai_memory_settings: String::new(),
 
             api_keys: ApiKeys {
                 picovoice: String::from(""),

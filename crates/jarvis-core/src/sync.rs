@@ -31,7 +31,16 @@ pub enum SyncEntityType {
     Note,
     NoteFolder,
     NoteTag,
+    /// Reserved for AI-memory data that is not one of the four kinds below.
     AiMemory,
+    /// One conversation header.
+    AiMemoryConversation,
+    /// One stored chat message.
+    AiMemoryMessage,
+    /// One conversation summary.
+    AiMemorySummary,
+    /// One long-term fact, preference, or candidate.
+    AiMemoryFact,
     AutocorrectDictionary,
     UiSettings,
     JarvisSettings,
@@ -48,6 +57,10 @@ impl SyncEntityType {
             Self::NoteFolder => "note_folder",
             Self::NoteTag => "note_tag",
             Self::AiMemory => "ai_memory",
+            Self::AiMemoryConversation => "ai_memory_conversation",
+            Self::AiMemoryMessage => "ai_memory_message",
+            Self::AiMemorySummary => "ai_memory_summary",
+            Self::AiMemoryFact => "ai_memory_fact",
             Self::AutocorrectDictionary => "autocorrect_dictionary",
             Self::UiSettings => "ui_settings",
             Self::JarvisSettings => "jarvis_settings",
@@ -63,6 +76,10 @@ impl SyncEntityType {
             "note_folder" => Ok(Self::NoteFolder),
             "note_tag" => Ok(Self::NoteTag),
             "ai_memory" => Ok(Self::AiMemory),
+            "ai_memory_conversation" => Ok(Self::AiMemoryConversation),
+            "ai_memory_message" => Ok(Self::AiMemoryMessage),
+            "ai_memory_summary" => Ok(Self::AiMemorySummary),
+            "ai_memory_fact" => Ok(Self::AiMemoryFact),
             "autocorrect_dictionary" => Ok(Self::AutocorrectDictionary),
             "ui_settings" => Ok(Self::UiSettings),
             "jarvis_settings" => Ok(Self::JarvisSettings),
@@ -71,6 +88,22 @@ impl SyncEntityType {
             "vault_record" => Ok(Self::VaultRecord),
             _ => Err(SyncError::StorageCorrupt),
         }
+    }
+
+    /// Whether this type belongs to the encrypted AI memory.
+    ///
+    /// The memory store only ever reads and writes these types, which is one of
+    /// the reasons it cannot reach notes or password records even with a wrong
+    /// entity identifier.
+    pub fn is_ai_memory(&self) -> bool {
+        matches!(
+            self,
+            Self::AiMemory
+                | Self::AiMemoryConversation
+                | Self::AiMemoryMessage
+                | Self::AiMemorySummary
+                | Self::AiMemoryFact
+        )
     }
 }
 
