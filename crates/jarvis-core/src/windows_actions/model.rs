@@ -621,12 +621,13 @@ pub enum ActionValue {
 
 /// One window as the interface and the model see it.
 ///
-/// The title is sanitized and truncated, and the identifier is opaque and short-lived: the
-/// title is never used to address a window.
+/// The title is sanitized and truncated for ordinary windows. Sensitive titles are replaced
+/// before this DTO can cross an IPC or model boundary; the identifier is opaque and
+/// short-lived, and the title is never used to address a window.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct WindowSummary {
     pub id: String,
-    /// Sanitized title, possibly shortened.
+    /// A sanitized title for an ordinary window, or a content-free label for a sensitive one.
     pub title: String,
     /// Name of the executable, without a path.
     pub process: String,
@@ -743,22 +744,49 @@ pub fn sanitize_window_title(title: &str) -> String {
     cleaned.trim().to_string()
 }
 
+/// Produces the only title that may leave the native window registry.
+///
+/// Native titles are needed briefly for voice matching and Win32 operations, but a title that
+/// could contain a credential must never be serialized into an IPC response, an AI tool result,
+/// or a confirmation preview.
+pub fn safe_window_title(title: &str) -> String {
+    if title_looks_sensitive(title) {
+        "Sensitive window".to_string()
+    } else {
+        sanitize_window_title(title)
+    }
+}
+
 /// Whether a window title suggests a place where credentials may be visible.
 ///
 /// This is a heuristic that changes how a screenshot is handled, and it is deliberately
-/// narrow: it only recognizes a few well-known windows of this application and of the
-/// system's own credential prompts.
+/// conservative: a false positive only hides a title, whereas a false negative can disclose a
+/// credential in a UI, log, or model context.
 pub fn title_looks_sensitive(title: &str) -> bool {
     let lowered = title.to_lowercase();
-    const MARKERS: [&str; 6] = [
+    const MARKERS: [&str; 17] = [
         "jarvis",
         "altron",
         "vault",
         "пароль",
         "password",
         "credential",
+        "passphrase",
+        "api key",
+        "api_key",
+        "access token",
+        "secret",
+        "private key",
+        "ключ доступа",
+        "токен",
+        "секрет",
+        "приватный ключ",
+        "учетные данные",
     ];
     MARKERS.iter().any(|marker| lowered.contains(marker))
+        || ["sk-", "ghp_", "github_pat_", "akia", "xoxb-", "xoxp-"]
+            .iter()
+            .any(|prefix| lowered.contains(prefix))
 }
 
 #[cfg(test)]
@@ -964,6 +992,13 @@ mod tests {
         assert!(title_looks_sensitive("Windows Security credential prompt"));
         assert!(!title_looks_sensitive("Calculator"));
         assert!(!title_looks_sensitive("Untitled — Notepad"));
+    }
+
+    #[test]
+    fn a_sensitive_title_is_replaced_before_it_can_be_exposed() {
+        let title = "OpenAI key sk-FICTIONAL0000000000000000000000000000";
+        assert_eq!(safe_window_title(title), "Sensitive window");
+        assert_eq!(safe_window_title("Quarterly plan — Notepad"), "Quarterly plan — Notepad");
     }
 
     #[test]

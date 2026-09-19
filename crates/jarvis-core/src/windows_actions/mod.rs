@@ -55,7 +55,8 @@ pub use backend::{
 pub use error::ActionError;
 pub use executor::{ScreenshotSettings, WindowRegistry, WindowsActionExecutor, SCREENSHOT_PREFIX};
 pub use model::{
-    sanitize_window_title, title_looks_sensitive, ActionId, ActionPreview, ActionRequest,
+    safe_window_title, sanitize_window_title, title_looks_sensitive, ActionId, ActionPreview,
+    ActionRequest,
     ActionRequestOutcome, ActionResult, ActionRisk, ActionSource, ActionStatus, ActionValue,
     ApplicationId, PreviewField, ScreenshotTarget, TimerId, VolumeDirection, WindowId,
     WindowOperation, WindowState, WindowSummary, WindowsAction, CONFIRMATION_TTL_SECONDS,

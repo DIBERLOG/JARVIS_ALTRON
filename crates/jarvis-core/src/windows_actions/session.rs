@@ -827,7 +827,7 @@ impl WindowsActions {
                     .registry()
                     .lock()
                     .resolve(window_id.as_str(), super::timers::now_unix_ms())
-                    .map(|window| window.title)
+                    .map(|window| super::model::safe_window_title(&window.title))
                     .unwrap_or_default();
                 if !title.is_empty() {
                     fields.push(field("windows-field-window", &title));

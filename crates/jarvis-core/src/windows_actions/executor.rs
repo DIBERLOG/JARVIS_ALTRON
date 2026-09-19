@@ -26,7 +26,8 @@ use serde::{Deserialize, Serialize};
 use super::backend::{CaptureRequest, NativeWindow, WindowsBackend};
 use super::error::ActionError;
 use super::model::{
-    ActionRequest, ActionValue, ScreenshotTarget, WindowSummary, WindowsAction,
+    safe_window_title, title_looks_sensitive, ActionRequest, ActionValue, ScreenshotTarget,
+    WindowSummary, WindowsAction,
     MAX_RETIRED_WINDOW_IDS, WINDOW_ID_TTL_SECONDS,
 };
 
@@ -93,14 +94,17 @@ impl WindowRegistry {
         self.listing
             .windows
             .iter()
-            .map(|window| WindowSummary {
-                id: window.id.clone(),
-                title: window.title.clone(),
-                process: window.process_name.clone(),
-                state: window.state,
-                monitor: window.monitor,
-                sensitive: super::model::title_looks_sensitive(&window.title),
-                foreground: window.is_foreground,
+            .map(|window| {
+                let sensitive = title_looks_sensitive(&window.title);
+                WindowSummary {
+                    id: window.id.clone(),
+                    title: safe_window_title(&window.title),
+                    process: window.process_name.clone(),
+                    state: window.state,
+                    monitor: window.monitor,
+                    sensitive,
+                    foreground: window.is_foreground,
+                }
             })
             .collect()
     }
@@ -758,6 +762,21 @@ mod tests {
             }))
             .unwrap_err();
         assert_eq!(error.code(), "sensitive_window");
+    }
+
+    #[test]
+    fn sensitive_titles_are_redacted_from_window_dtos() {
+        let directory = tempdir().unwrap();
+        let secret = "OpenAI key sk-FICTIONAL0000000000000000000000000000";
+        let executor = executor_with(
+            FakeBackend::with_windows(vec![window(secret, false)]),
+            directory.path(),
+        );
+
+        let summaries = executor.list_windows().unwrap();
+        assert!(summaries[0].sensitive);
+        assert_eq!(summaries[0].title, "Sensitive window");
+        assert!(!serde_json::to_string(&summaries).unwrap().contains(secret));
     }
 
     #[test]
