@@ -24,6 +24,9 @@ const RUST_CHECKER = fileURLToPath(
 const RUST_MAIN = fileURLToPath(new URL("../../crates/jarvis-gui/src/main.rs", import.meta.url))
 const CORE_COMMANDS = fileURLToPath(new URL("../../crates/jarvis-core/src/commands.rs", import.meta.url))
 const APP = fileURLToPath(new URL("../../crates/jarvis-app/src/app.rs", import.meta.url))
+const CONVERSATION = fileURLToPath(
+    new URL("../../crates/jarvis-core/src/conversation/mod.rs", import.meta.url)
+)
 const DIAG = fileURLToPath(new URL("../../crates/jarvis-app/src/diag.rs", import.meta.url))
 const PANEL = fileURLToPath(new URL("../src/components/settings/PhraseCheck.svelte", import.meta.url))
 const SETTINGS_PANEL = fileURLToPath(
@@ -159,6 +162,29 @@ test("an unclear action falls through to the configured commands", () => {
         app.includes("commands::fetch_command(&normalized, commands_list)"),
         "the phrase matcher must be the fallback"
     )
+})
+
+test("a conversation is decided before any command can match", () => {
+    const app = readFileSync(APP, "utf8")
+    const conversation = app.indexOf("conversation::intent_of(&normalized)")
+    const actions = app.indexOf("try_windows_action(&normalized, &mut unclear)")
+    const matcher = app.indexOf("commands::fetch_command(&normalized, commands_list)")
+    assert.ok(conversation > 0, "the host must recognise a conversational phrase")
+    assert.ok(
+        conversation < actions && conversation < matcher,
+        "the conversation must be decided before the safe actions and before the packs"
+    )
+    // Recognising it ends the command route: nothing runs.
+    const guard = app.slice(conversation, actions)
+    assert.ok(guard.includes("return false"), "a conversational phrase must not run anything")
+    assert.equal(guard.includes("execute_command("), false, "and must not reach an executor")
+    // The conversation core reaches no command, and the proof is a test of its source.
+    const core = readFileSync(CONVERSATION, "utf8")
+    assert.ok(core.includes("pub trait ChatProvider"), "the provider interface must exist")
+    assert.ok(core.includes("pub enum ConversationIntent"), "the intents must be typed")
+    for (const forbidden of ["execute_command", "WindowsAction", "SafetyGate", "Command::new"]) {
+        assert.equal(core.includes(forbidden), false, `the route must not reach ${forbidden}`)
+    }
 })
 
 test("the panel checks a phrase without storing it or running anything", () => {

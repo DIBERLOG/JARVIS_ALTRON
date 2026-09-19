@@ -449,6 +449,21 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
         return false;
     }
 
+    // A conversation is not a command, and this is where that is decided — before the
+    // safe actions and before the packs, so no conversational phrase can be matched,
+    // executed or turned into a Windows action. The route itself (record, transcribe,
+    // ask a provider, speak the answer) belongs to the window process; until a
+    // provider is configured, the phrase is recognised, nothing runs, and the person
+    // is told exactly that.
+    if let Some(intent) = jarvis_core::conversation::intent_of(&normalized) {
+        diag::rejection(intent.as_str(), normalized.chars().count());
+        ipc::send(IpcEvent::Error {
+            message: "Разговор ещё не настроен: нужен AI-провайдер в настройках".to_string(),
+        });
+        ipc::send(IpcEvent::Idle);
+        return false;
+    }
+
     // The safe actions come first: a phrase they understand is theirs, and a phrase they do not
     // understand falls through to the configured commands, which are unchanged.
     let mut unclear: Option<&'static str> = None;

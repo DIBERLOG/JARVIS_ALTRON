@@ -16,6 +16,7 @@ pub mod autocorrect;
 pub mod backup;
 pub mod commands;
 pub mod config;
+pub mod conversation;
 pub mod db;
 pub mod desktop;
 pub mod diagnostics;
