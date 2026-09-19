@@ -229,8 +229,10 @@ fn assignment_split(line: &str) -> Option<(usize, usize)> {
     let position = bytes
         .iter()
         .position(|byte| *byte == b':' || *byte == b'=')?;
-    // A URL scheme is not an assignment.
-    if position + 2 < line.len() && &line[position..position + 3] == "://" {
+    // A URL scheme is not an assignment. The test compares a prefix instead of slicing
+    // three bytes, because the character after the separator can be multi-byte and a
+    // byte slice of a fixed length would land inside it.
+    if line[position..].starts_with("://") {
         return None;
     }
     let name = line[..position].trim();
@@ -698,6 +700,22 @@ mod tests {
         assert!(scan("password: your_password_here").is_clean());
         // A URL is not an assignment.
         assert!(scan("endpoint = https://example.com/path").is_clean());
+    }
+
+    #[test]
+    fn a_multi_byte_value_after_a_label_does_not_panic() {
+        // Regression: the separator check used to slice three bytes from the colon, which
+        // lands inside the first letter when the value is Cyrillic and the whole scan
+        // panicked instead of reporting a finding.
+        let found = scan("Улучшенный: привет мир");
+        assert!(found.is_clean(), "{:?}", found.findings());
+        let found = scan("пароль: секретное_значение");
+        assert!(!found.is_clean());
+        assert!(found.kinds().contains(&SecretKind::PasswordAssignment));
+        // A value that is a URL scheme is still not an assignment.
+        assert!(scan("endpoint = https://пример.рф/путь").is_clean());
+        // A short value is still an assignment.
+        assert!(!scan("pwd: abcd").is_clean());
     }
 
     #[test]
