@@ -46,7 +46,7 @@ struct Mark {
 ///
 /// The Russian and Ukrainian words are spelled the way a person says them, and
 /// the English ones are the words a dictation in English produces.
-const MARKS: [Mark; 9] = [
+const MARKS: [Mark; 13] = [
     Mark {
         phrases: &["новый абзац", "новий абзац", "new paragraph"],
         text: "\n\n",
@@ -76,8 +76,48 @@ const MARKS: [Mark; 9] = [
         sentence_end: true,
     },
     Mark {
+        phrases: &["двоеточие", "двокрапка", "colon"],
+        text: ":",
+        space_after: true,
+        opens: false,
+        sentence_end: false,
+    },
+    Mark {
+        phrases: &["точка с запятой", "крапка з комою", "semicolon"],
+        text: ";",
+        space_after: true,
+        opens: false,
+        sentence_end: false,
+    },
+    Mark {
         phrases: &["запятая", "кома", "comma"],
         text: ",",
+        space_after: true,
+        opens: false,
+        sentence_end: false,
+    },
+    // Quotes are said as a pair: "открой кавычки … закрой кавычки". A bare
+    // "кавычки" is deliberately not interpreted, and that limit is documented.
+    Mark {
+        phrases: &[
+            "открой кавычки",
+            "відкрий лапки",
+            "open quote",
+            "open quotation marks",
+        ],
+        text: "«",
+        space_after: false,
+        opens: true,
+        sentence_end: false,
+    },
+    Mark {
+        phrases: &[
+            "закрой кавычки",
+            "закрий лапки",
+            "close quote",
+            "close quotation marks",
+        ],
+        text: "»",
         space_after: true,
         opens: false,
         sentence_end: false,
@@ -218,12 +258,10 @@ pub fn apply_voice_punctuation(text: &str) -> (String, PunctuationReport) {
 }
 
 fn push_word(output: &mut String, word: &str, capitalize_next: &mut bool) {
-    // A word after an opening bracket attaches to it, and a word after anything
-    // else is separated by a space.
-    if !output.is_empty()
-        && !output.ends_with('\n')
-        && !output.ends_with(' ')
-        && !output.ends_with('(')
+    // A word after an opening bracket or an opening quote attaches to it, and a
+    // word after anything else is separated by a space.
+    let after_an_opening = matches!(output.chars().last(), Some('(') | Some('«'));
+    if !output.is_empty() && !output.ends_with('\n') && !output.ends_with(' ') && !after_an_opening
     {
         output.push(' ');
     }

@@ -59,14 +59,76 @@ pub use target::{
 /// Kept here as data so the voice layer, the settings page and the tests all
 /// read the same list. The phrases are matched after normalization: lower case,
 /// no punctuation, collapsed whitespace.
-pub const START_PHRASES: [&str; 6] = [
+pub const START_PHRASES: [&str; 7] = [
     "джарвис голосовой ввод",
     "джарвис начни голосовой ввод",
     "джарвис включи диктовку",
+    "джарвис продиктую текст",
     "jarvis voice input",
     "jarvis start voice input",
     "jarvis диктовка",
 ];
+
+/// What a recognized phrase means, as a type.
+///
+/// The voice layer produces one of these instead of a string that something
+/// further down might hand to a command runner. A phrase that is not one of the
+/// two intents is `None`, and nothing else can be expressed — there is no variant
+/// that carries a command, a path, or an argument, so a misunderstood phrase
+/// cannot become an action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VoiceIntent {
+    /// Start global dictation.
+    StartGlobalDictation,
+    /// Stop the recording and take the text.
+    StopDictation,
+    /// Anything else: the phrase is left to the rest of the assistant.
+    None,
+}
+
+impl VoiceIntent {
+    /// A stable name, for the log and the tray. Content-free by construction.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::StartGlobalDictation => "start_global_dictation",
+            Self::StopDictation => "stop_dictation",
+            Self::None => "none",
+        }
+    }
+}
+
+/// Turns a recognized phrase into a typed intent.
+///
+/// This is the whole trigger: data in, an enum out. The voice host calls it with
+/// what Vosk recognized and acts on the variant; there is no string command, no
+/// shell and no path anywhere in the route, and the phrase never reaches the
+/// local model.
+pub fn intent_of(text: &str) -> VoiceIntent {
+    if is_start_request(text) {
+        VoiceIntent::StartGlobalDictation
+    } else if is_stop_request(text) {
+        VoiceIntent::StopDictation
+    } else {
+        VoiceIntent::None
+    }
+}
+
+/// The same match, with the settings of the feature applied.
+///
+/// A phrase the person configured is an intent for that configuration; the
+/// built-in list is used when the feature is switched on.
+pub fn intent_with_settings(settings: &GlobalDictationSettings, text: &str) -> VoiceIntent {
+    if !settings.enabled {
+        return VoiceIntent::None;
+    }
+    if settings.matches(text) {
+        VoiceIntent::StartGlobalDictation
+    } else if is_stop_request(text) {
+        VoiceIntent::StopDictation
+    } else {
+        VoiceIntent::None
+    }
+}
 
 /// The confirmation the assistant says, per language.
 pub fn confirmation(language: &str) -> &'static str {

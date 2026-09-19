@@ -44,6 +44,7 @@ item call; it is bounded, and a cancelled request delivers nothing.
 | «Джарвис, голосовой ввод» | start |
 | «Джарвис, начни голосовой ввод» | start |
 | «Джарвис, включи диктовку» | start |
+| «Джарвис, продиктую текст» | start |
 | «Jarvis voice input» | start |
 | «Стоп», «готово», «stop» | stop the recording and take the text |
 
@@ -97,6 +98,7 @@ separate decision with its own threat model, and it has not been taken.
 ## Voice punctuation
 
 Spoken marks become marks, locally, in three languages: «точка», «запятая»,
+«двоеточие», «точка с запятой», «открой кавычки» / «закрой кавычки»,
 «вопросительный знак», «восклицательный знак», «новая строка», «новый абзац»,
 «открой скобку», «закрой скобку», «тире» (and the Ukrainian and English words).
 

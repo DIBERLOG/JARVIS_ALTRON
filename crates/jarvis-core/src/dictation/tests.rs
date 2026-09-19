@@ -886,3 +886,117 @@ fn the_settings_are_off_until_asked_for_and_repair_themselves() {
         crate::vault::clipboard::MIN_CLEAR_SECONDS
     );
 }
+
+#[test]
+fn a_recognized_phrase_becomes_a_typed_intent() {
+    assert_eq!(
+        super::intent_of("Джарвис, голосовой ввод"),
+        super::VoiceIntent::StartGlobalDictation
+    );
+    assert_eq!(
+        super::intent_of("Джарвис, начни голосовой ввод"),
+        super::VoiceIntent::StartGlobalDictation
+    );
+    assert_eq!(
+        super::intent_of("Джарвис, включи диктовку"),
+        super::VoiceIntent::StartGlobalDictation
+    );
+    assert_eq!(
+        super::intent_of("Джарвис, продиктую текст"),
+        super::VoiceIntent::StartGlobalDictation
+    );
+    assert_eq!(super::intent_of("Стоп"), super::VoiceIntent::StopDictation);
+    assert_eq!(
+        super::intent_of("готово"),
+        super::VoiceIntent::StopDictation
+    );
+    // Everything else is not an intent, and it is not a command either.
+    assert_eq!(
+        super::intent_of("джарвис который час"),
+        super::VoiceIntent::None
+    );
+    assert_eq!(super::intent_of("открой блокнот"), super::VoiceIntent::None);
+    assert_eq!(super::intent_of(""), super::VoiceIntent::None);
+    // The names are stable and carry no content.
+    assert_eq!(
+        super::VoiceIntent::StartGlobalDictation.as_str(),
+        "start_global_dictation"
+    );
+    assert_eq!(super::VoiceIntent::StopDictation.as_str(), "stop_dictation");
+    assert_eq!(super::VoiceIntent::None.as_str(), "none");
+
+    // The settings gate the intent: switched off means no intent at all.
+    let off = super::GlobalDictationSettings::default();
+    assert_eq!(
+        super::intent_with_settings(&off, "Джарвис, голосовой ввод"),
+        super::VoiceIntent::None
+    );
+    let on = super::GlobalDictationSettings {
+        enabled: true,
+        ..super::GlobalDictationSettings::default()
+    };
+    assert_eq!(
+        super::intent_with_settings(&on, "Джарвис, продиктую текст"),
+        super::VoiceIntent::StartGlobalDictation
+    );
+    assert_eq!(
+        super::intent_with_settings(&on, "стоп"),
+        super::VoiceIntent::StopDictation
+    );
+    assert_eq!(
+        super::intent_with_settings(&on, "включи музыку"),
+        super::VoiceIntent::None
+    );
+}
+
+#[test]
+fn the_intent_type_carries_no_command_and_no_path() {
+    // A type, not a string the rest of the application could execute.
+    let source = include_str!("mod.rs");
+    let start = source
+        .find("pub enum VoiceIntent")
+        .expect("the intent type");
+    let end = source[start..].find('}').unwrap() + start;
+    let body = &source[start..end];
+    for forbidden in ["String", "Path", "Command", "args", "shell"] {
+        assert!(
+            !body.contains(forbidden),
+            "an intent must not be able to carry {forbidden}"
+        );
+    }
+    // And the route has no process API at all.
+    for (name, text) in [
+        ("mod.rs", include_str!("mod.rs")),
+        ("session.rs", include_str!("session.rs")),
+        ("insertion.rs", include_str!("insertion.rs")),
+        ("target.rs", include_str!("target.rs")),
+    ] {
+        for forbidden in ["Command::new", "std::process", "powershell", "cmd.exe"] {
+            assert!(
+                !text.contains(forbidden),
+                "{name} must not contain {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_newer_marks_are_written_the_way_a_person_says_them() {
+    let (text, report) = apply_voice_punctuation("список двоеточие один точка с запятой два");
+    assert_eq!(text, "Список: один; два");
+    assert_eq!(report.marks, 2);
+
+    let (text, _) = apply_voice_punctuation("он сказал открой кавычки привет закрой кавычки");
+    assert_eq!(text, "Он сказал «привет»");
+
+    let (text, _) = apply_voice_punctuation("note colon first semicolon second");
+    assert_eq!(text, "Note: first; second");
+
+    let (text, _) = apply_voice_punctuation("він сказав відкрий лапки привіт закрий лапки");
+    assert_eq!(text, "Він сказав «привіт»");
+
+    // A bare "кавычки" is not interpreted: the limit is deliberate.
+    let (text, report) = apply_voice_punctuation("слово кавычки слово");
+    assert_eq!(text, "Слово кавычки слово");
+    assert_eq!(report.marks, 0);
+}
