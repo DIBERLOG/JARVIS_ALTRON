@@ -24,6 +24,8 @@ pub struct AppState {
     pub whisper: tauri_commands::WhisperHandle,
     /// The full backup and restore, one operation at a time.
     pub backup: tauri_commands::BackupHandle,
+    /// Global voice input: the phrase, the handover, and the clipboard.
+    pub voice_input: tauri_commands::VoiceInputHandle,
     /// The ordered exit, built once so a normal exit, a tray exit, and a second
     /// exit request all take the same route and produce the same report.
     pub lifecycle: std::sync::Arc<jarvis_core::lifecycle::LifecycleManager>,
@@ -84,6 +86,11 @@ fn main() {
     // The full backup and restore. Building it also finishes or undoes a restore
     // that a crash interrupted, before any store is opened.
     let backup = tauri_commands::BackupHandle::restore(notes.clone());
+
+    // Global voice input: the engine is the core's, the microphone is the
+    // existing session's, and the production mode puts the text on the
+    // protected clipboard for the person to paste.
+    let voice_input = tauri_commands::VoiceInputHandle::restore(whisper.clone());
 
     // local spelling: dictionaries on disk, the user's own words in the shared
     // session under their own derived key, and an in-memory undo journal that is
@@ -177,8 +184,7 @@ fn main() {
                     let Some(directory) = data_dir.clone() else {
                         return Err("the data directory is unknown".to_string());
                     };
-                    jarvis_core::backup::checkpoint_databases(&directory)
-                        .map(|_| ())
+                    jarvis_core::backup::checkpoint_databases(&directory).map(|_| ())
                 },
             );
         }
@@ -222,6 +228,7 @@ fn main() {
             windows_actions,
             whisper,
             backup,
+            voice_input,
             lifecycle: std::sync::Arc::clone(&lifecycle),
         })
         // One instance: a second launch hands the arguments to the copy that is
@@ -473,6 +480,15 @@ fn main() {
             tauri_commands::backup_restore,
             tauri_commands::backup_discard_previous,
             tauri_commands::backup_delete_safety,
+
+            // global voice input
+            tauri_commands::voice_input_status,
+            tauri_commands::voice_input_start,
+            tauri_commands::voice_input_cancel,
+            tauri_commands::voice_input_update_settings,
+            tauri_commands::voice_input_clear_result,
+            tauri_commands::voice_input_preview,
+            tauri_commands::voice_input_copy_again,
             desktop::whisper_discover,
             desktop::whisper_apply_discovered,
             // the desktop shell: state, close behaviour, autostart, first run
@@ -500,6 +516,9 @@ fn main() {
         .setup(|app| {
             // The shell needs the application handle for autostart and the tray,
             // so it is built here and managed as its own state.
+            // The voice input notice needs the window, and the window needs
+            // the handle: it is attached here, once, where both exist.
+            app.state::<AppState>().voice_input.attach(app.handle().clone());
             let desktop = std::sync::Arc::new(desktop::DesktopHandle::new(app.handle()));
             app.manage(std::sync::Arc::clone(&desktop));
             if let Err(error) = desktop::install_tray(app.handle()) {

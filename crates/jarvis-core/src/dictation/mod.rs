@@ -46,8 +46,8 @@ pub use insertion::{
 };
 pub use punctuation::{apply_voice_punctuation, PunctuationReport};
 pub use session::{
-    DictationEngine, DictationOutcome, DictationRequest, DictationStage, EngineDeps, TextCorrector,
-    VoiceHost, VoiceTranscriber,
+    status_of, DictationEngine, DictationOutcome, DictationRequest, DictationStage,
+    DictationStatusView, EngineDeps, TextCorrector, TranscribedText, VoiceHost, VoiceTranscriber,
 };
 pub use target::{
     decide, ElementKind, InsertionDecision, TargetSnapshot, TargetVerdict, VoiceInputPreference,
@@ -191,6 +191,8 @@ pub struct GlobalDictationSettings {
     pub language: String,
     /// Whether the local spelling layer touches the result.
     pub autocorrect: bool,
+    /// Whether the spoken marks become marks.
+    pub punctuation: bool,
     /// Where the text goes.
     pub preference: VoiceInputPreference,
     /// How long a copied text stays on the clipboard before it is wiped.
@@ -207,7 +209,10 @@ impl Default for GlobalDictationSettings {
             speak_confirmation: true,
             language: "auto".to_string(),
             autocorrect: true,
-            preference: VoiceInputPreference::UiAutomation,
+            punctuation: true,
+            // The production mode of this build: the clipboard, and the person
+            // pastes. UI Automation is the experimental extension.
+            preference: VoiceInputPreference::Clipboard,
             clipboard_seconds: crate::vault::clipboard::DEFAULT_CLEAR_SECONDS,
             preview_before_insert: false,
         }

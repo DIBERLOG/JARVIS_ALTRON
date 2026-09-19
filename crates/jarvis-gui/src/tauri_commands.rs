@@ -67,6 +67,9 @@ pub use whisper::*;
 // import backup commands (portable, encrypted, one operation at a time)
 mod backup;
 pub use backup::*;
+// import global voice input (one microphone, clipboard delivery)
+mod voice_input;
+pub use voice_input::*;
 // import desktop shell commands (tray, close behaviour, autostart, first run)
 mod diagnostics;
 pub use diagnostics::*;
