@@ -7,6 +7,7 @@
     import HDivider from "@/components/elements/HDivider.svelte"
     import Stats from "@/components/elements/Stats.svelte"
     import Footer from "@/components/Footer.svelte"
+    import LocalChat from "@/components/ai/LocalChat.svelte"
     
     import {
         isJarvisRunning,
@@ -87,6 +88,16 @@
     </div>
 
     <HDivider noMargin />
+    <div class="local-ai-section">
+        <LocalChat />
+    </div>
+    <HDivider noMargin />
     <Stats />
     <Footer />
 </div>
+
+<style lang="scss">
+.local-ai-section {
+    margin: 1rem 0;
+}
+</style>

@@ -9,6 +9,7 @@
 
     import HDivider from "@/components/elements/HDivider.svelte"
     import Footer from "@/components/Footer.svelte"
+    import LocalAiSettings from "@/components/ai/LocalAiSettings.svelte"
 
     import {
         Notification,
@@ -30,7 +31,8 @@
         Code,
         Gear,
         QuestionMarkCircled,
-        CrossCircled
+        CrossCircled,
+        LightningBolt
     } from "radix-icons-svelte"
 
     $: t = (key: string) => translate($translations, key)
@@ -305,6 +307,11 @@
             variant="filled"
             bind:value={selectedMicrophone}
         />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('ai-settings-title')} icon={LightningBolt}>
+        <Space h="sm" />
+        <LocalAiSettings />
     </Tabs.Tab>
 
     <Tabs.Tab label={t('settings-neural-networks')} icon={Cube}>
