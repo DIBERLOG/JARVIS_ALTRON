@@ -216,15 +216,38 @@ pub fn build_catalog(directory: &Path, language: &str) -> CommandCatalog {
 /// Turns one parsed command into a card.
 pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str) -> CatalogEntry {
     let phrases = phrases_for(command, language);
-    let (available, reason) = availability(pack_path, command, &phrases);
-    // A forbidden command never reaches an executor, whatever it names: the card
-    // says so instead of showing an executor that will not be used.
-    let (enabled, unavailable_reason) = if command.risk_level == RiskLevel::Forbidden {
+
+    // The four questions, each answered on its own and in its own terms:
+    //
+    // * `recognized`  — does a phrase in this language reach this command?
+    // * `executor_ready` — does the executor this command names exist in this build?
+    //   This is a fact about the build and the files next to the pack. The policy is
+    //   not consulted: a forbidden command whose executable is present reports the
+    //   executable as present, because that is the truth.
+    // * `allowed` — does the policy permit it?
+    // * `verified` — all of the above hold and nothing is waiting for configuration,
+    //   which is exactly `enabled`.
+    let recognized = !phrases.is_empty();
+    let (executor_ready, executor_reason) = executor_state(pack_path, command);
+    let allowed = command.risk_level != RiskLevel::Forbidden;
+    let configuration = needs_configuration(command);
+
+    let (enabled, unavailable_reason) = if !allowed {
         (false, Some("forbidden_by_policy".to_string()))
+    } else if !recognized {
+        (false, Some("no_phrases".to_string()))
+    } else if !executor_ready {
+        (
+            false,
+            Some(executor_reason.unwrap_or("unsupported_type").to_string()),
+        )
+    } else if let Some(code) = configuration {
+        (false, Some(code.to_string()))
     } else {
-        (available, reason)
+        (true, None)
     };
     let status = status_of(command, enabled, unavailable_reason.as_deref());
+    let verified = enabled && recognized;
 
     let mut slots: Vec<CatalogSlot> = command
         .slots
@@ -238,12 +261,7 @@ pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str
 
     // The four questions, each answered on its own. `recognized` is about the
     // matcher, `executor_ready` about this build, `allowed` about the policy, and
-    // `verified` claims only what the automatic suite actually asserts.
-    let recognized = !phrases.is_empty();
-    let allowed = command.risk_level != RiskLevel::Forbidden;
-    let executor_ready = enabled || unavailable_reason.as_deref() == Some("allowlist_required");
-    let verified = recognized && executor_ready;
-
+    // `verified` claims only that the command would really run.
     CatalogEntry {
         id: command.id.clone(),
         pack: pack.to_string(),
@@ -324,9 +342,9 @@ pub fn global_voice_input_entry(phrase: &str, enabled: bool) -> CatalogEntry {
         recognized: has_phrase,
         // The listener recognises the phrase and the dictation engine runs in the
         // window process: there is nothing else to be ready.
-        executor_ready: has_phrase,
+        executor_ready: true,
         allowed: true,
-        verified: has_phrase,
+        verified: enabled && has_phrase,
         unavailable_reason,
     }
 }
@@ -345,42 +363,32 @@ fn phrases_for(command: &JCommand, language: &str) -> Vec<String> {
     phrases
 }
 
-/// Whether a command can run as it is, and why not when it cannot.
-fn availability(
-    pack_path: &Path,
-    command: &JCommand,
-    phrases: &[String],
-) -> (bool, Option<String>) {
-    // A command nobody can say is unreachable by voice whatever its files are:
-    // that is the first thing worth reporting, not the last.
-    if phrases.is_empty() {
-        return (false, Some("no_phrases".to_string()));
-    }
+/// Whether the executor a command names exists in this build, and which part of it
+/// is missing when it does not.
+///
+/// This is a fact about the build and the files next to the pack, and it is
+/// deliberately blind to the policy and to the user's configuration: a forbidden
+/// command whose executable is present reports the executable as present, and a
+/// launch that waits for the allowlist reports its executor as present too. Mixing
+/// those answers into one is exactly what makes a page lie about *why* a command
+/// does nothing.
+fn executor_state(pack_path: &Path, command: &JCommand) -> (bool, Option<&'static str>) {
     match command.cmd_type.as_str() {
-        // A typed action goes through the pipeline this build already runs, so the
-        // only question is whether it needs something the user has to configure.
-        "native" => match &command.native {
-            Some(action) => {
-                if action.needs_allowed_application() {
-                    // The pack asks for a role; the user's allowlist answers it. Until
-                    // an entry matches, the command is not ready and says so.
-                    (false, Some("allowlist_required".to_string()))
-                } else {
-                    (true, None)
-                }
-            }
-            None => (false, Some("unsupported_type".to_string())),
+        // A typed action is executed by this build; the action itself is the executor.
+        "native" => match command.native {
+            Some(_) => (true, None),
+            None => (false, Some("unsupported_type")),
         },
         // A typed event of the application needs nothing but the host.
         "internal" => match command.internal {
             Some(_) => (true, None),
-            None => (false, Some("unsupported_type".to_string())),
+            None => (false, Some("unsupported_type")),
         },
         "ahk" => {
             if resolves(pack_path, &command.exe_path) {
                 (true, None)
             } else {
-                (false, Some("executable_missing".to_string()))
+                (false, Some("executable_missing"))
             }
         }
         "lua" => {
@@ -392,12 +400,15 @@ fn availability(
             if resolves(pack_path, script) {
                 (true, None)
             } else {
-                (false, Some("script_missing".to_string()))
+                (false, Some("script_missing"))
             }
         }
         "cli" => {
+            // The executable is resolved by the operating system at launch, so its
+            // presence cannot be checked from here; an empty name is the one thing
+            // that is certainly not an executor.
             if command.cli_cmd.trim().is_empty() {
-                (false, Some("executable_missing".to_string()))
+                (false, Some("executable_missing"))
             } else {
                 (true, None)
             }
@@ -405,7 +416,19 @@ fn availability(
         // A phrase the listener answers with a sound, the end of a chain, and the
         // terminator need no file at all.
         "voice" | "terminate" | "stop_chaining" => (true, None),
-        _ => (false, Some("unsupported_type".to_string())),
+        _ => (false, Some("unsupported_type")),
+    }
+}
+
+/// What the user still has to configure before this command can run, if anything.
+///
+/// It is a separate question from "does the executor exist": the launch pipeline is
+/// there, and it will start the file the user allowed — once the user has allowed
+/// one.
+fn needs_configuration(command: &JCommand) -> Option<&'static str> {
+    match &command.native {
+        Some(action) if action.needs_allowed_application() => Some("allowlist_required"),
+        _ => None,
     }
 }
 
@@ -782,8 +805,8 @@ mod tests {
             );
             assert_eq!(
                 entry.verified,
-                entry.recognized && entry.executor_ready,
-                "{} must claim only what is both recognised and executable",
+                entry.enabled && entry.recognized,
+                "{} claims verified only when it would really run",
                 entry.id
             );
             if entry.status == "executor_missing" || entry.status == "dependency_missing" {
@@ -798,20 +821,64 @@ mod tests {
                     entry.id
                 );
             }
+            // A forbidden command is refused by the policy, and that is a different
+            // sentence from "its executor is missing": the executable may well be
+            // there, and the card says so.
             if entry.status == "forbidden" {
                 assert!(!entry.allowed, "{} is refused by policy", entry.id);
+                assert!(!entry.enabled, "{} must not claim to be ready", entry.id);
+            }
+            // A launch that waits for the allowlist has an executor — the pipeline —
+            // and needs configuration. Two different answers.
+            if entry.status == "configuration_required" {
+                assert!(entry.executor_ready, "{} has the pipeline", entry.id);
+                assert!(entry.allowed, "{} is not forbidden", entry.id);
+                assert!(!entry.enabled);
+                assert_eq!(
+                    entry.unavailable_reason.as_deref(),
+                    Some("allowlist_required"),
+                    "{}",
+                    entry.id
+                );
             }
         }
+
+        let find = |id: &str| {
+            catalog
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("{id} must be installed"))
+        };
+
         // The concrete case: the phrase reaches a command whose helper is missing.
-        let open_google = catalog
-            .entries
-            .iter()
-            .find(|entry| entry.id == "open_google")
-            .expect("open_google");
+        let open_google = find("open_google");
         assert!(open_google.recognized);
         assert!(!open_google.executor_ready);
         assert!(!open_google.verified);
         assert!(open_google.allowed);
+
+        // A forbidden command whose program is present on any Windows machine: the
+        // executor is there, the policy is what stops it.
+        let reboot = find("jarvis_reboot");
+        assert!(reboot.recognized);
+        assert!(
+            reboot.executor_ready,
+            "shutdown.exe exists; the policy refuses it"
+        );
+        assert!(!reboot.allowed);
+        assert!(!reboot.verified, "nothing forbidden is verified");
+        assert_eq!(
+            reboot.unavailable_reason.as_deref(),
+            Some("forbidden_by_policy")
+        );
+
+        // A forbidden command whose helper is *also* missing: both facts are true,
+        // and the policy is the one that stops it.
+        let browser_close = find("browser_close");
+        assert!(!browser_close.executor_ready);
+        assert!(!browser_close.allowed);
+        assert_eq!(browser_close.status, "forbidden");
     }
 
     #[test]

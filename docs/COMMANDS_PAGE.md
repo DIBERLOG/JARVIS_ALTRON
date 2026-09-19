@@ -22,9 +22,15 @@ there are — and, separately, the four questions:
 | Indicator | Meaning |
 | --- | --- |
 | **Фраза распознаётся** | a phrase reaches this command (`recognized`) |
-| **Исполнитель готов** | the executor exists in this build (`executor_ready`) |
+| **Исполнитель готов** | the executor exists in this build (`executor_ready`) — a fact about the build and the files next to the pack, blind to the policy and to the configuration |
 | **Разрешено политикой** | not forbidden by the policy (`allowed`) |
-| **Проверено** | both of the above hold (`verified`) |
+| **Проверено** | the command would really run: recognised, executable, allowed and nothing waiting for configuration (`verified`) |
+
+The four are deliberately independent, and the page is the place where that shows: a
+forbidden command whose program is present reports the executor as *ready* and the
+policy as *not allowed*, while a launch that waits for the allowlist reports the
+executor as *ready* and its status as *not configured*. Collapsing those into one
+"not ready" is what makes such a page useless for finding out *why*.
 
 A card expands to show its description, the phrases in the current language, its
 slots, its source, and the reason it cannot run. The block of packs the loader did
