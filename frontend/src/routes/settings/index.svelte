@@ -12,6 +12,7 @@
     import LocalAiSettings from "@/components/ai/LocalAiSettings.svelte"
     import AutocorrectSettings from "@/components/settings/AutocorrectSettings.svelte"
     import WindowsActionsPanel from "@/components/windows/WindowsActionsPanel.svelte"
+    import WhisperSettingsPanel from "@/components/settings/WhisperSettings.svelte"
 
     import {
         Notification,
@@ -320,6 +321,11 @@
     <Tabs.Tab label={t('autocorrect-settings-tab')} icon={Pencil1}>
         <Space h="sm" />
         <AutocorrectSettings />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('whisper-tab')} icon={LightningBolt}>
+        <Space h="sm" />
+        <WhisperSettingsPanel />
     </Tabs.Tab>
 
     <Tabs.Tab label={t('windows-actions-tab')} icon={Code}>

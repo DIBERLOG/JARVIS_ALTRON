@@ -61,3 +61,6 @@ pub use autocorrect::*;
 // import windows actions commands (safe, allowlisted, confirmed Windows actions)
 mod windows_actions;
 pub use windows_actions::*;
+// import dictation commands (local Whisper, no network)
+mod whisper;
+pub use whisper::*;

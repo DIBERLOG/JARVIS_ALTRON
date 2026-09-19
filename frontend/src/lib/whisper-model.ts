@@ -1,0 +1,264 @@
+/**
+ * Interface-side logic for local dictation.
+ *
+ * Everything here is free of Tauri and Svelte dependencies, so it can be unit
+ * tested with the Node test runner. It mirrors the shapes the core sends, holds
+ * the cheap checks that give instant feedback, and formats what the panel shows.
+ *
+ * Three rules are encoded here on purpose:
+ *
+ * * the interface never names a model or an executable path. It asks the core to
+ *   open the native file dialog, which is the only way either file is chosen;
+ * * a transcript is shown and never stored. Nothing here writes it to browser
+ *   storage, to a URL, or to a file, and the dictation button is the only thing
+ *   that can start a recording;
+ * * the state words the panel renders come from the core (`idle`, `recording`,
+ *   `transcribing`) — the interface does not invent a "listening" state.
+ */
+
+export type DictationState = "idle" | "recording" | "transcribing"
+export type ModelKind =
+    | "tiny"
+    | "tiny_en"
+    | "base"
+    | "base_en"
+    | "small"
+    | "small_en"
+    | "medium"
+    | "medium_en"
+    | "large_v1"
+    | "large_v2"
+    | "large_v3"
+    | "unknown"
+
+export interface BinaryProbe {
+    size_bytes: number
+    architecture: "x86_64" | "x86" | "arm64" | { other: number }
+}
+
+export interface ModelProbe {
+    size_bytes: number
+    kind: ModelKind
+    container: string
+    notes: string[]
+}
+
+export interface DictationStatus {
+    state: DictationState
+    enabled: boolean
+    configured: boolean
+    binary: BinaryProbe | null
+    model: ModelProbe | null
+    binary_path: string
+    model_path: string
+    notes: string[]
+}
+
+export interface WhisperSettings {
+    enabled: boolean
+    binary_path: string
+    model_path: string
+    language: string
+    translate: boolean
+    threads: number
+    max_seconds: number
+    silence_ms: number
+    timeout_seconds: number
+    keep_audio: boolean
+    allow_from_window: boolean
+    schema_version: number
+}
+
+export interface TranscriptSegment {
+    start_ms: number
+    end_ms: number
+    text: string
+}
+
+export interface Transcript {
+    text: string
+    segments: TranscriptSegment[]
+    language: string
+    audio_ms: number
+    duration_ms: number
+}
+
+/** The languages the core offers, in the order the select shows them. */
+export const LANGUAGES: readonly string[] = ["auto", "ru", "en", "ua", "de", "fr", "es"]
+
+/** The ranges the core enforces, mirrored for instant feedback only. */
+export const MIN_THREADS = 1
+export const MAX_THREADS = 32
+export const DEFAULT_THREADS = 4
+export const MIN_SECONDS = 1
+export const MAX_SECONDS = 300
+export const DEFAULT_SECONDS = 30
+export const MIN_SILENCE_MS = 500
+export const MAX_SILENCE_MS = 10_000
+export const MIN_TIMEOUT_SECONDS = 5
+export const MAX_TIMEOUT_SECONDS = 600
+
+/** How many characters of a transcript the panel previews before "show all". */
+export const PREVIEW_CHARS = 400
+
+/** The Fluent key of a state. */
+export function stateKey(state: DictationState): string {
+    return `whisper-state-${state}`
+}
+
+/** The Fluent key of a model size the core reported. */
+export function modelKindKey(kind: ModelKind): string {
+    return `whisper-model-${kind}`
+}
+
+/** The Fluent key of a content-free error code. */
+export function errorKey(code: string): string {
+    const known = [
+        "disabled",
+        "not_configured",
+        "invalid_configuration",
+        "binary_unavailable",
+        "model_unavailable",
+        "model_unknown",
+        "wrong_architecture",
+        "audio_unavailable",
+        "audio_empty",
+        "busy",
+        "process_unavailable",
+        "process_failed",
+        "timed_out",
+        "invalid_response",
+        "cancelled",
+        "unsupported_language",
+        "storage"
+    ]
+    return known.includes(code) ? `whisper-error-${code}` : "whisper-error-unknown"
+}
+
+/**
+ * The Fluent key of a note the core attached to the status.
+ *
+ * The core sends either a Fluent key (its own vocabulary) or a content-free
+ * sentence; a sentence is shown as it is, because inventing a translation for it
+ * would be worse than showing the honest one.
+ */
+export function noteKey(note: string): string | null {
+    return note.startsWith("windows-whisper-note-") ? note.replace("windows-whisper-note-", "whisper-note-") : null
+}
+
+/** Whether a state means the microphone is open right now. */
+export function isRecording(state: DictationState): boolean {
+    return state === "recording"
+}
+
+/** Whether the panel's dictation button should offer to stop instead. */
+export function isBusy(state: DictationState): boolean {
+    return state !== "idle"
+}
+
+/** The local check of the numbers before they are sent. */
+export function settingsProblem(settings: WhisperSettings): string | null {
+    if (!Number.isFinite(settings.threads) || settings.threads < MIN_THREADS || settings.threads > MAX_THREADS) {
+        return "whisper-error-threads"
+    }
+    if (
+        !Number.isFinite(settings.max_seconds) ||
+        settings.max_seconds < MIN_SECONDS ||
+        settings.max_seconds > MAX_SECONDS
+    ) {
+        return "whisper-error-seconds"
+    }
+    if (
+        !Number.isFinite(settings.silence_ms) ||
+        settings.silence_ms < MIN_SILENCE_MS ||
+        settings.silence_ms > MAX_SILENCE_MS
+    ) {
+        return "whisper-error-silence"
+    }
+    if (
+        !Number.isFinite(settings.timeout_seconds) ||
+        settings.timeout_seconds < MIN_TIMEOUT_SECONDS ||
+        settings.timeout_seconds > MAX_TIMEOUT_SECONDS
+    ) {
+        return "whisper-error-timeout"
+    }
+    if (!LANGUAGES.includes(settings.language)) {
+        return "whisper-error-language"
+    }
+    return null
+}
+
+/** The settings sent back, with every number inside the range the core accepts. */
+export function normalizedSettings(settings: WhisperSettings): WhisperSettings {
+    return {
+        ...settings,
+        threads: clamp(settings.threads, MIN_THREADS, MAX_THREADS, DEFAULT_THREADS),
+        max_seconds: clamp(settings.max_seconds, MIN_SECONDS, MAX_SECONDS, DEFAULT_SECONDS),
+        silence_ms: clamp(settings.silence_ms, MIN_SILENCE_MS, MAX_SILENCE_MS, 1_500),
+        timeout_seconds: clamp(settings.timeout_seconds, MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, 120),
+        language: LANGUAGES.includes(settings.language) ? settings.language : "auto",
+        binary_path: settings.binary_path.trim(),
+        model_path: settings.model_path.trim()
+    }
+}
+
+function clamp(value: number, minimum: number, maximum: number, fallback: number): number {
+    if (!Number.isFinite(value)) return fallback
+    return Math.min(maximum, Math.max(minimum, Math.round(value)))
+}
+
+/** A transcript with runs of whitespace collapsed, for a text field. */
+export function cleanedTranscript(transcript: Transcript): string {
+    return transcript.text.split(/\s+/).filter(Boolean).join(" ")
+}
+
+/** The transcript shortened for the panel, and whether it was shortened. */
+export function transcriptPreview(transcript: Transcript): { text: string; shortened: boolean } {
+    const cleaned = cleanedTranscript(transcript)
+    if (cleaned.length <= PREVIEW_CHARS) return { text: cleaned, shortened: false }
+    return { text: `${cleaned.slice(0, PREVIEW_CHARS - 1)}…`, shortened: true }
+}
+
+/** Characters in a transcript, for the counter next to the box. */
+export function transcriptLength(transcript: Transcript): number {
+    return cleanedTranscript(transcript).length
+}
+
+/** Seconds of audio, as a short label. */
+export function audioLabel(transcript: Transcript): string {
+    const seconds = transcript.audio_ms / 1000
+    if (seconds < 60) return `${seconds.toFixed(1)} s`
+    return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`
+}
+
+/** Whether the model's own notes say its contents were not verified. */
+export function modelIsUnverified(status: DictationStatus): boolean {
+    return (status.model?.notes ?? []).some((note) => note.includes("hash"))
+}
+
+/** A one-line summary of what is ready and what is missing. */
+export function readinessKey(status: DictationStatus): string {
+    if (!status.enabled) return "whisper-readiness-disabled"
+    if (status.configured) return "whisper-readiness-ready"
+    if (!status.binary_path && !status.model_path) return "whisper-readiness-empty"
+    if (!status.binary_path || !status.binary) return "whisper-readiness-binary"
+    return "whisper-readiness-model"
+}
+
+/** The default settings the panel starts from before the core answers. */
+export function defaultSettings(): WhisperSettings {
+    return {
+        enabled: false,
+        binary_path: "",
+        model_path: "",
+        language: "auto",
+        translate: false,
+        threads: DEFAULT_THREADS,
+        max_seconds: DEFAULT_SECONDS,
+        silence_ms: 1_500,
+        timeout_seconds: 120,
+        keep_audio: false,
+        allow_from_window: true,
+        schema_version: 1
+    }
+}

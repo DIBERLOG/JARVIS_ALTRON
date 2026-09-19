@@ -20,6 +20,7 @@ pub struct AppState {
     pub memory: tauri_commands::MemoryHandle,
     pub autocorrect: tauri_commands::AutocorrectHandle,
     pub windows_actions: tauri_commands::WindowsActionsHandle,
+    pub whisper: tauri_commands::WhisperHandle,
 }
 
 fn main() {
@@ -70,6 +71,10 @@ fn main() {
     // been checked against the central policy and (for a risky one) confirmed.
     let windows_actions = tauri_commands::WindowsActionsHandle::restore();
 
+    // local dictation: a bounded child process the user supplies, and a
+    // microphone that is opened only between an explicit start and stop
+    let whisper = tauri_commands::WhisperHandle::restore();
+
     // local spelling: dictionaries on disk, the user's own words in the shared
     // session under their own derived key, and an in-memory undo journal that is
     // cleared whenever the storage locks
@@ -90,6 +95,7 @@ fn main() {
             memory,
             autocorrect,
             windows_actions,
+            whisper,
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -309,6 +315,16 @@ fn main() {
             tauri_commands::windows_actions_route_voice,
             tauri_commands::windows_actions_tools,
             tauri_commands::windows_actions_ai_request,
+
+            // local dictation (a Whisper build the user supplies, no network)
+            tauri_commands::whisper_status,
+            tauri_commands::whisper_update_settings,
+            tauri_commands::whisper_select_binary,
+            tauri_commands::whisper_select_model,
+            tauri_commands::whisper_dictate,
+            tauri_commands::whisper_transcribe_file,
+            tauri_commands::whisper_cancel,
+            tauri_commands::whisper_clear_last,
         ])
         .setup(|app| {
             // When a timer or reminder fires the window is poked; the item itself is
@@ -342,6 +358,9 @@ fn main() {
                     // The scheduler thread is stopped before the process ends, so a
                     // timer cannot fire into a window that is already gone.
                     state.windows_actions.shutdown();
+                    // Dictation stops before the window is gone, so a
+                    // microphone is never left open by a closing application.
+                    state.whisper.shutdown();
                 }
             }
         });
