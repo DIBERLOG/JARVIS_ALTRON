@@ -10,8 +10,21 @@
     import NoteList from "@/components/notes/NoteList.svelte"
     import NoteSidebar from "@/components/notes/NoteSidebar.svelte"
     import NotesLocked from "@/components/notes/NotesLocked.svelte"
+    import SpellingPanel from "@/components/notes/SpellingPanel.svelte"
+    import TextImprovementPanel from "@/components/ai/TextImprovementPanel.svelte"
 
     import { notesApi } from "@/lib/notes"
+    import { autocorrectApi } from "@/lib/autocorrect"
+    import type {
+        AutocorrectStatus,
+        CheckReport,
+        Correction,
+        ImprovementMode,
+        Language,
+        TextImprovementPreview,
+        UndoStatus
+    } from "@/lib/autocorrect-model"
+    import { scopeForNote } from "@/lib/autocorrect-model"
     import type {
         Note,
         NoteConflictResolution,
@@ -56,6 +69,35 @@
     let exportPassword = ""
     let exportOpen = false
 
+    // ------------------------------------------------------------- spelling
+
+    /**
+     * Local spelling state.
+     *
+     * The report belongs to the text it was made from: `checkedText` is kept next to it,
+     * and every correction is sent with the version the check reported, so a keystroke
+     * between the check and the click cannot move an edit onto the wrong characters.
+     */
+    let spellStatus: AutocorrectStatus | null = null
+    let spellReport: CheckReport | null = null
+    let spellCheckedText = ""
+    let spellUndo: UndoStatus | null = null
+    let spellBusy = false
+    let spellError = ""
+    let improveOpen = false
+    let improvePreview: TextImprovementPreview | null = null
+    let improveBusy = false
+    let improveError = ""
+
+    const spelling = createDebouncer<[]>(600, () => {
+        void runSpellCheck()
+    })
+
+    $: spellingScope = selected ? scopeForNote(selected.id) : ""
+    $: spellDebounce = spellStatus?.settings.debounce_ms ?? 600
+    $: spellEnabled = spellStatus?.settings.enabled === true
+    $: improveOffered = spellStatus?.settings.ai_improvement === true
+
     const autosave = createDebouncer<[]>(AUTOSAVE_DELAY_MS, () => {
         void saveNow()
     })
@@ -65,6 +107,7 @@
 
     onMount(() => {
         void bootstrap()
+        void refreshSpelling()
     })
 
     onDestroy(() => {
@@ -72,6 +115,7 @@
         autosave.flush()
         autosave.cancel()
         search.cancel()
+        spelling.cancel()
     })
 
     // ------------------------------------------------------------ lifecycle
@@ -144,6 +188,12 @@
         selected = null
         draft = null
         unreadable = 0
+        // A report and a preview belong to the note that was open.
+        spelling.cancel()
+        spellReport = null
+        spellCheckedText = ""
+        spellUndo = null
+        closeImprovement()
         saveState = nextSaveState(saveState, "reset")
     }
 
@@ -226,7 +276,14 @@
             selected = note
             draft = draftFromNote(note)
             saveState = nextSaveState(saveState, "reset")
+            // A new document: the previous report and preview do not apply.
+            spellReport = null
+            spellCheckedText = ""
+            closeImprovement()
             errorMessage = ""
+            if (spellEnabled) {
+                await runSpellCheck()
+            }
         } catch (error) {
             errorMessage = describe(error)
         }
@@ -258,6 +315,186 @@
         draft = event.detail
         saveState = nextSaveState(saveState, "edit")
         autosave.schedule()
+        // A check runs on a pause, never on every keystroke.
+        if (spellEnabled) {
+            spelling.schedule()
+        }
+    }
+
+    // --------------------------------------------------------------- spelling
+
+    async function refreshSpelling() {
+        try {
+            const view = await autocorrectApi.status()
+            spellStatus = view.autocorrect
+            spellError = ""
+        } catch (error) {
+            spellError = describe(error)
+        }
+    }
+
+    async function refreshUndoStatus() {
+        if (!spellingScope) {
+            spellUndo = null
+            return
+        }
+        try {
+            spellUndo = await autocorrectApi.undoStatus(spellingScope)
+        } catch {
+            spellUndo = null
+        }
+    }
+
+    /** Checks the body of the open note. Nothing is changed by this call. */
+    async function runSpellCheck() {
+        if (!draft || !spellEnabled) return
+        const text = draft.body
+        try {
+            const view = await autocorrectApi.check("notes", text)
+            spellReport = view.report
+            spellCheckedText = text
+            spellError = ""
+            await refreshUndoStatus()
+        } catch (error) {
+            spellError = describe(error)
+        }
+    }
+
+    /** Applies the corrections the user accepted, then stores the result. */
+    async function applyCorrections(event: CustomEvent<Correction[]>) {
+        if (!draft || !spellReport) return
+        if (spellCheckedText !== draft.body) {
+            // The text moved since the check: re-check instead of guessing.
+            spellError = t("autocorrect-stale")
+            await runSpellCheck()
+            return
+        }
+        spellBusy = true
+        try {
+            const batch = await autocorrectApi.apply(
+                spellingScope,
+                draft.body,
+                spellReport.version,
+                event.detail
+            )
+            draft = { ...draft, body: batch.after }
+            saveState = nextSaveState(saveState, "edit")
+            autosave.schedule()
+            spellError =
+                batch.skipped.length > 0 ? t("autocorrect-skipped") : ""
+            await runSpellCheck()
+        } catch (error) {
+            spellError = describe(error)
+        }
+        spellBusy = false
+    }
+
+    async function undoCorrection() {
+        if (!draft) return
+        spellBusy = true
+        try {
+            const outcome = await autocorrectApi.undo(spellingScope, draft.body)
+            draft = { ...draft, body: outcome.text }
+            saveState = nextSaveState(saveState, "edit")
+            autosave.schedule()
+            await runSpellCheck()
+        } catch (error) {
+            spellError = describe(error)
+        }
+        spellBusy = false
+    }
+
+    async function rememberWord(event: CustomEvent<{ word: string; language: Language }>) {
+        spellBusy = true
+        try {
+            await autocorrectApi.addWord(event.detail.word, event.detail.language)
+            await runSpellCheck()
+            await refreshSpelling()
+        } catch (error) {
+            spellError = describe(error)
+        }
+        spellBusy = false
+    }
+
+    async function ignoreWord(event: CustomEvent<string>) {
+        try {
+            await autocorrectApi.ignoreWord(event.detail)
+            await runSpellCheck()
+        } catch (error) {
+            spellError = describe(error)
+        }
+    }
+
+    async function reloadDictionaries() {
+        try {
+            const view = await autocorrectApi.reloadDictionaries()
+            spellStatus = view.autocorrect
+            await runSpellCheck()
+        } catch (error) {
+            spellError = describe(error)
+        }
+    }
+
+    function openImprovement() {
+        improveOpen = true
+        improvePreview = null
+        improveError = ""
+    }
+
+    function closeImprovement() {
+        improveOpen = false
+        improvePreview = null
+        improveError = ""
+    }
+
+    /** Asks for a preview. Nothing is applied by this call. */
+    async function requestImprovement(event: CustomEvent<{ mode: ImprovementMode; instruction: string }>) {
+        if (!draft) return
+        improveBusy = true
+        improveError = ""
+        try {
+            improvePreview = await autocorrectApi.improveText({
+                text: draft.body,
+                mode: event.detail.mode,
+                instruction: event.detail.instruction.length > 0 ? event.detail.instruction : null
+            })
+        } catch (error) {
+            improvePreview = null
+            improveError = describe(error)
+        }
+        improveBusy = false
+    }
+
+    async function cancelImprovement() {
+        try {
+            await autocorrectApi.cancelImprovement()
+        } catch (error) {
+            improveError = describe(error)
+        }
+        improveBusy = false
+    }
+
+    /** Applies the preview the user confirmed, and journals it for undo. */
+    async function applyImprovement() {
+        if (!draft || !improvePreview) return
+        improveBusy = true
+        try {
+            const batch = await autocorrectApi.applyImprovement(
+                spellingScope,
+                draft.body,
+                improvePreview,
+                improvePreview.version_before
+            )
+            draft = { ...draft, body: batch.after }
+            saveState = nextSaveState(saveState, "edit")
+            autosave.schedule()
+            improvePreview = null
+            improveOpen = false
+            await runSpellCheck()
+        } catch (error) {
+            improveError = describe(error)
+        }
+        improveBusy = false
     }
 
     async function saveNow() {
@@ -284,8 +521,12 @@
 
     function closeEditor() {
         autosave.flush()
+        spelling.cancel()
         selected = null
         draft = null
+        spellReport = null
+        spellCheckedText = ""
+        closeImprovement()
         saveState = nextSaveState(saveState, "reset")
     }
 
@@ -518,6 +759,36 @@
                         on:restore={restoreSelected}
                         on:purge={purgeNote}
                     />
+                    {#if spellEnabled}
+                        <SpellingPanel
+                            report={spellReport}
+                            status={spellStatus}
+                            undo={spellUndo}
+                            currentText={draft.body}
+                            checkedText={spellCheckedText}
+                            busy={spellBusy}
+                            actionError={spellError}
+                            allowImprove={improveOffered}
+                            on:apply={applyCorrections}
+                            on:ignore={ignoreWord}
+                            on:add={rememberWord}
+                            on:undo={undoCorrection}
+                            on:improve={openImprovement}
+                            on:reload={reloadDictionaries}
+                        />
+                    {/if}
+                    {#if improveOpen && improveOffered}
+                        <TextImprovementPanel
+                            preview={improvePreview}
+                            text={draft.body}
+                            busy={improveBusy}
+                            actionError={improveError}
+                            on:request={requestImprovement}
+                            on:apply={applyImprovement}
+                            on:cancel={cancelImprovement}
+                            on:close={closeImprovement}
+                        />
+                    {/if}
                 {/key}
             {:else}
                 <NoteList

@@ -18,6 +18,7 @@ pub struct AppState {
     pub vault: tauri_commands::VaultHandle,
     pub local_ai: tauri_commands::LocalAiHandle,
     pub memory: tauri_commands::MemoryHandle,
+    pub autocorrect: tauri_commands::AutocorrectHandle,
 }
 
 fn main() {
@@ -63,6 +64,17 @@ fn main() {
     // derives a separate key for it; this handle only tracks summary jobs
     let memory = tauri_commands::MemoryHandle::new();
 
+    // local spelling: dictionaries on disk, the user's own words in the shared
+    // session under their own derived key, and an in-memory undo journal that is
+    // cleared whenever the storage locks
+    let autocorrect = tauri_commands::AutocorrectHandle::new(manager.clone());
+    // Every lock path (idle timeout, explicit lock, exit) goes through the vault
+    // handle, so one hook is enough to drop the spelling journals with the keys.
+    vault.set_lock_hook({
+        let autocorrect = autocorrect.clone();
+        std::sync::Arc::new(move || autocorrect.clear_journals())
+    });
+
     tauri::Builder::default()
         .manage(AppState {
             settings: manager,
@@ -70,6 +82,7 @@ fn main() {
             vault,
             local_ai,
             memory,
+            autocorrect,
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -240,6 +253,33 @@ fn main() {
             tauri_commands::memory_import_backup,
             tauri_commands::memory_conflicts,
             tauri_commands::memory_resolve_conflict,
+
+            // autocorrect (local spelling, user word list, explicit AI text previews)
+            tauri_commands::autocorrect_status,
+            tauri_commands::autocorrect_get_settings,
+            tauri_commands::autocorrect_update_settings,
+            tauri_commands::autocorrect_reload_dictionaries,
+            tauri_commands::autocorrect_check,
+            tauri_commands::autocorrect_suggest,
+            tauri_commands::autocorrect_apply,
+            tauri_commands::autocorrect_undo,
+            tauri_commands::autocorrect_undo_status,
+            tauri_commands::autocorrect_dictionary_list,
+            tauri_commands::autocorrect_dictionary_add,
+            tauri_commands::autocorrect_dictionary_remove,
+            tauri_commands::autocorrect_dictionary_ignore,
+            tauri_commands::autocorrect_dictionary_unignore,
+            tauri_commands::autocorrect_dictionary_ignored,
+            tauri_commands::autocorrect_dictionary_stats,
+            tauri_commands::autocorrect_dictionary_import_file,
+            tauri_commands::autocorrect_dictionary_export_file,
+            tauri_commands::autocorrect_dictionary_export_backup,
+            tauri_commands::autocorrect_dictionary_import_backup,
+            tauri_commands::autocorrect_improve_text,
+            tauri_commands::autocorrect_cancel_improvement,
+            tauri_commands::autocorrect_apply_improvement,
+            tauri_commands::autocorrect_rule_add,
+            tauri_commands::autocorrect_rule_remove,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -252,6 +292,9 @@ fn main() {
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
                 if let Some(state) = app_handle.try_state::<AppState>() {
+                    // The undo journal holds document text: it is dropped before the
+                    // keys are, not after the process ends.
+                    state.autocorrect.clear_journals();
                     state.vault.lock_for_exit();
                     state.memory.shutdown();
                     state.local_ai.shutdown();

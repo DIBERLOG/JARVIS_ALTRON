@@ -54,3 +54,7 @@ pub use local_ai::*;
 // import AI memory commands (encrypted conversations, summaries, facts)
 mod memory;
 pub use memory::*;
+
+// import autocorrect commands (local spelling, word list, explicit AI text previews)
+mod autocorrect;
+pub use autocorrect::*;

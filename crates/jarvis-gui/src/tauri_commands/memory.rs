@@ -270,6 +270,9 @@ pub fn memory_get_settings(state: tauri::State<'_, AppState>) -> Result<MemorySe
 /// encrypted storage. The ciphertext on disk is untouched.
 #[tauri::command(async)]
 pub fn memory_lock(state: tauri::State<'_, AppState>) -> Result<MemoryStatusView, String> {
+    // The undo journal of the spelling feature holds document text, so it is dropped
+    // together with the key it was produced under.
+    state.autocorrect.clear_journals();
     state.notes.lock();
     memory_status(state)
 }

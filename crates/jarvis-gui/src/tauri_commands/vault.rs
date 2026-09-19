@@ -71,6 +71,9 @@ pub struct VaultHandle {
     notes: NotesHandle,
     idle: Arc<Mutex<IdleLock>>,
     clipboard: Arc<Mutex<ClipboardGuard<SystemClipboard>>>,
+    /// Runs after every lock, so in-memory text that belongs to the unlocked session is
+    /// dropped with the keys. The spelling undo journal is the one such holder today.
+    on_lock: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
 }
 
 impl Default for VaultHandle {
@@ -86,9 +89,18 @@ impl VaultHandle {
             notes,
             idle: Arc::new(Mutex::new(IdleLock::new(DEFAULT_IDLE_TIMEOUT_SECONDS))),
             clipboard: Arc::new(Mutex::new(ClipboardGuard::new(SystemClipboard))),
+            on_lock: Arc::new(Mutex::new(None)),
         };
         handle.spawn_clipboard_watchdog();
         handle
+    }
+
+    /// Registers an action to run after every lock.
+    ///
+    /// Every lock path goes through [`VaultHandle::lock_everything`], so one hook covers
+    /// the idle timeout, an explicit lock, and application exit alike.
+    pub fn set_lock_hook(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        *self.on_lock.lock() = Some(hook);
     }
 
     fn spawn_clipboard_watchdog(&self) {
@@ -130,6 +142,13 @@ impl VaultHandle {
             log::debug!("vault: clipboard on lock: {outcome:?}");
         }
         self.notes.lock();
+        let hook = self.on_lock.lock().clone();
+        if let Some(hook) = hook {
+            // A hook that panicked must not undo the lock, which has already happened.
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook())).is_err() {
+                log::warn!("vault: an on-lock action failed");
+            }
+        }
     }
 
     /// Locks on application exit.
@@ -210,6 +229,9 @@ pub fn vault_unlock_dpapi(state: tauri::State<'_, AppState>) -> Result<VaultStat
 
 #[tauri::command(async)]
 pub fn vault_lock(state: tauri::State<'_, AppState>) -> Result<VaultStatus, String> {
+    // The undo journal of the spelling feature holds document text, so it is dropped
+    // together with the key it was produced under.
+    state.autocorrect.clear_journals();
     state.vault.lock_everything();
     state.notes.with_session(|session| session.status())
 }

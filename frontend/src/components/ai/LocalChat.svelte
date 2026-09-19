@@ -79,6 +79,19 @@
         MessageStatus,
         SecretKind
     } from "@/lib/memory-model"
+    import { autocorrectApi } from "@/lib/autocorrect"
+    import type {
+        AutocorrectStatus,
+        CheckReport,
+        Correction,
+        ImprovementMode,
+        Language,
+        TextImprovementPreview,
+        UndoStatus
+    } from "@/lib/autocorrect-model"
+    import { CHAT_SCOPE } from "@/lib/autocorrect-model"
+    import SpellingPanel from "@/components/notes/SpellingPanel.svelte"
+    import TextImprovementPanel from "@/components/ai/TextImprovementPanel.svelte"
 
     import { Button, Text } from "@svelteuidev/core"
 
@@ -115,6 +128,31 @@
     let pendingTurn: { conversationId: string; prompt: string; stored: boolean } | null = null
     let partialAnswer: { text: string } | null = null
 
+    // ----------------------------------------------------- draft spelling
+
+    /**
+     * Spelling and improvement state for the draft.
+     *
+     * The draft is not encrypted storage, so the check runs on whatever is typed; the
+     * corrections and the preview are still applied by the backend under a version
+     * guard, and nothing is stored in the browser.
+     */
+    let spellStatus: AutocorrectStatus | null = null
+    let spellReport: CheckReport | null = null
+    let spellCheckedText = ""
+    let spellUndo: UndoStatus | null = null
+    let spellBusy = false
+    let spellError = ""
+    let improveOpen = false
+    let improvePreview: TextImprovementPreview | null = null
+    let improveBusy = false
+    let improveError = ""
+
+    let spellTimer: ReturnType<typeof setTimeout> | null = null
+
+    $: spellEnabled = spellStatus?.settings.enabled === true && spellStatus?.settings.check_chat === true
+    $: improveOffered = spellStatus?.settings.ai_improvement === true
+
     /** The settings are incomplete or refused, so the server cannot start. */
     $: draftIssues = validateDraft(settings)
     $: blocked = draftIssues.some((issue) => issue.level === "blocked")
@@ -133,6 +171,7 @@
         await refreshSettings()
         await refreshStatus()
         await refreshMemory()
+        await refreshSpelling()
         // A slow status refresh keeps uptime, capabilities, and a crashed server
         // visible; it is never used to follow a generation, which streams.
         statusTimer = setInterval(() => {
@@ -145,7 +184,165 @@
     onDestroy(() => {
         if (statusTimer) clearInterval(statusTimer)
         statusTimer = null
+        if (spellTimer) clearTimeout(spellTimer)
+        spellTimer = null
     })
+
+    // ------------------------------------------------------- draft spelling
+
+    async function refreshSpelling() {
+        try {
+            const view = await autocorrectApi.status()
+            spellStatus = view.autocorrect
+        } catch {
+            // A missing spelling layer never blocks the chat.
+            spellStatus = null
+        }
+    }
+
+    /** Checks the draft on a pause, never on every keystroke. */
+    function scheduleSpellCheck() {
+        if (spellTimer) clearTimeout(spellTimer)
+        if (!spellEnabled) return
+        spellTimer = setTimeout(() => {
+            spellTimer = null
+            void runSpellCheck()
+        }, spellStatus?.settings.debounce_ms ?? 600)
+    }
+
+    async function runSpellCheck() {
+        if (!spellEnabled || draft.trim().length === 0) {
+            spellReport = null
+            spellCheckedText = ""
+            return
+        }
+        const text = draft
+        try {
+            const view = await autocorrectApi.check("chat", text)
+            spellReport = view.report
+            spellCheckedText = text
+            spellError = ""
+            spellUndo = await autocorrectApi.undoStatus(CHAT_SCOPE)
+        } catch (error) {
+            spellError = describeError(error)
+        }
+    }
+
+    async function applyCorrections(event: CustomEvent<Correction[]>) {
+        if (!spellReport) return
+        if (spellCheckedText !== draft) {
+            spellError = t("autocorrect-stale")
+            await runSpellCheck()
+            return
+        }
+        spellBusy = true
+        try {
+            const batch = await autocorrectApi.apply(
+                CHAT_SCOPE,
+                draft,
+                spellReport.version,
+                event.detail
+            )
+            draft = batch.after
+            spellError = batch.skipped.length > 0 ? t("autocorrect-skipped") : ""
+            await runSpellCheck()
+        } catch (error) {
+            spellError = describeError(error)
+        }
+        spellBusy = false
+    }
+
+    async function undoCorrection() {
+        spellBusy = true
+        try {
+            const outcome = await autocorrectApi.undo(CHAT_SCOPE, draft)
+            draft = outcome.text
+            await runSpellCheck()
+        } catch (error) {
+            spellError = describeError(error)
+        }
+        spellBusy = false
+    }
+
+    async function rememberWord(event: CustomEvent<{ word: string; language: Language }>) {
+        spellBusy = true
+        try {
+            await autocorrectApi.addWord(event.detail.word, event.detail.language)
+            await runSpellCheck()
+            await refreshSpelling()
+        } catch (error) {
+            spellError = describeError(error)
+        }
+        spellBusy = false
+    }
+
+    async function ignoreWord(event: CustomEvent<string>) {
+        try {
+            await autocorrectApi.ignoreWord(event.detail)
+            await runSpellCheck()
+        } catch (error) {
+            spellError = describeError(error)
+        }
+    }
+
+    function openImprovement() {
+        improveOpen = true
+        improvePreview = null
+        improveError = ""
+    }
+
+    function closeImprovement() {
+        improveOpen = false
+        improvePreview = null
+        improveError = ""
+    }
+
+    /** Produces a preview of the draft. The draft is not changed by this call. */
+    async function requestImprovement(event: CustomEvent<{ mode: ImprovementMode; instruction: string }>) {
+        improveBusy = true
+        improveError = ""
+        try {
+            improvePreview = await autocorrectApi.improveText({
+                text: draft,
+                mode: event.detail.mode,
+                instruction: event.detail.instruction.length > 0 ? event.detail.instruction : null
+            })
+        } catch (error) {
+            improvePreview = null
+            improveError = describeError(error)
+        }
+        improveBusy = false
+    }
+
+    async function cancelImprovement() {
+        try {
+            await autocorrectApi.cancelImprovement()
+        } catch (error) {
+            improveError = describeError(error)
+        }
+        improveBusy = false
+    }
+
+    /** Applies a preview the user confirmed. The draft changes only here. */
+    async function applyImprovement() {
+        if (!improvePreview) return
+        improveBusy = true
+        try {
+            const batch = await autocorrectApi.applyImprovement(
+                CHAT_SCOPE,
+                draft,
+                improvePreview,
+                improvePreview.version_before
+            )
+            draft = batch.after
+            improvePreview = null
+            improveOpen = false
+            await runSpellCheck()
+        } catch (error) {
+            improveError = describeError(error)
+        }
+        improveBusy = false
+    }
 
     async function refreshSettings() {
         try {
@@ -944,12 +1141,45 @@
         </div>
     {/if}
 
+    {#if spellEnabled && draft.trim().length > 0}
+        <SpellingPanel
+            report={spellReport}
+            status={spellStatus}
+            undo={spellUndo}
+            currentText={draft}
+            checkedText={spellCheckedText}
+            busy={spellBusy}
+            actionError={spellError}
+            allowImprove={improveOffered}
+            on:apply={applyCorrections}
+            on:ignore={ignoreWord}
+            on:add={rememberWord}
+            on:undo={undoCorrection}
+            on:improve={openImprovement}
+            on:reload={refreshSpelling}
+        />
+    {/if}
+
+    {#if improveOpen && improveOffered}
+        <TextImprovementPanel
+            preview={improvePreview}
+            text={draft}
+            busy={improveBusy}
+            actionError={improveError}
+            on:request={requestImprovement}
+            on:apply={applyImprovement}
+            on:cancel={cancelImprovement}
+            on:close={closeImprovement}
+        />
+    {/if}
+
     <div class="ai-input">
         <textarea
             bind:value={draft}
             placeholder={t('ai-chat-input')}
             rows="3"
             disabled={chat.generating}
+            on:input={scheduleSpellCheck}
             on:keydown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault()

@@ -10,6 +10,7 @@
     import HDivider from "@/components/elements/HDivider.svelte"
     import Footer from "@/components/Footer.svelte"
     import LocalAiSettings from "@/components/ai/LocalAiSettings.svelte"
+    import AutocorrectSettings from "@/components/settings/AutocorrectSettings.svelte"
 
     import {
         Notification,
@@ -30,6 +31,7 @@
         Cube,
         Code,
         Gear,
+        Pencil1,
         QuestionMarkCircled,
         CrossCircled,
         LightningBolt
@@ -312,6 +314,11 @@
     <Tabs.Tab label={t('ai-settings-title')} icon={LightningBolt}>
         <Space h="sm" />
         <LocalAiSettings />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('autocorrect-settings-tab')} icon={Pencil1}>
+        <Space h="sm" />
+        <AutocorrectSettings />
     </Tabs.Tab>
 
     <Tabs.Tab label={t('settings-neural-networks')} icon={Cube}>

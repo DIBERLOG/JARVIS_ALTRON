@@ -12,6 +12,8 @@ use std::sync::Arc;
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+use jarvis_core::autocorrect::user_dictionary::EncryptedUserDictionary;
+use jarvis_core::autocorrect::AutocorrectError;
 use jarvis_core::memory::MemoryError;
 use jarvis_core::notes::{
     ConflictResolutionOutcome, Note, NoteConflictResolution, NoteConflictView, NoteDraft,
@@ -108,6 +110,27 @@ impl NotesHandle {
         action(session).map_err(describe_memory)
     }
 
+    /// Runs `action` against the user's own encrypted word list.
+    ///
+    /// The spelling layer has its own error type and its own derived key, so it gets its
+    /// own entry point. The shared session is what keeps one master key, and therefore one
+    /// unlock state, behind all four encrypted stores — while the word list stays a
+    /// different database opened with a different derived key.
+    pub fn with_autocorrect<T>(
+        &self,
+        action: impl FnOnce(&mut EncryptedUserDictionary) -> Result<T, AutocorrectError>,
+    ) -> Result<T, String> {
+        let mut guard = self.session.lock();
+        if guard.is_none() {
+            *guard = Some(VaultSession::open_production().map_err(describe_vault)?);
+        }
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| describe_vault(VaultError::StorageLocked))?;
+        let store = session.autocorrect_store().map_err(describe_autocorrect)?;
+        action(store).map_err(describe_autocorrect)
+    }
+
     /// Whether the shared encrypted storage is currently unlocked.
     pub fn is_unlocked(&self) -> bool {
         let guard = self.session.lock();
@@ -157,6 +180,15 @@ fn describe_memory(error: MemoryError) -> String {
     message
 }
 
+/// Turns an autocorrect error into a message safe to show and to log.
+///
+/// The message never carries document text, a matched secret, or a key.
+fn describe_autocorrect(error: AutocorrectError) -> String {
+    let message = error.to_string();
+    log::warn!("autocorrect: {}", message);
+    message
+}
+
 // ------------------------------------------------------------------ storage
 
 #[tauri::command(async)]
@@ -187,6 +219,9 @@ pub fn notes_unlock_password(
 
 #[tauri::command(async)]
 pub fn notes_lock(state: tauri::State<'_, AppState>) -> Result<StorageStatus, String> {
+    // The undo journal holds the text of the documents it corrected, so it is dropped
+    // with the key it was used under.
+    state.autocorrect.clear_journals();
     state.notes.with(|vault| {
         vault.lock();
         vault.status()
