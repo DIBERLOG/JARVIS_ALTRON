@@ -168,7 +168,9 @@ change the route:
    `release_microphone`, then the engine. `is_start_request` and
    `GlobalDictationSettings::matches` are the matcher it should use.
 
-**Readiness.** This feature is required by check 7 of
+**Readiness (updated).** The feature is now reachable: the phrase the listener recognises, a button in the settings, and two tray rows all start the same route, and the result goes to the protected clipboard with the notice «Text ready. Press Ctrl+V». The production mode of the personal MVP is the **clipboard**: nothing is typed, there is no automatic Ctrl+V, and the UI Automation reader stays a documented experimental extension.
+
+The feature is still required by check 7 of
 `docs/WINDOWS_MVP.md` ("Checks on this machine") and is therefore **open** until
 the three pieces above are wired and the manual scenarios below have been run. It
 does not block the rest of personal use, and it is not part of the public-release
