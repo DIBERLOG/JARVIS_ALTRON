@@ -241,3 +241,36 @@ fn the_ai_contract_module_does_not_mention_secrets() {
         );
     }
 }
+
+/// The desktop commands that drive the local model must not hold a storage
+/// handle either.
+///
+/// The check is deliberately blunt: the file is not allowed to name the
+/// encrypted storages at all, so a future change cannot quietly give the local AI
+/// runtime a capability it must not have. It is scanned from this crate because
+/// the boundary belongs to the AI layer, not to the window that calls it.
+#[test]
+fn the_local_ai_command_module_has_no_storage_handle() {
+    let path = manifest_dir()
+        .join("..")
+        .join("jarvis-gui")
+        .join("src")
+        .join("tauri_commands")
+        .join("local_ai.rs");
+    let contents = fs::read_to_string(&path)
+        .expect("the local AI command module must exist; the scan would be meaningless otherwise");
+    let lowered = contents.to_lowercase();
+    for needle in ["vault", "notes", "notestore", "vaultsession", "master_key"] {
+        assert!(
+            !lowered.contains(needle),
+            "the local AI commands must not reference {needle}: {}",
+            path.display()
+        );
+    }
+    // Guards against the scan silently reading the wrong file.
+    assert!(
+        lowered.contains("localaigateway"),
+        "expected the scanned file to be the local AI gateway commands: {}",
+        path.display()
+    );
+}
