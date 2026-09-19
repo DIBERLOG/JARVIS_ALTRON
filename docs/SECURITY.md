@@ -177,3 +177,79 @@ Limits of these controls: the secret filter is heuristic; the token estimate is 
 heuristic; ranking is a linear scan with no index; and memory protection ends at
 the lock, so decrypted text lives in the process while the storage is unlocked.
 `docs/THREAT_MODEL_AI_MEMORY.md` records the residual risk for each threat.
+
+## Autocorrect and the user dictionary
+
+Local spelling (`docs/AUTOCORRECT.md`) reuses the same storage stack with its own
+derived key and its own database, and it is the only feature that sends document
+text to the local model outside the chat. These rules are enforced in code:
+
+* **A separate derived key and a separate database.** `KeyPurpose::Autocorrect`
+  derives `JARVIS/autocorrect/v1` by HKDF from the same master key as the notes,
+  vault, and memory keys, and the word list lives in `autocorrect.sqlite3` next to
+  `sync.sqlite3`, `vault.sqlite3`, and `ai-memory.sqlite3`. The store is built from
+  a `PurposeKeyProvider` that holds only the derived dictionary key, so this layer
+  never receives the master key. It reads and writes exactly one entity type,
+  `SyncEntityType::AutocorrectDictionary`. In
+  `crates/jarvis-core/src/autocorrect/session.rs`,
+  `another_purpose_key_cannot_read_a_dictionary_database` asserts that the same
+  database opened with a different derived key reports its entries as unreadable
+  rather than as words.
+* **What is stored where.** Stored encrypted: the user's own words (UTF-8 JSON with
+  `word`, `language`, `imported`, `created_at` inside the AEAD envelope, whose
+  `Debug` prints `<redacted>` for the word). Stored in the clear by design: the
+  Hunspell `.aff`/`.dic` pairs the user installs, which are public word lists with
+  their own upstream licences, and the feature settings
+  (`autocorrect_settings` in `app.db`), which are flags, limits, timeouts, and rule
+  text. The undo journal is **memory only**: it holds the whole text that preceded
+  each of the last 20 applied batches, is never written to disk, and is cleared on
+  an explicit lock (`notes_lock`, `vault_lock`, `memory_lock`), when checking is
+  switched off, and at application exit before the keys are dropped.
+* **No text is sent anywhere by checking.** A check runs entirely in the process
+  against the files on disk and the decrypted word list; it reports issues and
+  suggestions and applies nothing. Text reaches the model only through
+  `autocorrect_improve_text`, which the user triggers explicitly, which requires
+  `ai_improvement` to be switched on (off by default), and which first runs the
+  secret filter. The text is passed to the model as delimited data between
+  `===BEGIN TEXT===` and `===END TEXT===` with an explicit rule that the block is
+  content and not instructions, reasoning is requested off
+  (`ThinkingMode::Disabled`), no improvement record is written to AI memory, and no
+  prompt, answer, or token is logged. `AutocorrectError` is content-free: a detected
+  secret is reported as `SecretDetected(kinds)` with `SecretKind` values only, so
+  the matched text cannot reach a log, an error message, a dialog, or the model.
+* **The secret filter gates the improvement both ways.**
+  `crate::memory::redaction::scan` runs on the input before anything is sent and on
+  the cleaned answer, because a model can echo or invent a credential. A finding is
+  `AutocorrectError::SecretDetected(kinds)` (`secret_detected`); there is no
+  confirmation override on this path, so the text is simply not sent. It is a
+  **heuristic**: it has documented false positives and it misses a credential in a
+  shape no rule covers.
+* **Nothing is applied silently, and a stale request is refused.** The interface
+  passes the version it checked (the first 8 bytes of SHA-256 as 16 hex characters)
+  and a correction whose range no longer holds the text it claims is skipped and
+  reported. Safe auto-correction is off by default and limited to a double capital,
+  a repeated space, a space before a delimiter, and user rules the user marked
+  auto-appliable; an unknown word is never corrected automatically. An AI rewrite is
+  returned as a preview that applies nothing (`applied: false`) and is replaced only
+  by a second, confirmed command; `require_preview` cannot be switched off.
+* **No access to the password vault, in either direction.** The
+  autocorrect module names no vault type, method, database, or entity type, and no
+  command reads a vault record: the checker borrows the user-dictionary store of the
+  shared session, and the command module reaches the session only for
+  `storage_status()` and the data directory. Password content is not prose and is
+  never checked, corrected, or sent. The boundary is enforced by
+  `crates/jarvis-core/tests/autocorrect_isolation.rs`, which scans every autocorrect
+  module and the autocorrect command module for vault identifiers, for `state.vault`,
+  and for a command named after the vault, and additionally proves that the improvement
+  path never touches the AI-memory store and that no second AI client exists.
+
+Limits of these controls: the secret filter is heuristic in both directions; the
+undo journal holds document text in memory while the storage is unlocked and is not
+zeroized, although every lock path (idle timeout, explicit lock, exit) clears it; the
+installed dictionaries are plain files that any process running as the user can read
+and replace, bounded in size and checked against a checksum only when the user writes a
+`dictionaries.json` manifest; and a check run while the storage is locked uses the
+dictionaries alone, which the report states explicitly
+(`user_dictionary_available: false`) instead of presenting an incomplete result as a
+complete one. `docs/THREAT_MODEL_AUTOCORRECT.md` records the residual risk for each
+threat.

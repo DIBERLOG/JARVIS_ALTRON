@@ -219,6 +219,41 @@ replace it.
 While the storage is locked, the panel shows the storage gate instead of conversation memory and
 does not attempt a write.
 
+## Text improvement through the same gateway
+
+The chat panel is not the only caller. The explicit "improve text" action of the local
+autocorrect feature (`docs/AUTOCORRECT.md`) drives the same gateway, so there is no second AI
+client, no second `llama-server`, and no second configuration. `LocalAiTextImprover` in
+`crates/jarvis-core/src/autocorrect/improvement.rs` is the consumer, and
+`crates/jarvis-gui/src/tauri_commands/autocorrect.rs` runs it on the blocking pool against the
+shared `Arc<LocalAiGateway>` (`state.local_ai.shared()`).
+
+A text improvement is a `GenerationRequest` with exactly one **user** message, the profile
+from the request, `thinking: Some(ThinkingMode::Disabled)`, `stream: true`,
+`temperature: 0.2`, and `max_tokens` derived from the text (`chars / 2 + 256`, clamped to
+256…4096). The system prompt is still added by `ChatCompletionRequest::build` from the
+profile: the improvement prompt is a task sentence plus the text between `===BEGIN TEXT===`
+and `===END TEXT===` with an explicit rule that the block is data, so the caller cannot
+replace or weaken the constraints. As with the chat, `ThinkingMode::Disabled` is a request
+that is only forwarded when the running server's template was seen to mention a thinking
+switch; the reasoning channel is ignored by this path either way.
+
+Streaming is used so a rewrite that is going the wrong way can be stopped between tokens:
+`autocorrect_cancel_improvement` calls `LocalAiGateway::cancel()`, and because one gateway
+serves one generation at a time that flag belongs to the improvement in flight. A cancelled
+generation becomes `AutocorrectError::Cancelled`; any other gateway failure becomes
+`AiUnavailable`. Both are content-free, no token is logged, and the result is a preview the
+user must confirm.
+
+The improvement path never writes AI memory. It has no memory store, no conversation, and no
+fact; it borrows the gateway and returns text to its caller, and it uses only three pure
+helpers from the memory module — `scan_for_secrets`, `looks_like_instruction`, and
+`clean_model_text` — so nothing about the request can appear in stored history. The secret
+filter gates the text **before** it is sent (`check_improvement_input`) and the answer after
+it is cleaned (`check_improvement_answer`); a finding is
+`AutocorrectError::SecretDetected(kinds)` (`secret_detected`) carrying only `SecretKind`
+values, and the text is not sent.
+
 ## Settings
 
 Defaults are conservative: host `127.0.0.1`, port `8080`, context `8192` tokens, `cpu_threads` `0`,
@@ -303,3 +338,8 @@ process runner. Point the settings page at both files, start the server, and wai
   the bounded stderr tail.
 * The runtime is Windows-specific in its process handling (`CREATE_NO_WINDOW`), and
   `RealProcessRunner` itself is not exercised by any automated test — only the fake runner is.
+* The text-improvement path is not exercised end to end either. Its unit tests use a fixture
+  `TextImprovementProvider`, so `build_improvement_prompt` and the preview rules are covered
+  while the `GenerationRequest` that `LocalAiTextImprover::generate` actually sends is not:
+  no test runs it against a real or mock server, and a stopped or missing server surfaces as
+  `ai_unavailable` rather than as a tested path.
