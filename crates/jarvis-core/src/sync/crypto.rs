@@ -81,6 +81,10 @@ pub enum KeyPurpose {
     AiMemory,
     /// The user's spelling dictionary: names and internal terms the user taught.
     Autocorrect,
+    /// The portable backup container. Its own purpose so a container can never be
+    /// decrypted with a feature key, and a feature record can never be read as a
+    /// container entry.
+    Backup,
 }
 
 impl KeyPurpose {
@@ -91,6 +95,7 @@ impl KeyPurpose {
             Self::Vault => "JARVIS/vault/v1",
             Self::AiMemory => "JARVIS/ai-memory/v1",
             Self::Autocorrect => "JARVIS/autocorrect/v1",
+            Self::Backup => "JARVIS/backup/v1",
         }
     }
 
@@ -100,16 +105,18 @@ impl KeyPurpose {
             Self::Vault => "vault",
             Self::AiMemory => "ai-memory",
             Self::Autocorrect => "autocorrect",
+            Self::Backup => "backup",
         }
     }
 
     /// Every purpose this build knows how to derive.
-    pub fn all() -> [Self; 4] {
+    pub fn all() -> [Self; 5] {
         [
             Self::Notes,
             Self::Vault,
             Self::AiMemory,
             Self::Autocorrect,
+            Self::Backup,
         ]
     }
 }
@@ -285,9 +292,8 @@ impl core::fmt::Display for CryptoError {
             }
             Self::RandomnessUnavailable => formatter.write_str("secure randomness unavailable"),
             Self::KeyDerivationUnavailable => formatter.write_str("key derivation failed"),
-            Self::UnsupportedPlatform => {
-                formatter.write_str("platform key protection is unavailable on this operating system")
-            }
+            Self::UnsupportedPlatform => formatter
+                .write_str("platform key protection is unavailable on this operating system"),
             Self::PlatformProtectionUnavailable { os_error } => write!(
                 formatter,
                 "platform key protection failed (windows error {os_error})"
@@ -411,7 +417,13 @@ pub fn derive_wrapping_key(
     password: &[u8],
     salt: &[u8; SALT_BYTES],
 ) -> Result<MasterKey, CryptoError> {
-    derive(password, salt, KDF_MEMORY_KIB, KDF_ITERATIONS, KDF_PARALLELISM)
+    derive(
+        password,
+        salt,
+        KDF_MEMORY_KIB,
+        KDF_ITERATIONS,
+        KDF_PARALLELISM,
+    )
 }
 
 /// Generates a fresh random master key.
@@ -563,7 +575,8 @@ impl CryptoProvider for MasterKeyCryptoProvider {
         context: &PayloadContext,
         payload: &EncryptedPayload,
     ) -> Result<Vec<u8>, SyncError> {
-        let record = EncryptedRecord::decode(payload.as_opaque_bytes()).map_err(map_crypto_error)?;
+        let record =
+            EncryptedRecord::decode(payload.as_opaque_bytes()).map_err(map_crypto_error)?;
         // Version 1 records predate key separation and were written with the raw
         // master key; the version byte is authenticated, so this choice cannot be
         // confused by tampering.
@@ -628,7 +641,8 @@ impl CryptoProvider for PurposeKeyProvider {
         context: &PayloadContext,
         payload: &EncryptedPayload,
     ) -> Result<Vec<u8>, SyncError> {
-        let record = EncryptedRecord::decode(payload.as_opaque_bytes()).map_err(map_crypto_error)?;
+        let record =
+            EncryptedRecord::decode(payload.as_opaque_bytes()).map_err(map_crypto_error)?;
         if record.format_version != RECORD_FORMAT_VERSION {
             // No master key is kept, so pre-separation records are out of reach
             // for this domain by construction.
@@ -661,7 +675,13 @@ pub fn export_backup(
     password: &[u8],
 ) -> Result<PortableKeyBackup, CryptoError> {
     let salt = random::<SALT_BYTES>()?;
-    let wrapping = derive(password, &salt, KDF_MEMORY_KIB, KDF_ITERATIONS, KDF_PARALLELISM)?;
+    let wrapping = derive(
+        password,
+        &salt,
+        KDF_MEMORY_KIB,
+        KDF_ITERATIONS,
+        KDF_PARALLELISM,
+    )?;
     let nonce = random::<NONCE_BYTES>()?;
     let metadata = backup_metadata(
         BACKUP_FORMAT_VERSION,
@@ -742,7 +762,11 @@ pub fn import_backup(
     )?;
     let mut nonce = [0; NONCE_BYTES];
     nonce.copy_from_slice(&backup.nonce);
-    let aad = record_aad(RecordDomain::KeyWrap, backup.format_version, &backup.metadata);
+    let aad = record_aad(
+        RecordDomain::KeyWrap,
+        backup.format_version,
+        &backup.metadata,
+    );
     let mut plaintext = cipher(&wrapping)
         .decrypt(
             &XNonce::from(nonce),
@@ -934,7 +958,10 @@ mod tests {
         let record = encrypt(&key, b"entity-a", b"FICTIONAL_SECRET_PLAINTEXT").unwrap();
         let backup = export_backup(&key, b"fixture-password").unwrap();
         let mut rendered = format!("{key:?}{record:?}{backup:?}");
-        rendered.push_str(&format!("{:?}", MasterKeyCryptoProvider::new(random_master_key().unwrap())));
+        rendered.push_str(&format!(
+            "{:?}",
+            MasterKeyCryptoProvider::new(random_master_key().unwrap())
+        ));
         assert!(!rendered.contains("FICTIONAL_SECRET_PLAINTEXT"));
         assert!(!rendered.contains("fixture-password"));
         assert!(rendered.contains("<redacted>"));
@@ -975,11 +1002,12 @@ mod tests {
         assert_eq!(KeyPurpose::Vault.label(), "JARVIS/vault/v1");
         assert_eq!(KeyPurpose::AiMemory.label(), "JARVIS/ai-memory/v1");
         assert_eq!(KeyPurpose::Autocorrect.label(), "JARVIS/autocorrect/v1");
+        assert_eq!(KeyPurpose::Backup.label(), "JARVIS/backup/v1");
         let mut labels: Vec<&str> = KeyPurpose::all().iter().map(KeyPurpose::label).collect();
-        assert_eq!(labels.len(), 4);
+        assert_eq!(labels.len(), 5);
         labels.sort_unstable();
         labels.dedup();
-        assert_eq!(labels.len(), 4, "every purpose needs its own label");
+        assert_eq!(labels.len(), 5, "every purpose needs its own label");
         for purpose in KeyPurpose::all() {
             assert!(purpose.label().starts_with("JARVIS/"));
             assert!(!purpose.as_str().is_empty());
@@ -991,7 +1019,8 @@ mod tests {
         let master = random_master_key().unwrap();
         let notes = MasterKeyCryptoProvider::new(MasterKey::from_bytes(*master.as_array()));
         let vault = PurposeKeyProvider::derive(&master, KeyPurpose::Vault).unwrap();
-        let context = PayloadContext::new(super::super::SyncEntityType::VaultRecord, Uuid::new_v4());
+        let context =
+            PayloadContext::new(super::super::SyncEntityType::VaultRecord, Uuid::new_v4());
 
         let payload = vault.encrypt(&context, b"FICTIONAL_VAULT_SECRET").unwrap();
         assert_eq!(

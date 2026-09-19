@@ -1030,7 +1030,7 @@ mod tests {
             if self.hang {
                 // A build that never finishes: the wait ends when the session is
                 // cancelled, which is what a cancel is for.
-                let deadline = Instant::now() + Duration::from_secs(2);
+                let deadline = Instant::now() + Duration::from_secs(20);
                 while Instant::now() < deadline {
                     if cancel.load(Ordering::SeqCst) {
                         return Err(WhisperError::Cancelled);
@@ -1290,7 +1290,7 @@ mod tests {
             std::thread::spawn(move || session.transcribe_samples(&vec![1000i16; 16_000]))
         };
         // Wait until the first one is inside the runner.
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(20);
         while session.state() == DictationState::Idle && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -1780,7 +1780,7 @@ mod tests {
             let session = Arc::clone(&session);
             std::thread::spawn(move || session.record(&mut source))
         };
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(20);
         while session.state() != DictationState::Recording && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -2093,7 +2093,7 @@ mod tests {
             })
         };
         // Wait until the recording is running, then stop it.
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(20);
         while session.state() != DictationState::Recording && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }

@@ -754,6 +754,9 @@ mod tests {
     /// defect needed, and none of it touches the native library.
     #[test]
     fn the_microphone_has_exactly_one_owner_at_a_time() {
+        // The owner is process-global, so this test takes its turn with the
+        // others that touch it, even though it opens no device.
+        let _lock = device_test_lock();
         // Whatever the rest of the process is doing, start from free.
         release(MicrophoneOwner::Check);
         release(MicrophoneOwner::Dictation);

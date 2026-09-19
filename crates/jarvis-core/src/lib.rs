@@ -1,33 +1,34 @@
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
-use std::{sync::Arc};
 use platform_dirs::AppDirs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[macro_use]
 extern crate log;
 
-pub mod time;
 pub mod fsutil;
+pub mod time;
 
-pub mod audio;
-pub mod commands;
-pub mod safety;
 pub mod ai;
-pub mod sync;
-pub mod notes;
-pub mod vault;
-pub mod memory;
+pub mod audio;
 pub mod autocorrect;
-pub mod windows_actions;
-pub mod whisper;
-pub mod lifecycle;
-pub mod desktop;
-pub mod diagnostics;
-pub mod text;
+pub mod backup;
+pub mod commands;
 pub mod config;
 pub mod db;
+pub mod desktop;
+pub mod diagnostics;
 pub mod i18n;
+pub mod lifecycle;
+pub mod memory;
+pub mod notes;
+pub mod safety;
+pub mod sync;
+pub mod text;
+pub mod vault;
+pub mod whisper;
+pub mod windows_actions;
 
 #[cfg(feature = "jarvis_app")]
 pub mod listener;
@@ -46,8 +47,8 @@ pub mod slots;
 pub mod models;
 
 // re-exported from models/
-pub use models::vosk_models;
 pub use models::gliner_models;
+pub use models::vosk_models;
 
 #[cfg(feature = "jarvis_app")]
 pub mod audio_processing;
