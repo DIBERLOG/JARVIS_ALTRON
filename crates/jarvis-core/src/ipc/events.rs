@@ -110,6 +110,11 @@ pub enum IpcAction {
     // Mute/unmute listening
     SetMuted { muted: bool },
 
+    /// The GUI needs the microphone for one Whisper request. The listener
+    /// stops its reader first; a separate restore action reopens it.
+    BeginMicrophoneHandoff,
+    FinishMicrophoneHandoff,
+
     // Execute text command
     TextCommand { text: String },
 }

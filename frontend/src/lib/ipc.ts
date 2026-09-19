@@ -129,12 +129,18 @@ async function runConversation() {
     if (conversationRunning) return
     conversationRunning = true
     try {
+        // A panel click takes the same path as a Vosk-triggered request. The
+        // host stops reading before Whisper attempts to claim the microphone.
+        sendAction("begin_microphone_handoff")
         await invoke("conversation_ask")
     } catch (error) {
         // The panel shows the code; the console gets the name of the failure only.
         console.log("IPC: conversation failed")
     } finally {
         conversationRunning = false
+        // This is the explicit restore acknowledgement for both success and
+        // every typed failure/cancellation.
+        sendAction("finish_microphone_handoff")
     }
 }
 

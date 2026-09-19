@@ -31,6 +31,22 @@ static SAFETY_GATE: Lazy<Mutex<SafetyGate>> = Lazy::new(|| Mutex::new(SafetyGate
 /// warm, and resuming costs nothing.
 static LISTENER_PAUSED: AtomicBool = AtomicBool::new(false);
 
+/// A cross-process dictation owns the microphone. The Vosk loop must not read
+/// a stream after it has intentionally released it.
+static MICROPHONE_HANDOFF: AtomicBool = AtomicBool::new(false);
+
+pub fn begin_microphone_handoff() {
+    MICROPHONE_HANDOFF.store(true, AtomicOrdering::SeqCst);
+}
+
+pub fn finish_microphone_handoff() {
+    MICROPHONE_HANDOFF.store(false, AtomicOrdering::SeqCst);
+}
+
+fn microphone_handoff_active() -> bool {
+    MICROPHONE_HANDOFF.load(AtomicOrdering::SeqCst)
+}
+
 /// The safe Windows actions, opened once for the voice host.
 ///
 /// It is the same pipeline the interface uses: the spoken phrase becomes a typed action, the
@@ -102,6 +118,35 @@ fn main_loop(text_cmd_rx: Receiver<String>, rt: &tokio::runtime::Runtime) -> Res
         if let Ok(text) = text_cmd_rx.try_recv() {
             process_text_command(&text, &rt);
             continue 'wake_word;
+        }
+
+        // A handoff stops the native stream. Waiting here prevents stale Vosk
+        // reads from turning a single `invalid_state` into an endless loop.
+        if microphone_handoff_active() {
+            // This is the reader thread's acknowledgement: a GUI-originated
+            // request never stops a recorder concurrently with `read_microphone`.
+            if recorder::is_streaming() {
+                let _ = recorder::stop_recording();
+                stt::reset_speech_recognizer();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            continue 'wake_word;
+        }
+
+        // Restart only in the reader thread after the GUI explicitly restores
+        // listening. This cannot race `read_microphone` or `stop_recording`.
+        if !recorder::is_streaming() {
+            match recorder::start_recording() {
+                Ok(()) => {
+                    stt::reset_speech_recognizer();
+                    ipc::send(IpcEvent::Listening);
+                }
+                Err(()) => {
+                    error!("listener: microphone restore failed (error_code=restore_failed)");
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue 'wake_word;
+                }
+            }
         }
 
         // A paused listener keeps the device open and recognises nothing. The
@@ -272,6 +317,7 @@ fn recognize_command(
                         // The listener lets go of the microphone first.
                         jarvis_core::recorder::stop_recording().ok();
                         stt::reset_speech_recognizer();
+                        begin_microphone_handoff();
                         ipc::send(IpcEvent::GlobalDictationRequested);
                         vad_state = VadState::WaitingForVoice;
                         silence_frames = 0;
@@ -466,6 +512,7 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
                 // path.
                 jarvis_core::recorder::stop_recording().ok();
                 stt::reset_speech_recognizer();
+                begin_microphone_handoff();
                 ipc::send(IpcEvent::ConversationRequested {
                     intent: intent.as_str().to_string(),
                 });

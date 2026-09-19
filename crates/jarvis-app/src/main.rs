@@ -162,10 +162,21 @@ fn main() -> Result<(), String> {
                 // The pause the typed `stop_listening` event sets, and the resume the
                 // window asks for. The device stays open either way.
                 app::set_listener_paused(muted);
+                if !muted {
+                    // The window has finished its dictation/conversation. The
+                    // reader loop reopens the recorder itself before reading.
+                    app::finish_microphone_handoff();
+                }
                 info!("Listening paused: {}", muted);
                 if !muted {
                     ipc::send(jarvis_core::ipc::IpcEvent::Listening);
                 }
+            }
+            IpcAction::BeginMicrophoneHandoff => {
+                app::begin_microphone_handoff();
+            }
+            IpcAction::FinishMicrophoneHandoff => {
+                app::finish_microphone_handoff();
             }
             IpcAction::TextCommand { text } => {
                 info!("Received text command (length={})", text.chars().count());

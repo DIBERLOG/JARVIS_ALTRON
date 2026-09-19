@@ -22,12 +22,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+use uuid::Uuid;
 
 use jarvis_core::ai::{
     ChatError, ChatMessage, ChatProvider, ChatRequest, ChatRole, DisabledProvider, Persona,
 };
 use jarvis_core::conversation::{
-    self, ConversationError, ConversationIntent, ConversationSession, ConversationStage,
+    self, ConversationError, ConversationSession, ConversationStage,
 };
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -161,7 +162,9 @@ impl ConversationRuntime {
         {
             return Err(ConversationError::Busy.code().to_string());
         }
-        if let Err(code) = self.ask_inner() {
+        let request_id = Uuid::new_v4();
+        log::info!("conversation_request_started request_id={request_id}");
+        if let Err(code) = self.ask_inner(request_id) {
             log::warn!("conversation: the question failed (error_code={code})");
         }
         self.running.store(false, Ordering::SeqCst);
@@ -169,7 +172,7 @@ impl ConversationRuntime {
         Ok(self.view())
     }
 
-    fn ask_inner(&self) -> Result<(), String> {
+    fn ask_inner(&self, request_id: Uuid) -> Result<(), String> {
         let now = Instant::now();
         self.cancel.store(false, Ordering::SeqCst);
         self.session
@@ -179,7 +182,13 @@ impl ConversationRuntime {
         self.emit_stage();
 
         // 1. the question: the same engine as the dictation, with the text kept.
+        log::info!("whisper_started request_id={request_id}");
         let question = self.fail_or(|| self.voice_input.ask())?;
+        log::info!(
+            "whisper_finished request_id={} characters={}",
+            request_id,
+            question.chars().count()
+        );
         if let Err(error) = conversation::check_question(&question) {
             return self.fail(error.code());
         }
@@ -211,6 +220,7 @@ impl ConversationRuntime {
         };
         // The provider interface is asynchronous and this command is synchronous,
         // because recording is: the two are joined here, once.
+        log::info!("provider_started request_id={request_id}");
         let answer = tauri::async_runtime::block_on(provider.send_message(request));
         if conversation::cancelled(&self.cancel) {
             return self.cancelled();
@@ -219,6 +229,11 @@ impl ConversationRuntime {
             Ok(response) => conversation::cut_answer(&response.content),
             Err(error) => return self.fail(&chat_code(&error)),
         };
+        log::info!(
+            "provider_finished request_id={} characters={}",
+            request_id,
+            answer.chars().count()
+        );
         {
             let mut turn = self.turn.lock();
             if let Some(turn) = turn.as_mut() {
@@ -234,6 +249,11 @@ impl ConversationRuntime {
             session.finish(Instant::now());
         }
         self.emit_stage();
+        log::info!(
+            "conversation_finished request_id={} duration_ms={}",
+            request_id,
+            now.elapsed().as_millis()
+        );
         log::info!(
             "conversation: answered (profile={} question_characters={} answer_characters={})",
             profile_name(persona),
@@ -368,7 +388,12 @@ pub async fn conversation_status(state: State<'_, AppState>) -> Result<Conversat
 /// whatever the trigger was.
 #[tauri::command]
 pub async fn conversation_ask(state: State<'_, AppState>) -> Result<ConversationView, String> {
-    state.conversation.ask()
+    // Recording, Whisper and the provider may block for seconds. Tauri's invoke
+    // executor must stay free so the cancel command and stage events can run.
+    let conversation = Arc::clone(&state.conversation);
+    tauri::async_runtime::spawn_blocking(move || conversation.ask())
+        .await
+        .map_err(|_| "conversation_worker_failed".to_string())?
 }
 
 /// Abandons the question in flight, at whatever stage it is.
