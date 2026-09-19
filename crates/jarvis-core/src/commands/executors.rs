@@ -46,6 +46,13 @@ pub enum NativeAction {
     MuteVolume { muted: bool },
     /// Start an application the user allowed, chosen by role and never by path.
     LaunchApplication { role: String },
+    /// Close the windows of an application, chosen by role and never by path.
+    ///
+    /// It posts the same graceful close the interface's own window list does — the
+    /// application is asked to close, it is not killed — and only for a window that
+    /// exists right now and whose process matches the role. No path, no process
+    /// identifier, no force.
+    CloseApplicationWindows { role: String },
     /// Capture the screen through the action pipeline.
     TakeScreenshot,
     /// List the visible windows.
@@ -63,6 +70,7 @@ impl NativeAction {
             Self::ChangeVolume { .. } => "change_volume",
             Self::MuteVolume { .. } => "mute_volume",
             Self::LaunchApplication { .. } => "launch_application",
+            Self::CloseApplicationWindows { .. } => "close_application_windows",
             Self::TakeScreenshot => "take_screenshot",
             Self::ListWindows => "list_windows",
             Self::LockWorkstation => "lock_workstation",
@@ -82,7 +90,7 @@ impl NativeAction {
                     return Err(NativeError::code("native_volume_step"));
                 }
             }
-            Self::LaunchApplication { role } => {
+            Self::LaunchApplication { role } | Self::CloseApplicationWindows { role } => {
                 if !is_known_role(role) {
                     return Err(NativeError::code("native_unknown_role"));
                 }
@@ -93,8 +101,20 @@ impl NativeAction {
     }
 
     /// Whether this action needs an application the user allowed before it can run.
+    ///
+    /// Closing does not: nothing is started, and the window has to exist already.
     pub fn needs_allowed_application(&self) -> bool {
         matches!(self, Self::LaunchApplication { .. })
+    }
+
+    /// Whether this action names an application by role.
+    pub fn role(&self) -> Option<&str> {
+        match self {
+            Self::LaunchApplication { role } | Self::CloseApplicationWindows { role } => {
+                Some(role.as_str())
+            }
+            _ => None,
+        }
     }
 }
 
@@ -315,6 +335,20 @@ mod tests {
         );
         assert!(unknown.needs_allowed_application());
         assert!(!NativeAction::GetVolume.needs_allowed_application());
+        // Closing names a role and needs no allowlist: nothing is started.
+        let closing = NativeAction::CloseApplicationWindows {
+            role: "browser".to_string(),
+        };
+        assert!(closing.validate().is_ok());
+        assert!(!closing.needs_allowed_application());
+        assert_eq!(closing.role(), Some("browser"));
+        assert_eq!(closing.as_str(), "close_application_windows");
+        assert!(NativeAction::CloseApplicationWindows {
+            role: "cmd".to_string()
+        }
+        .validate()
+        .is_err());
+        assert_eq!(NativeAction::GetVolume.role(), None);
     }
 
     #[test]

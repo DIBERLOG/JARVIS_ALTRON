@@ -87,10 +87,12 @@ pub struct CatalogEntry {
     pub risk_level: String,
     /// Whether the safety gate will ask for a spoken confirmation.
     pub requires_confirmation: bool,
-    /// Whether the command can run as it is.
+    /// Whether the command can run once its requirements are met.
     pub enabled: bool,
-    /// The one word for the card: `ready`, `configuration_required`, `disabled`,
-    /// `forbidden`, `executor_missing`, `dependency_missing`.
+    /// The one status a person sees, and the only one: `ready`,
+    /// `confirmation_required`, `allowlist_required`, `forbidden`,
+    /// `executor_missing` or `disabled`. The six are mutually exclusive, every
+    /// installed command has exactly one of them, and they add up to the total.
     pub status: String,
     /// Why it cannot, as a stable code: `no_phrases`, `allowlist_required`,
     /// `executable_missing`, `script_missing`, `unsupported_type`,
@@ -249,6 +251,13 @@ pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str
     let status = status_of(command, enabled, unavailable_reason.as_deref());
     let verified = enabled && recognized;
 
+    debug_assert_eq!(
+        status == "ready" || status == "confirmation_required",
+        enabled,
+        "`{}` must be usable exactly when it is ready or waiting for a confirmation",
+        command.id
+    );
+
     let mut slots: Vec<CatalogSlot> = command
         .slots
         .iter()
@@ -282,22 +291,41 @@ pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str
     }
 }
 
-/// The one word a card shows, derived from the risk and from what is missing.
+/// The one status a person sees.
 ///
-/// MATCHED and EXECUTABLE are separate questions and stay separate here: a command
-/// whose phrase is listed and whose executor is missing is *not* ready, and it is
-/// not "unknown" either — it says which of the two is missing.
+/// The six are mutually exclusive, and the order below is the precedence — the
+/// first question that has an answer wins:
+///
+/// 1. **forbidden** — the policy refuses it. It is named first because it is the
+///    one answer that does not change when the files change; a command that is both
+///    forbidden and missing its helper is reported as forbidden, and the card still
+///    shows the executor as missing in its own indicator. This is the one
+///    documented overlap, and it is deliberate: "why does this not work" has two
+///    true answers there, and hiding one of them would be worse.
+/// 2. **disabled** — nobody can say it: no phrases in this language.
+/// 3. **executor_missing** — the executor does not exist in this build (a compiled
+///    helper that is not there, a script that is not there, an action this build
+///    does not have).
+/// 4. **allowlist_required** — the executor exists, and the user has to allow the
+///    application it should start.
+/// 5. **confirmation_required** — it runs, after a spoken confirmation.
+/// 6. **ready** — it runs.
 fn status_of(command: &JCommand, enabled: bool, reason: Option<&str>) -> String {
     if command.risk_level == RiskLevel::Forbidden {
         return "forbidden".to_string();
     }
-    if enabled {
-        return "ready".to_string();
-    }
     match reason {
-        Some("executable_missing") | Some("unsupported_type") => "executor_missing".to_string(),
-        Some("script_missing") => "dependency_missing".to_string(),
-        Some("allowlist_required") => "configuration_required".to_string(),
+        Some("no_phrases") | Some("disabled_in_settings") => "disabled".to_string(),
+        Some("executable_missing") | Some("script_missing") | Some("unsupported_type") => {
+            "executor_missing".to_string()
+        }
+        Some("allowlist_required") => "allowlist_required".to_string(),
+        _ if command.risk_level == RiskLevel::ConfirmationRequired => {
+            "confirmation_required".to_string()
+        }
+        _ if enabled => "ready".to_string(),
+        // Nothing above answered: the command is not usable and the catalogue does
+        // not know why, which must never be shown as "ready".
         _ => "disabled".to_string(),
     }
 }
@@ -644,17 +672,107 @@ mod tests {
     }
 
     #[test]
-    fn a_card_says_which_question_is_unanswered() {
-        // MATCHED and EXECUTABLE are separate. Every installed command is a card
-        // with a status from the closed set, and "ready" is never claimed for a
-        // command that has no executor or that the policy refuses.
+    fn the_statuses_are_mutually_exclusive_and_add_up_to_the_total() {
+        // One command, one status. The six add up to the number of commands, so the
+        // page can never show a count that does not match what it lists.
         const STATUSES: [&str; 6] = [
             "ready",
-            "configuration_required",
-            "disabled",
+            "confirmation_required",
+            "allowlist_required",
             "forbidden",
             "executor_missing",
-            "dependency_missing",
+            "disabled",
+        ];
+        let catalog = installed();
+        let total = catalog.entries.len();
+        assert_eq!(total, 32, "the installed packs declare 32 commands");
+
+        let mut counts = std::collections::BTreeMap::new();
+        for status in STATUSES {
+            counts.insert(status, 0usize);
+        }
+        for entry in &catalog.entries {
+            let count = counts.get_mut(entry.status.as_str()).unwrap_or_else(|| {
+                panic!("`{}` has a status outside the six: {}", entry.id, entry.status)
+            });
+            *count += 1;
+        }
+        let sum: usize = counts.values().sum();
+        assert_eq!(sum, total, "the statuses must add up to the total");
+
+        // The exact picture of the installed packs, so a change to a pack or to the
+        // rules has to be a deliberate one.
+        assert_eq!(counts["ready"], 17, "ready: {counts:?}");
+        assert_eq!(counts["confirmation_required"], 4, "{counts:?}");
+        assert_eq!(counts["allowlist_required"], 4, "{counts:?}");
+        assert_eq!(counts["forbidden"], 0, "{counts:?}");
+        assert_eq!(counts["executor_missing"], 7, "{counts:?}");
+        assert_eq!(counts["disabled"], 0, "{counts:?}");
+
+        // A command that is usable exactly when it is ready or asking for a
+        // confirmation, and never otherwise.
+        for entry in &catalog.entries {
+            let usable = entry.status == "ready" || entry.status == "confirmation_required";
+            assert_eq!(usable, entry.enabled, "{}", entry.id);
+            if entry.status == "confirmation_required" {
+                assert!(entry.requires_confirmation, "{}", entry.id);
+            }
+            if matches!(
+                entry.status.as_str(),
+                "forbidden" | "allowlist_required" | "executor_missing" | "disabled"
+            ) {
+                assert!(
+                    entry.unavailable_reason.is_some(),
+                    "{} is not usable and must say why",
+                    entry.id
+                );
+                assert!(!entry.enabled, "{}", entry.id);
+            } else {
+                assert!(
+                    entry.unavailable_reason.is_none(),
+                    "{} is usable and has nothing to explain",
+                    entry.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_three_system_commands_now_ask_instead_of_refusing() {
+        // The three commands that used to be forbidden are executable and ask for a
+        // spoken confirmation: reboot, and closing the calculator's and the
+        // browser's windows the graceful way. Nothing kills a process.
+        let catalog = installed();
+        let find = |id: &str| {
+            catalog
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("{id} must be installed"))
+        };
+        for id in ["jarvis_reboot", "calculator_close", "browser_close"] {
+            let entry = find(id);
+            assert_eq!(entry.status, "confirmation_required", "{id}");
+            assert!(entry.enabled, "{id}");
+            assert!(entry.requires_confirmation, "{id}");
+            assert!(entry.allowed, "{id}");
+            assert!(entry.executor_ready, "{id}");
+            assert!(entry.verified, "{id}");
+            assert_eq!(entry.unavailable_reason, None, "{id}");
+        }
+    }
+
+    #[test]
+    fn a_card_says_which_question_is_unanswered() {
+        // MATCHED and EXECUTABLE are separate, and each installed command is pinned
+        // to the one status it must show.
+        const STATUSES: [&str; 6] = [
+            "ready",
+            "confirmation_required",
+            "allowlist_required",
+            "forbidden",
+            "executor_missing",
+            "disabled",
         ];
         let catalog = installed();
         for entry in &catalog.entries {
@@ -664,23 +782,14 @@ mod tests {
                 entry.id,
                 entry.status
             );
-            if entry.status == "ready" {
-                assert!(entry.enabled, "{} claims ready while disabled", entry.id);
-                assert!(
-                    entry.unavailable_reason.is_none(),
-                    "{} claims ready with a reason",
-                    entry.id
-                );
-            } else {
+            let usable = entry.status == "ready" || entry.status == "confirmation_required";
+            assert_eq!(usable, entry.enabled, "{}", entry.id);
+            if !usable {
                 assert!(
                     entry.unavailable_reason.is_some(),
-                    "{} is not ready and does not say why",
+                    "{} is not usable and does not say why",
                     entry.id
                 );
-            }
-            if entry.risk_level == "forbidden" {
-                assert_eq!(entry.status, "forbidden", "{}", entry.id);
-                assert!(!entry.enabled);
             }
         }
 
@@ -705,6 +814,13 @@ mod tests {
             "windows_lock",
             "windows_list",
             "stop_listening",
+            "counter",
+            "weather",
+            "set_city",
+            "test_greet_name",
+            "jarvis_thanks",
+            "jarvis_joke",
+            "jarvis_insult",
         ] {
             assert_eq!(status(id), "ready", "{id}");
         }
@@ -715,12 +831,17 @@ mod tests {
             "steam_open",
             "windows_task_manager",
         ] {
-            assert_eq!(status(id), "configuration_required", "{id}");
+            assert_eq!(status(id), "allowlist_required", "{id}");
         }
-        // The policy refuses these, whichever executor they name.
-        assert_eq!(status("jarvis_reboot"), "forbidden");
-        assert_eq!(status("calculator_close"), "forbidden");
-        assert_eq!(status("browser_close"), "forbidden");
+        // These run after a spoken confirmation, and they run.
+        for id in [
+            "terminate",
+            "jarvis_reboot",
+            "calculator_close",
+            "browser_close",
+        ] {
+            assert_eq!(status(id), "confirmation_required", "{id}");
+        }
         // A command whose compiled helper is not in the repository is not ready.
         for id in [
             "open_google",
@@ -732,14 +853,12 @@ mod tests {
         ] {
             assert_eq!(status(id), "executor_missing", "{id}");
         }
-        // The terminator asks for a confirmation, and is still usable.
-        let terminate = catalog
-            .entries
-            .iter()
-            .find(|entry| entry.id == "terminate")
-            .expect("the terminator");
-        assert_eq!(terminate.status, "ready");
-        assert!(terminate.requires_confirmation);
+        // Nothing in the installed packs is forbidden any more: the three that were
+        // now ask for a confirmation instead.
+        assert!(
+            catalog.entries.iter().all(|entry| entry.status != "forbidden"),
+            "no installed command is forbidden"
+        );
     }
 
     #[test]
@@ -754,11 +873,31 @@ mod tests {
             .insert("ru".to_string(), vec!["открой браузер".to_string()]);
         let directory = fixture("status");
         let entry = entry_of("browser", &directory, &launch, "ru");
-        assert_eq!(entry.status, "configuration_required");
+        assert_eq!(entry.status, "allowlist_required");
         assert_eq!(
             entry.unavailable_reason.as_deref(),
             Some("allowlist_required")
         );
+
+        // Closing windows names a role and needs no allowlist: the windows exist or
+        // they do not, at the moment the phrase is said.
+        launch.native = Some(crate::commands::NativeAction::CloseApplicationWindows {
+            role: "browser".to_string(),
+        });
+        let entry = entry_of("browser", &directory, &launch, "ru");
+        assert_eq!(entry.status, "ready");
+        assert!(entry.executor_ready);
+        assert_eq!(entry.unavailable_reason, None);
+
+        // A command that asks for a confirmation is usable, and the status says what
+        // it is waiting for rather than calling it ready.
+        launch.risk_level = crate::safety::RiskLevel::ConfirmationRequired;
+        let entry = entry_of("browser", &directory, &launch, "ru");
+        assert_eq!(entry.status, "confirmation_required");
+        assert!(entry.enabled);
+        assert!(entry.requires_confirmation);
+        assert_eq!(entry.unavailable_reason, None);
+        launch.risk_level = crate::safety::RiskLevel::Safe;
 
         // The same shape with an action that needs nothing is ready.
         launch.native = Some(crate::commands::NativeAction::GetVolume);
@@ -809,7 +948,7 @@ mod tests {
                 "{} claims verified only when it would really run",
                 entry.id
             );
-            if entry.status == "executor_missing" || entry.status == "dependency_missing" {
+            if entry.status == "executor_missing" {
                 assert!(
                     entry.recognized && !entry.executor_ready,
                     "{} has a phrase but no executor, and must say exactly that",
@@ -823,14 +962,14 @@ mod tests {
             }
             // A forbidden command is refused by the policy, and that is a different
             // sentence from "its executor is missing": the executable may well be
-            // there, and the card says so.
+            // there, and the card says so. This is the one documented overlap.
             if entry.status == "forbidden" {
                 assert!(!entry.allowed, "{} is refused by policy", entry.id);
                 assert!(!entry.enabled, "{} must not claim to be ready", entry.id);
             }
             // A launch that waits for the allowlist has an executor — the pipeline —
             // and needs configuration. Two different answers.
-            if entry.status == "configuration_required" {
+            if entry.status == "allowlist_required" {
                 assert!(entry.executor_ready, "{} has the pipeline", entry.id);
                 assert!(entry.allowed, "{} is not forbidden", entry.id);
                 assert!(!entry.enabled);
@@ -858,27 +997,23 @@ mod tests {
         assert!(!open_google.verified);
         assert!(open_google.allowed);
 
-        // A forbidden command whose program is present on any Windows machine: the
-        // executor is there, the policy is what stops it.
+        // A command that asks for a confirmation: the executor is there, the policy
+        // permits it, and the phrase alone is not enough.
         let reboot = find("jarvis_reboot");
         assert!(reboot.recognized);
-        assert!(
-            reboot.executor_ready,
-            "shutdown.exe exists; the policy refuses it"
-        );
-        assert!(!reboot.allowed);
-        assert!(!reboot.verified, "nothing forbidden is verified");
-        assert_eq!(
-            reboot.unavailable_reason.as_deref(),
-            Some("forbidden_by_policy")
-        );
+        assert!(reboot.executor_ready, "shutdown.exe is a program like any other");
+        assert!(reboot.allowed);
+        assert!(reboot.verified, "it does run, after the confirmation");
+        assert_eq!(reboot.status, "confirmation_required");
+        assert_eq!(reboot.unavailable_reason, None);
 
-        // A forbidden command whose helper is *also* missing: both facts are true,
-        // and the policy is the one that stops it.
+        // A command that closes a window gracefully: nothing is started, the window
+        // has to exist, and the phrase asks first.
         let browser_close = find("browser_close");
-        assert!(!browser_close.executor_ready);
-        assert!(!browser_close.allowed);
-        assert_eq!(browser_close.status, "forbidden");
+        assert!(browser_close.executor_ready);
+        assert!(browser_close.allowed);
+        assert!(browser_close.verified);
+        assert_eq!(browser_close.status, "confirmation_required");
     }
 
     #[test]

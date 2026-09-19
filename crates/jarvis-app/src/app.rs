@@ -5,8 +5,8 @@ use std::time::SystemTime;
 use jarvis_core::safety::{ConfirmationResult, GateDecision, SafetyGate};
 use jarvis_core::windows_actions::{
     platform_backend, ActionRequestOutcome, ActionSource, ActionValue, ScreenshotTarget,
-    VoiceRoute, WindowsAction, WindowsActionSettings, WindowsActions, VOICE_CANCEL_WORDS,
-    VOICE_CONFIRM_WORDS,
+    VoiceRoute, WindowId, WindowOperation, WindowsAction, WindowsActionSettings, WindowsActions,
+    VOICE_CANCEL_WORDS, VOICE_CONFIRM_WORDS,
 };
 use jarvis_core::{
     audio_buffer::AudioRingBuffer,
@@ -710,7 +710,7 @@ pub fn dispatch_native(action: &commands::NativeAction) -> Result<String, comman
         .as_ref()
         .ok_or_else(|| commands::NativeError::code("native_not_available"))?;
     let mut session = session.lock();
-    let windows_action = translate_native(action, &session)?;
+    let windows_action = translate_native(action, &mut session)?;
     match session.request(windows_action, ActionSource::CommandPack) {
         Ok(ActionRequestOutcome::Executed { result }) => {
             diag::native_executed(action.as_str(), true);
@@ -734,7 +734,7 @@ pub fn dispatch_native(action: &commands::NativeAction) -> Result<String, comman
 /// The same, as a value the policy table understands.
 fn translate_native(
     action: &commands::NativeAction,
-    session: &WindowsActions,
+    session: &mut WindowsActions,
 ) -> Result<WindowsAction, commands::NativeError> {
     use commands::NativeAction;
     Ok(match action {
@@ -769,6 +769,29 @@ fn translate_native(
             }
             WindowsAction::LaunchAllowedApplication {
                 application_id: first.application_id(),
+            }
+        }
+        // Closing is graceful: the window is asked to close through the same action
+        // the interface's window list posts, and only a window that exists right now
+        // and whose process matches the role can be chosen. Nothing is killed.
+        NativeAction::CloseApplicationWindows { role } => {
+            let windows = session
+                .list_windows()
+                .map_err(|error| commands::NativeError::code(error.code()))?;
+            let mut matching = windows
+                .into_iter()
+                .filter(|window| commands::role_matches(role, &window.process));
+            let first = matching
+                .next()
+                .ok_or_else(|| commands::NativeError::code("application_window_not_found"))?;
+            if matching.next().is_some() {
+                return Err(commands::NativeError::code("application_window_ambiguous"));
+            }
+            let window_id = WindowId::from_stored(first.id)
+                .map_err(|_| commands::NativeError::code("application_window_not_found"))?;
+            WindowsAction::Window {
+                window_id,
+                operation: WindowOperation::Close,
             }
         }
     })

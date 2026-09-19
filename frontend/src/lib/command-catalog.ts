@@ -88,14 +88,19 @@ export function statusKey(status: string): string {
     return `command-status-${status}`
 }
 
-/** Every status a card can have, in the order the filter shows them. */
+/**
+ * Every status a card can have, in the order the filter shows them.
+ *
+ * They are mutually exclusive and every command has exactly one, so they add up to
+ * the total number of commands.
+ */
 export const STATUSES: string[] = [
     "ready",
-    "configuration_required",
-    "disabled",
+    "confirmation_required",
+    "allowlist_required",
     "forbidden",
     "executor_missing",
-    "dependency_missing"
+    "disabled"
 ]
 
 /** Every risk level a card can have. */

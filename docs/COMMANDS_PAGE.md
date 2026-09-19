@@ -65,9 +65,17 @@ voice input is listed from the settings, where its phrase really lives, and is
 marked `source: settings` — it is not a pack and it is not executed by the
 command list.
 
-Statuses: `ready`, `configuration_required` (a role launch waiting for the user's
-allowlist), `disabled`, `forbidden`, `executor_missing`, `dependency_missing`.
-`docs/COMMANDS.md` has the full inventory of packs, executors and decisions.
+Statuses — exactly one per command, mutually exclusive, adding up to the total:
+`ready`, `confirmation_required`, `allowlist_required`, `forbidden`,
+`executor_missing`, `disabled`. The `unavailable_reason` on the card carries the
+technical detail (`no_phrases`, `executable_missing`, `script_missing`,
+`unsupported_type`, `allowlist_required`, `disabled_in_settings`,
+`forbidden_by_policy`), and `docs/COMMANDS.md` has the full inventory of packs,
+executors and decisions. The precedence, and the one documented overlap, are
+described in `commands::catalog::status_of`: a command that is both forbidden and
+missing its helper is reported as **forbidden**, and the card still shows the
+executor as missing in its own indicator, because there are two true answers there
+and hiding one would be worse.
 
 ## What never crosses the boundary
 

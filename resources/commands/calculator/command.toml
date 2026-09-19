@@ -5,11 +5,11 @@
 # document. Without such an entry the command is reported as needing configuration
 # instead of failing silently.
 #
-# Closing it keeps the entry the old pack carried: forced process termination
-# (`taskkill /f`) is refused by the safety gate, and the phrase stays recognised so
-# it is answered with a refusal instead of killing a process. Closing a window is
-# the safe way to do this, and that path is the one the Windows-action pipeline
-# already offers for a window the user picked.
+# Closing it asks first, and then posts the same graceful close the interface's own
+# window list posts: the window is asked to close and the application decides. The
+# forced `taskkill /f /im` the old pack carried is gone — a phrase must not kill a
+# process — and the window has to exist and belong to the calculator's process for
+# anything to happen at all.
 
 [[commands]]
 id = "calculator_open"
@@ -33,11 +33,13 @@ ua = ["відкрий калькулятор", "запусти калькуля�
 
 [[commands]]
 id = "calculator_close"
-type = "cli"
-description = "Закрытие калькулятора запрещено политикой: принудительное завершение процесса"
-risk_level = "forbidden"
-cli_cmd = "taskkill"
-cli_args = ["/f", "/im", "CalculatorApp.exe"]
+type = "native"
+description = "Закрывает окно калькулятора вежливо, после подтверждения"
+risk_level = "confirmation_required"
+
+[commands.native]
+action = "close_application_windows"
+role = "calculator"
 
 [commands.sounds]
 ru = ["ok1", "ok2", "ok3"]

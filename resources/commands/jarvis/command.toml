@@ -1,10 +1,10 @@
-# Jarvis itself: its own replies, and the one system action that is refused.
+# Jarvis itself: its own replies, and reboot.
 #
 # The old pack played a sound for thanks, for jokes and for an insult — that is the
 # `voice` type, unchanged. Reboot was a compiled AutoHotkey helper; it is written
-# here as the command it really is, with `risk_level = "forbidden"`, so the phrase
-# is recognised and answered with a refusal by the safety gate. Nothing is
-# executed: a forbidden command never reaches an executor.
+# here as the command it really is — `shutdown /r /t 0`, a program with fixed
+# arguments and no shell — and it asks for a spoken confirmation before it runs,
+# because a phrase must not restart a machine on its own.
 
 [[commands]]
 id = "jarvis_thanks"
@@ -57,8 +57,8 @@ ua = ["ти дурень", "ти дурний", "ти тупий"]
 [[commands]]
 id = "jarvis_reboot"
 type = "cli"
-description = "Перезагрузка компьютера запрещена политикой"
-risk_level = "forbidden"
+description = "Перезагрузка компьютера: только после подтверждения"
+risk_level = "confirmation_required"
 cli_cmd = "shutdown"
 cli_args = ["/r", "/t", "0"]
 

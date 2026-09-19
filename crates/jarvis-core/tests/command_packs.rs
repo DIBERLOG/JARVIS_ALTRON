@@ -366,10 +366,14 @@ fn a_dangerous_command_is_gated() {
         find("terminate").risk_level,
         RiskLevel::ConfirmationRequired
     );
-    // Reboot and forced process termination stay forbidden, so the safety gate
-    // refuses them before an executor is even asked.
-    assert_eq!(find("jarvis_reboot").risk_level, RiskLevel::Forbidden);
-    assert_eq!(find("calculator_close").risk_level, RiskLevel::Forbidden);
+    // Reboot and the two window closes ask first, and then they run.
+    for id in ["jarvis_reboot", "calculator_close", "browser_close"] {
+        assert_eq!(
+            find(id).risk_level,
+            RiskLevel::ConfirmationRequired,
+            "{id} must ask before it acts"
+        );
+    }
     // A screenshot and a launch are not a confirmation by themselves: the pipeline
     // has its own rules for them.
     assert_eq!(find("windows_screenshot").risk_level, RiskLevel::Safe);
@@ -383,6 +387,47 @@ fn a_dangerous_command_is_gated() {
         "volume_max",
     ] {
         assert_eq!(find(id).risk_level, RiskLevel::Safe, "{id}");
+    }
+}
+
+#[test]
+fn nothing_in_a_pack_kills_a_process() {
+    // Closing is the graceful window close and nothing else. A phrase must never end
+    // a process by force, and no pack may name a program that does.
+    for (path, parsed) in installed() {
+        for command in &parsed.commands {
+            let program = command.cli_cmd.to_lowercase();
+            for forbidden in ["taskkill", "tskill", "pskill", "wmic", "stop-process"] {
+                assert_ne!(
+                    program, forbidden,
+                    "{}: `{}` must not kill a process",
+                    path.display(),
+                    command.id
+                );
+            }
+            for argument in &command.cli_args {
+                assert!(
+                    !argument.to_lowercase().contains("/f"),
+                    "{}: `{}` must not force anything",
+                    path.display(),
+                    command.id
+                );
+            }
+        }
+    }
+    // And the two window closes are the typed action, not a program.
+    let packs = catalog();
+    for id in ["calculator_close", "browser_close"] {
+        let command = packs
+            .iter()
+            .flat_map(|pack| pack.commands.iter())
+            .find(|command| command.id == id)
+            .unwrap_or_else(|| panic!("`{id}` must exist"));
+        let action = command.native.as_ref().unwrap_or_else(|| {
+            panic!("`{id}` must close through the typed action, not a program")
+        });
+        assert_eq!(action.as_str(), "close_application_windows");
+        assert_eq!(action.role().is_some(), true);
     }
 }
 
@@ -653,10 +698,10 @@ fn a_program_a_pack_names_stays_inside_its_pack() {
             seen.insert(command.id.clone());
         }
     }
-    // The commands that need a compiled helper are exactly the ones the catalogue
-    // reports as `executor_missing`: they must be a known, finite set.
+    // The commands that still need a compiled helper are exactly the ones the
+    // catalogue reports as `executor_missing`: a known, finite set. Closing the
+    // browser left it when it became a typed action.
     let expected: HashSet<&str> = [
-        "browser_close",
         "open_google",
         "steam_close",
         "windows_minimize_all",
@@ -673,4 +718,9 @@ fn a_program_a_pack_names_stays_inside_its_pack() {
             "`{id}` must keep its AutoHotkey executor"
         );
     }
+    assert_eq!(seen.len(), expected.len(), "the set must be exactly this one");
+    assert!(
+        !seen.contains("browser_close") && !seen.contains("calculator_close"),
+        "closing a window is a typed action, not a helper"
+    );
 }

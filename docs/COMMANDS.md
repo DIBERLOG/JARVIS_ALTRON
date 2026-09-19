@@ -48,15 +48,15 @@ compiled helper that force-closed or forced-killed something.
 | pack | command_id | format | executor | risk | matched | executable | allowed | tested | migration_decision |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | browser | browser_open | toml | native `launch_application(role=browser)` | safe | yes | needs an allowed browser | policy table | yes | ahk helper → typed action by role |
-| browser | browser_close | toml | ahk (helper not in the repository) | forbidden | yes | no — `executor_missing` | refused by policy | yes | kept, and forbidden: force-closing browsers is not something a phrase should do |
+| browser | browser_close | toml | native `close_application_windows(role=browser)` | confirmation_required | yes | yes | yes, after a spoken confirmation | yes | ahk force-close → typed graceful close, on the owner's decision |
 | browser | open_google | toml | ahk `Run website.exe` | safe | yes | no — `executor_missing` | — | yes | kept: this build has no typed "open a URL" action, and inventing one is a separate decision |
 | calculator | calculator_open | toml | native `launch_application(role=calculator)` | safe | yes | needs an allowed calculator | policy table | yes | `cli calc` → typed action by role |
-| calculator | calculator_close | toml | cli `taskkill /f /im CalculatorApp.exe` | forbidden | yes | yes | refused by policy | yes | kept forbidden, as the old pack intended |
+| calculator | calculator_close | toml | native `close_application_windows(role=calculator)` | confirmation_required | yes | yes | yes, after a spoken confirmation | yes | `taskkill /f` → typed graceful close; no process is killed |
 | counter | counter | toml | lua `script.lua` | safe | yes | yes | yes | yes | untouched |
 | jarvis | jarvis_thanks | toml | voice (`thanks`) | safe | yes | yes | yes | yes | `voice` unchanged |
 | jarvis | jarvis_joke | toml | voice (`joke1..5`) | safe | yes | yes | yes | yes | `voice` unchanged |
 | jarvis | jarvis_insult | toml | voice (`stupid`) | safe | yes | yes | yes | yes | `voice` unchanged |
-| jarvis | jarvis_reboot | toml | cli `shutdown /r /t 0` | forbidden | yes | yes | refused by policy | yes | ahk `reboot.exe` → the command it really is, forbidden |
+| jarvis | jarvis_reboot | toml | cli `shutdown /r /t 0` | confirmation_required | yes | yes | yes, after a spoken confirmation | yes | ahk `reboot.exe` → the command it really is, and it asks first |
 | steam | steam_open | toml | native `launch_application(role=steam)` | safe | yes | needs an allowed Steam | policy table | yes | ahk helper → typed action by role |
 | steam | steam_close | toml | ahk (helper not in the repository) | safe | yes | no — `executor_missing` | — | yes | kept: no typed "close that window" action from a pack |
 | stop | stop_listening | toml | internal `stop_chaining` | safe | yes | yes | yes | yes | `stop_chaining` action → typed event; `отмена` removed (it answers a confirmation elsewhere) |
@@ -87,10 +87,42 @@ which commands cannot run and why.
 
 ## Statuses on a card
 
-`ready`, `configuration_required` (a role launch waiting for the user's allowlist),
-`disabled` (no phrases), `forbidden` (refused by policy), `executor_missing`,
-`dependency_missing` (a script or helper the command needs is not there), and
-`unsupported_format` for a pack the loader did not read — which is now empty.
+Exactly one per command, mutually exclusive, adding up to the total:
+`ready`, `confirmation_required`, `allowlist_required`, `forbidden`,
+`executor_missing`, `disabled`. The precedence is documented in
+`commands::catalog::status_of` and the counts are pinned by
+`the_statuses_are_mutually_exclusive_and_add_up_to_the_total`.
+
+On this checkout, for the 32 installed commands:
+
+| Status | Count | Which |
+| --- | --- | --- |
+| `ready` | 17 | the six volume commands, `windows_screenshot`, `windows_lock`, `windows_list`, `stop_listening`, the three `voice` replies of the jarvis pack, `counter`, `weather`, `set_city`, `test_greet_name` |
+| `confirmation_required` | 4 | `terminate`, `jarvis_reboot`, `calculator_close`, `browser_close` |
+| `allowlist_required` | 4 | `browser_open`, `calculator_open`, `steam_open`, `windows_task_manager` |
+| `forbidden` | 0 | nothing in the installed packs |
+| `executor_missing` | 7 | `open_google`, `steam_close`, `windows_minimize_all`, `windows_empty_trash`, `windows_sleep`, `windows_clipboard`, `windows_keyboard_layout` |
+| `disabled` | 0 | — |
+| **total** | **32** | |
+
+The 4 in `allowlist_required` need one thing from the user: the application, added
+through Настройки → «Windows Actions» → «Приложения», where the native file dialog
+picks the program (the interface never names a path). The role decides which file
+counts: `browser` → `chrome.exe`, `firefox.exe`, `msedge.exe`, `brave.exe`,
+`opera.exe`, `vivaldi.exe`, `browser.exe`; `calculator` → `calc.exe`,
+`calculator.exe`, `calculatorapp.exe`; `steam` → `steam.exe`; `task_manager` →
+`taskmgr.exe`. Two matching entries make the role ambiguous and the command refuses
+rather than guessing; a file that changed since it was allowed must be re-accepted.
+
+The 3 that used to be `forbidden` are now `confirmation_required`, on the owner's
+explicit decision, and the way they run is the safe one: `jarvis_reboot` is
+`shutdown /r /t 0` with fixed arguments and no shell, gated by a spoken
+«подтверждаю»; `calculator_close` and `browser_close` are the typed
+`close_application_windows` action, which posts the same graceful close the
+interface's window list posts — the window is asked to close, no process is killed,
+and only a window that exists right now and whose process matches the role can be
+chosen. `nothing_in_a_pack_kills_a_process` refuses `taskkill`, `tskill`, `pskill`,
+`wmic` and any `/f` argument in any pack.
 
 ## What is not verified
 
