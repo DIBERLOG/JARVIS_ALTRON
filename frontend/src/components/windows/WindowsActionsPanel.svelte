@@ -88,6 +88,10 @@
     let reminderMinutes = 10
     let reminderMessage = ""
     let applicationName = ""
+    // One argument per line avoids inventing shell-like quoting rules in the UI. The core
+    // validates and persists these values as fixed arguments for the selected executable.
+    let applicationArguments = ""
+    let applicationWorkingDirectory = ""
     let voicePhrase = ""
     let aiPhrase = ""
     let answer = ""
@@ -264,9 +268,20 @@
         busy = true
         try {
             // The core opens the file dialog; this call cannot name a path.
-            const added = await windowsActionsApi.addAllowedApplication(applicationName.trim())
+            const fixedArguments = applicationArguments
+                .split(/\r?\n/)
+                .map((argument) => argument.trim())
+                .filter(Boolean)
+            const workingDirectory = applicationWorkingDirectory.trim() || null
+            const added = await windowsActionsApi.addAllowedApplication(
+                applicationName.trim(),
+                fixedArguments,
+                workingDirectory
+            )
             if (added) {
                 applicationName = ""
+                applicationArguments = ""
+                applicationWorkingDirectory = ""
                 await load()
             }
             actionError = ""
@@ -640,6 +655,23 @@
         <span>{t("windows-actions-apps-display-name")}</span>
         <input class="line" placeholder={t("windows-actions-apps-display-name-placeholder")} bind:value={applicationName} />
     </label>
+    <label class="field">
+        <span>{t("windows-actions-apps-arguments-input")}</span>
+        <textarea
+            class="line wide"
+            rows="2"
+            placeholder={t("windows-actions-apps-arguments-placeholder")}
+            bind:value={applicationArguments}
+        />
+    </label>
+    <label class="field">
+        <span>{t("windows-actions-apps-working-directory")}</span>
+        <input
+            class="line wide"
+            placeholder={t("windows-actions-apps-working-directory-placeholder")}
+            bind:value={applicationWorkingDirectory}
+        />
+    </label>
     <Button size="sm" disabled={busy} on:click={addApplication}>{t("windows-actions-apps-add")}</Button>
 </Group>
 <Space h="xs" />
@@ -656,6 +688,11 @@
             {#if application.fixed_arguments.length > 0}
                 <Text size="xs" color="dimmed">
                     {t("windows-actions-apps-arguments")}: {application.fixed_arguments.join(" ")}
+                </Text>
+            {/if}
+            {#if application.working_directory}
+                <Text size="xs" color="dimmed">
+                    {t("windows-actions-apps-working-directory")}: {application.working_directory}
                 </Text>
             {/if}
             {#if application.identity_changed}
