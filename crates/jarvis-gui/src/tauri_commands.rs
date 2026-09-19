@@ -50,3 +50,7 @@ pub use vault::*;
 // import local AI commands (managed llama-server runtime)
 mod local_ai;
 pub use local_ai::*;
+
+// import AI memory commands (encrypted conversations, summaries, facts)
+mod memory;
+pub use memory::*;

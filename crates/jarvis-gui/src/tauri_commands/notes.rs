@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+use jarvis_core::memory::MemoryError;
 use jarvis_core::notes::{
     ConflictResolutionOutcome, Note, NoteConflictResolution, NoteConflictView, NoteDraft,
     NoteError, NoteFolder, NoteList, NoteQuery, NotesVault, StorageStatus,
@@ -87,6 +88,26 @@ impl NotesHandle {
         action(session).map_err(describe_vault)
     }
 
+    /// Runs `action` against the shared session, for AI-memory commands.
+    ///
+    /// The memory layer has its own error type, so it gets its own entry point
+    /// instead of being folded into the vault error path. The shared session is what
+    /// keeps one master key, and therefore one unlock state, behind all three
+    /// encrypted stores.
+    pub fn with_memory<T>(
+        &self,
+        action: impl FnOnce(&mut VaultSession) -> Result<T, MemoryError>,
+    ) -> Result<T, String> {
+        let mut guard = self.session.lock();
+        if guard.is_none() {
+            *guard = Some(VaultSession::open_production().map_err(describe_vault)?);
+        }
+        let session = guard
+            .as_mut()
+            .ok_or_else(|| describe_vault(VaultError::StorageLocked))?;
+        action(session).map_err(describe_memory)
+    }
+
     /// Whether the shared encrypted storage is currently unlocked.
     pub fn is_unlocked(&self) -> bool {
         let guard = self.session.lock();
@@ -123,6 +144,16 @@ fn describe(error: NoteError) -> String {
     let message = error.to_string();
     // Only content-free messages are logged; note text never reaches a log line.
     log::warn!("notes: {}", message);
+    message
+}
+
+/// Turns an AI-memory error into a message safe to show and to log.
+///
+/// A memory error never carries stored text: the secret variants name the kinds
+/// that were recognized and nothing else, so this line cannot leak memory.
+fn describe_memory(error: MemoryError) -> String {
+    let message = error.to_string();
+    log::warn!("memory: {}", message);
     message
 }
 

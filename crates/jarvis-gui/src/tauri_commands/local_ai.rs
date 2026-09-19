@@ -60,6 +60,14 @@ impl LocalAiHandle {
         &self.gateway
     }
 
+    /// The shared gateway, for a caller that needs to keep it alive on a worker.
+    ///
+    /// The memory summarizer uses this so it runs against the same managed server
+    /// instead of creating a second client.
+    pub fn shared(&self) -> Arc<LocalAiGateway> {
+        Arc::clone(&self.gateway)
+    }
+
     /// The configuration the gateway is currently using.
     pub fn config(&self) -> LocalAiConfig {
         self.gateway.config()

@@ -17,6 +17,7 @@ pub struct AppState {
     pub notes: tauri_commands::NotesHandle,
     pub vault: tauri_commands::VaultHandle,
     pub local_ai: tauri_commands::LocalAiHandle,
+    pub memory: tauri_commands::MemoryHandle,
 }
 
 fn main() {
@@ -58,12 +59,17 @@ fn main() {
     // encrypted storages
     let local_ai = tauri_commands::LocalAiHandle::restore(&manager);
 
+    // AI memory reaches the encrypted storage through the shared session, which
+    // derives a separate key for it; this handle only tracks summary jobs
+    let memory = tauri_commands::MemoryHandle::new();
+
     tauri::Builder::default()
         .manage(AppState {
             settings: manager,
             notes,
             vault,
             local_ai,
+            memory,
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -199,6 +205,41 @@ fn main() {
             tauri_commands::local_ai_cancel,
             tauri_commands::local_ai_select_server,
             tauri_commands::local_ai_select_model,
+
+            // AI memory (encrypted conversations, summaries, facts)
+            tauri_commands::memory_status,
+            tauri_commands::memory_get_settings,
+            tauri_commands::memory_update_settings,
+            tauri_commands::memory_lock,
+            tauri_commands::memory_list_conversations,
+            tauri_commands::memory_create_conversation,
+            tauri_commands::memory_open_conversation,
+            tauri_commands::memory_rename_conversation,
+            tauri_commands::memory_archive_conversation,
+            tauri_commands::memory_delete_conversation,
+            tauri_commands::memory_clear_conversation,
+            tauri_commands::memory_clear_history,
+            tauri_commands::memory_append_user_message,
+            tauri_commands::memory_append_assistant_message,
+            tauri_commands::memory_delete_message,
+            tauri_commands::memory_list_facts,
+            tauri_commands::memory_create_fact,
+            tauri_commands::memory_update_fact,
+            tauri_commands::memory_set_fact_usage,
+            tauri_commands::memory_delete_fact,
+            tauri_commands::memory_restore_fact,
+            tauri_commands::memory_purge_fact,
+            tauri_commands::memory_list_candidates,
+            tauri_commands::memory_approve_candidate,
+            tauri_commands::memory_reject_candidate,
+            tauri_commands::memory_build_context,
+            tauri_commands::memory_context_budget,
+            tauri_commands::memory_summarize,
+            tauri_commands::memory_suggest_candidates,
+            tauri_commands::memory_export_backup,
+            tauri_commands::memory_import_backup,
+            tauri_commands::memory_conflicts,
+            tauri_commands::memory_resolve_conflict,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -212,6 +253,7 @@ fn main() {
             ) {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     state.vault.lock_for_exit();
+                    state.memory.shutdown();
                     state.local_ai.shutdown();
                 }
             }
