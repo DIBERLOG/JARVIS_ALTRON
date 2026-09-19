@@ -112,10 +112,6 @@ settings-openai-not-supported = Наразі ChatGPT не підтримуєть
 commands-title = Команди
 commands-search = Пошук команд...
 commands-count = { $count } команд
-commands-wip-title = [404] Цей розділ ще в розробці!
-commands-wip-desc = Тут буде список команд + повноцінний редактор команд.
-commands-wip-follow = Слідкуйте за оновленнями в
-commands-wip-channel = нашому телеграм каналі
 
 # ### ERRORS
 error-generic = Сталася помилка
@@ -1451,3 +1447,44 @@ command-stage-command_match = Зіставлення з командою
 command-stage-rejection_code = Відмова
 command-stage-execution_started = Запуск команди
 command-stage-execution_result = Результат
+
+# ------------------------------------------------------------- commands page
+# The page lists what the voice host really loaded, with no path and no argument.
+commands-subtitle = Список зібрано з наборів команд, які завантажує голосовий хост: фрази, слоти, рівень ризику та причина, з якої команда не може виконатися. Нічого не виконується.
+commands-refresh = Оновити
+commands-all-categories = Усі
+commands-count-label = команд
+commands-empty = У цій категорії поки немає команд.
+commands-no-match = Нічого не знайдено.
+commands-pack = Набір
+commands-source-settings = З налаштувань
+commands-risk = Ризик
+commands-confirmation = Підтвердження
+commands-confirmation-yes = потрібне
+commands-confirmation-no = не потрібне
+commands-enabled = доступна
+commands-disabled = недоступна
+commands-phrases = Фрази
+commands-slots = Слоти
+commands-unreadable-title = Набори, які завантажувач не прочитав
+commands-unreadable-hint = Ці набори є на диску, але команди з них зараз не виконуються. Причину вказано для кожного.
+command-category-applications = Програми
+command-category-sound = Звук
+command-category-windows = Вікна
+command-category-screenshots = Знімки екрана
+command-category-timers = Таймери
+command-category-system = Система
+command-category-weather = Погода
+command-category-global_voice_input = Глобальне голосове введення
+command-risk-safe = безпечний
+command-risk-confirm = потребує підтвердження
+command-risk-forbidden = заборонений
+command-unavailable-no_phrases = у команди немає жодної фрази, тому голосом її не викликати
+command-unavailable-executable_missing = виконуваний файл не знайдено поруч із набором
+command-unavailable-script_missing = сценарій не знайдено поруч із набором
+command-unavailable-unsupported_type = невідомий тип команди
+command-unavailable-disabled_in_settings = вимкнено в налаштуваннях
+command-pack-reason-parse_failed = документ набору не розібрано
+command-pack-reason-unsupported_format = формат не підтримується (потрібен command.toml)
+command-pack-reason-missing_document = у наборі немає command.toml
+command-pack-reason-unreadable = файл набору не читається

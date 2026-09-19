@@ -112,10 +112,6 @@ settings-openai-not-supported = ChatGPT is not currently supported. It will be a
 commands-title = Commands
 commands-search = Search commands...
 commands-count = { $count } commands
-commands-wip-title = [404] This section is under development!
-commands-wip-desc = Here will be a list of commands + full-featured command editor.
-commands-wip-follow = Follow updates in
-commands-wip-channel = our Telegram channel
 
 # ### ERRORS
 error-generic = An error occurred
@@ -1458,3 +1454,44 @@ command-stage-command_match = Matched against a command
 command-stage-rejection_code = Refused
 command-stage-execution_started = Command started
 command-stage-execution_result = Result
+
+# ------------------------------------------------------------- commands page
+# The page lists what the voice host really loaded, with no path and no argument.
+commands-subtitle = The list is built from the packs the voice host loads: the phrases, the slots, the risk level, and the reason a command cannot run. Nothing is executed.
+commands-refresh = Refresh
+commands-all-categories = All
+commands-count-label = commands
+commands-empty = This category has no commands yet.
+commands-no-match = Nothing matches.
+commands-pack = Pack
+commands-source-settings = From the settings
+commands-risk = Risk
+commands-confirmation = Confirmation
+commands-confirmation-yes = required
+commands-confirmation-no = not required
+commands-enabled = available
+commands-disabled = unavailable
+commands-phrases = Phrases
+commands-slots = Slots
+commands-unreadable-title = Packs the loader did not read
+commands-unreadable-hint = These packs are on disk, but their commands do not run today. The reason is given for each one.
+command-category-applications = Applications
+command-category-sound = Sound
+command-category-windows = Windows
+command-category-screenshots = Screenshots
+command-category-timers = Timers
+command-category-system = System
+command-category-weather = Weather
+command-category-global_voice_input = Global voice input
+command-risk-safe = safe
+command-risk-confirm = needs confirmation
+command-risk-forbidden = forbidden
+command-unavailable-no_phrases = the command has no phrase at all, so voice cannot reach it
+command-unavailable-executable_missing = the executable is not next to the pack
+command-unavailable-script_missing = the script is not next to the pack
+command-unavailable-unsupported_type = unknown command type
+command-unavailable-disabled_in_settings = switched off in the settings
+command-pack-reason-parse_failed = the pack document could not be parsed
+command-pack-reason-unsupported_format = the format is not supported (command.toml is required)
+command-pack-reason-missing_document = the pack has no command.toml
+command-pack-reason-unreadable = the pack file cannot be read

@@ -9,6 +9,9 @@ use seqdiff::ratio;
 mod structs;
 pub use structs::*;
 
+mod catalog;
+pub use catalog::*;
+
 use crate::{config, i18n, APP_DIR};
 
 #[cfg(feature = "lua")]

@@ -51,3 +51,29 @@ pub fn check_phrase_without_running(phrase: String) -> PhraseCheckView {
         reason: check.reason.map(|reason| reason.to_string()),
     }
 }
+
+/// The catalogue the «Команды» page is built from.
+///
+/// It is read from the installed packs with the loader's own parser, in the
+/// language the window is shown in, and it carries no path, no executable and no
+/// argument: a pack is named by its logical name. Packs the loader cannot read —
+/// the ones that ship `command.yaml`, which the loader does not open — are listed
+/// with a reason code instead of being left out, and the global voice input is
+/// listed from the settings, where it really lives.
+#[tauri::command]
+pub fn command_catalog(state: tauri::State<'_, crate::AppState>) -> commands::CommandCatalog {
+    let language = jarvis_core::i18n::get_language();
+    let mut catalog = commands::load_catalog(&language);
+    let settings = state.voice_input.settings();
+    catalog.entries.push(commands::global_voice_input_entry(
+        &settings.phrase,
+        settings.enabled,
+    ));
+    catalog.entries.sort_by(|left, right| {
+        left.category
+            .cmp(&right.category)
+            .then(left.pack.cmp(&right.pack))
+            .then(left.id.cmp(&right.id))
+    });
+    catalog
+}

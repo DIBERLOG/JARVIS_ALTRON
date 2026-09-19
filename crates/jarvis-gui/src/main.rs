@@ -302,6 +302,7 @@ fn main() {
             tauri_commands::get_commands_count,
             tauri_commands::get_commands_list,
             tauri_commands::check_phrase_without_running,
+            tauri_commands::command_catalog,
 
             // voices
             tauri_commands::list_voices,

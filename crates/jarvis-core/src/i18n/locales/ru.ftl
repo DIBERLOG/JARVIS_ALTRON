@@ -112,10 +112,6 @@ settings-openai-not-supported = В данный момент ChatGPT не под
 commands-title = Команды
 commands-search = Поиск команд...
 commands-count = { $count } команд
-commands-wip-title = [404] Этот раздел еще находится в разработке!
-commands-wip-desc = Тут будет список команд + полноценный редактор команд.
-commands-wip-follow = Следите за обновлениями в
-commands-wip-channel = нашем телеграм канале
 
 # ERRORS
 error-generic = Произошла ошибка
@@ -1451,3 +1447,44 @@ command-stage-command_match = Сопоставление с командой
 command-stage-rejection_code = Отказ
 command-stage-execution_started = Запуск команды
 command-stage-execution_result = Результат
+
+# ------------------------------------------------------------- commands page
+# The page lists what the voice host really loaded, with no path and no argument.
+commands-subtitle = Список собран из наборов команд, которые загружает голосовой хост: фразы, слоты, уровень риска и причина, по которой команда не может выполниться. Ничего не выполняется.
+commands-refresh = Обновить
+commands-all-categories = Все
+commands-count-label = команд
+commands-empty = В этой категории пока нет команд.
+commands-no-match = Ничего не найдено.
+commands-pack = Набор
+commands-source-settings = Из настроек
+commands-risk = Риск
+commands-confirmation = Подтверждение
+commands-confirmation-yes = требуется
+commands-confirmation-no = не требуется
+commands-enabled = доступна
+commands-disabled = недоступна
+commands-phrases = Фразы
+commands-slots = Слоты
+commands-unreadable-title = Наборы, которые загрузчик не прочитал
+commands-unreadable-hint = Эти наборы есть на диске, но команды из них сейчас не выполняются. Причина указана для каждого.
+command-category-applications = Приложения
+command-category-sound = Звук
+command-category-windows = Окна
+command-category-screenshots = Снимки экрана
+command-category-timers = Таймеры
+command-category-system = Система
+command-category-weather = Погода
+command-category-global_voice_input = Глобальный голосовой ввод
+command-risk-safe = безопасный
+command-risk-confirm = требует подтверждения
+command-risk-forbidden = запрещён
+command-unavailable-no_phrases = у команды нет ни одной фразы, поэтому голосом её не вызвать
+command-unavailable-executable_missing = исполняемый файл не найден рядом с набором
+command-unavailable-script_missing = сценарий не найден рядом с набором
+command-unavailable-unsupported_type = неизвестный тип команды
+command-unavailable-disabled_in_settings = выключено в настройках
+command-pack-reason-parse_failed = документ набора не разобран
+command-pack-reason-unsupported_format = формат не поддерживается (нужен command.toml)
+command-pack-reason-missing_document = в наборе нет command.toml
+command-pack-reason-unreadable = файл набора не читается

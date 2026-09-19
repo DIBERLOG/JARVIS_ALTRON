@@ -1,6 +1,6 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
-use serde::{Serialize, Deserialize};
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JCommandsList {
@@ -10,35 +10,33 @@ pub struct JCommandsList {
     pub commands: Vec<JCommand>,
 }
 
-
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct JCommand {
     pub id: String,
 
     // Available command types are: "lua", "ahk", "cli", "voice", "terminate", "stop_chaining"
     #[serde(rename = "type")]
     pub cmd_type: String,
-    
+
     #[serde(default)]
     pub description: String,
 
     /// Explicit local-action policy, stored with the command definition.
     #[serde(default)]
     pub risk_level: crate::safety::RiskLevel,
-    
+
     // for "ahk" type
     #[serde(default)]
     pub exe_path: String,
     #[serde(default)]
     pub exe_args: Vec<String>,
-    
+
     // for "cli" type
     #[serde(default)]
     pub cli_cmd: String,
     #[serde(default)]
     pub cli_args: Vec<String>,
-    
+
     // #[serde(default)]
     // pub sounds: Vec<String>,
 
@@ -70,12 +68,12 @@ pub struct JCommand {
     // CACHE
     #[serde(skip, default)]
     sounds_cache: RwLock<HashMap<String, Arc<Vec<String>>>>,
-    
+
     #[serde(skip, default)]
     phrases_cache: RwLock<HashMap<String, Arc<Vec<String>>>>,
 }
 
-// custom Clone 
+// custom Clone
 impl Clone for JCommand {
     fn clone(&self) -> Self {
         Self {
@@ -108,15 +106,30 @@ impl Clone for JCommand {
 }
 
 impl JCommand {
+    /// A command with only what a test names, and the caches empty.
+    ///
+    /// The caches are private, so a test outside this module cannot build a
+    /// command with the struct-update syntax; this is the one door it needs.
+    #[cfg(test)]
+    pub fn for_test(id: &str, cmd_type: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            cmd_type: cmd_type.to_string(),
+            ..Default::default()
+        }
+    }
+
     // get phrases for current language
     pub fn get_phrases(&self, lang: &str) -> Arc<Vec<String>> {
         if let Some(cached) = self.phrases_cache.read().get(lang) {
             return Arc::clone(cached);
         }
-        
+
         let result = Arc::new(self.resolve_localized(&self.phrases, lang));
-        self.phrases_cache.write().insert(lang.to_string(), Arc::clone(&result));
-        
+        self.phrases_cache
+            .write()
+            .insert(lang.to_string(), Arc::clone(&result));
+
         result
     }
 
@@ -130,10 +143,12 @@ impl JCommand {
         if let Some(cached) = self.sounds_cache.read().get(lang) {
             return Arc::clone(cached);
         }
-        
+
         let result = Arc::new(self.resolve_localized(&self.sounds, lang));
-        self.sounds_cache.write().insert(lang.to_string(), Arc::clone(&result));
-        
+        self.sounds_cache
+            .write()
+            .insert(lang.to_string(), Arc::clone(&result));
+
         result
     }
 
@@ -141,7 +156,6 @@ impl JCommand {
     pub fn get_all_sounds(&self) -> Vec<String> {
         self.sounds.values().flatten().cloned().collect()
     }
-
 
     // shared fallback
     fn resolve_localized(&self, map: &HashMap<String, Vec<String>>, lang: &str) -> Vec<String> {
