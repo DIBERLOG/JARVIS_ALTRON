@@ -126,6 +126,11 @@ export function errorKey(code: string): string {
  * They are separate from the whisper codes because they answer a different
  * question — whether this machine can record at all — and the panel shows them
  * beside the microphone check, not beside a transcription.
+ *
+ * The second half is the split that the "no microphone" report needed: a
+ * device that is in use (`recorder_busy`, `vosk_owns_microphone`) and a stage
+ * that failed (`start_failed`, `read_failed`, `invalid_state`) are four
+ * different answers, and none of them is hardware.
  */
 export const RECORDER_CODES: readonly string[] = [
     "not_initialized",
@@ -135,7 +140,12 @@ export const RECORDER_CODES: readonly string[] = [
     "already_running",
     "not_running",
     "backend_unavailable",
-    "permission_denied"
+    "permission_denied",
+    "recorder_busy",
+    "vosk_owns_microphone",
+    "start_failed",
+    "read_failed",
+    "invalid_state"
 ]
 
 /** Every code the core can put in an error, so none reaches the user raw. */

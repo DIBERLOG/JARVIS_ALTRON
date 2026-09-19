@@ -17,6 +17,15 @@ pub fn is_ready() -> bool {
     RECORDER.get().is_some()
 }
 
+/// Whether the native stream is open right now.
+///
+/// This is the flag the backend itself keeps, and it is what a read checks
+/// before it asks the library for a frame: reading a stream that was never
+/// started is not a device failure, it is a missing start.
+pub fn is_recording() -> bool {
+    IS_RECORDING.load(Ordering::SeqCst)
+}
+
 /// The native reason for the last failed open, for classification only.
 pub fn last_open_error() -> String {
     LAST_OPEN_ERROR.get().cloned().unwrap_or_default()

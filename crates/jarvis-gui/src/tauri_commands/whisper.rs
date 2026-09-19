@@ -198,8 +198,27 @@ pub async fn whisper_dictate(state: tauri::State<'_, AppState>) -> Result<Transc
             log::warn!("whisper: recorder_unavailable ({code})");
             code
         })?;
-        let mut source = RecorderFrames;
-        let transcript = handle.session().dictate(&mut source).map_err(describe)?;
+        let mut source = RecorderFrames::new();
+        // A recorder failure travels as its own code, so the panel shows
+        // `not_initialized`, `recorder_busy`, `vosk_owns_microphone`,
+        // `start_failed` — and not one sentence for all of them. The log keeps
+        // the stage as well, which is what tells a missing start from a device
+        // that failed.
+        let transcript = match handle.session().dictate(&mut source) {
+            Ok(transcript) => transcript,
+            Err(error) => {
+                return match recorder_failure(&error) {
+                    Some((stage, code)) => {
+                        log::warn!(
+                            "whisper: {} (stage={stage} recorder_code={code})",
+                            error.code()
+                        );
+                        Err(code.to_string())
+                    }
+                    None => Err(describe(error)),
+                };
+            }
+        };
         handle.remember(transcript.clone());
         Ok(transcript)
     })
@@ -283,8 +302,24 @@ fn data_directory() -> PathBuf {
 /// A message that is safe to show and to log: the error codes carry no path and
 /// no transcript.
 fn describe(error: WhisperError) -> String {
-    log::warn!("whisper: {}", error.code());
+    match &error {
+        // The stage and the recorder's own code are what makes this
+        // diagnosable: `recorder_unavailable` on its own hid a missing start.
+        WhisperError::RecorderUnavailable { stage, code } => log::warn!(
+            "whisper: {} (stage={stage} recorder_code={code})",
+            error.code()
+        ),
+        _ => log::warn!("whisper: {}", error.code()),
+    }
     error.to_string()
+}
+
+/// The recorder's own stage and code, when the failure came from the recorder.
+fn recorder_failure(error: &WhisperError) -> Option<(&'static str, &'static str)> {
+    match error {
+        WhisperError::RecorderUnavailable { stage, code } => Some((stage, code)),
+        _ => None,
+    }
 }
 
 fn pick(app: &tauri::AppHandle, extension: &str) -> Option<PathBuf> {

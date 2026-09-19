@@ -407,7 +407,14 @@ fn toggle_vosk(app: &AppHandle) {
 /// instead of one flattened "audio unavailable".
 pub(crate) fn ensure_recorder_ready() -> Result<jarvis_core::recorder::RecorderStatus, String> {
     if !jarvis_core::recorder::is_ready() {
-        jarvis_core::recorder::init().map_err(|error| error.code().to_string())?;
+        jarvis_core::recorder::init().map_err(|error| {
+            log::warn!(
+                "recorder: not prepared (stage={} error_code={})",
+                error.stage(),
+                error.code()
+            );
+            error.code().to_string()
+        })?;
     }
     let status = jarvis_core::recorder::status().map_err(|error| error.code().to_string())?;
     if !status.native_ready {
@@ -439,9 +446,10 @@ pub(crate) fn check_microphone(
             .to_string());
     }
     ensure_recorder_ready()?;
-    // Three frames of 512 samples at 16 kHz: about a tenth of a second, enough
-    // for a level and short enough that a person does not notice it.
-    jarvis_core::recorder::check_microphone(3).map_err(|error| error.code().to_string())
+    // Ten frames of 512 samples at 16 kHz: about a third of a second, long
+    // enough for a spoken word to show up and short enough that a person does
+    // not notice the device being taken.
+    jarvis_core::recorder::check_microphone(10).map_err(|error| error.code().to_string())
 }
 
 fn start_dictation(app: &AppHandle) {
@@ -477,14 +485,16 @@ fn start_dictation(app: &AppHandle) {
                     ticket,
                 };
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let mut source = jarvis_core::whisper::RecorderFrames;
+                    let mut source = jarvis_core::whisper::RecorderFrames::new();
                     session.dictate(&mut source)
                 }));
                 match outcome {
                     Ok(Ok(_)) => {}
-                    Ok(Err(error)) => {
-                        log::warn!("desktop: dictation failed: {}", error.code())
-                    }
+                    Ok(Err(error)) => log::warn!(
+                        "desktop: dictation failed: {} ({})",
+                        error.code(),
+                        error.detail().unwrap_or_else(|| "no detail".to_string())
+                    ),
                     Err(_) => log::error!(
                         "desktop: the dictation worker panicked; the microphone is released"
                     ),

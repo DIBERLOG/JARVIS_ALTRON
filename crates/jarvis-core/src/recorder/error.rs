@@ -2,6 +2,16 @@
 //!
 //! Every variant is a code and a short sentence: no device name, no path, and no
 //! audio. An error from here can be shown in the window and written to a log.
+//!
+//! Two things are deliberately separated:
+//!
+//! * **where it failed** — [`RecorderError::stage`] is `init`, `claim`, `start`,
+//!   `read`, or `state`. The window shows the code; the log keeps the stage, so
+//!   "the microphone is unavailable" stops being one answer for five different
+//!   failures;
+//! * **who is holding the device** — [`RecorderError::Busy`] and
+//!   [`RecorderError::VoiceOwnsMicrophone`] name the other owner instead of
+//!   reporting a device problem that does not exist.
 
 use std::fmt;
 
@@ -32,6 +42,28 @@ pub enum RecorderError {
     /// own variant because the answer for the user is different: no amount of
     /// retrying helps until the setting is changed.
     PermissionDenied(String),
+    /// Another part of the application is holding the microphone right now.
+    ///
+    /// `held_by` is one of the fixed owner names — `a microphone check`,
+    /// `a dictation`, `the voice listener` — and never a device or a person.
+    Busy { held_by: &'static str },
+    /// The wake-word listener owns the microphone.
+    ///
+    /// Its own code because the answer is "stop listening first", not "your
+    /// microphone is broken".
+    VoiceOwnsMicrophone,
+    /// The stream was open and the native start refused.
+    ///
+    /// The inner code is kept, so an actionable failure — access denied, no
+    /// device, an unimplemented backend — is still recognizable underneath.
+    StartFailed { inner: &'static str },
+    /// The stream is open and the frame could not be read.
+    ReadFailed { inner: &'static str },
+    /// The recorder was asked for something that its state does not allow.
+    ///
+    /// The detail is a fixed sentence: "the stream is not open" is the common
+    /// one, and it is what a read before a start has to say.
+    InvalidState(&'static str),
 }
 
 impl RecorderError {
@@ -46,6 +78,55 @@ impl RecorderError {
             Self::NotRunning => "not_running",
             Self::BackendUnavailable => "backend_unavailable",
             Self::PermissionDenied(_) => "permission_denied",
+            Self::Busy { .. } => "recorder_busy",
+            Self::VoiceOwnsMicrophone => "vosk_owns_microphone",
+            Self::StartFailed { .. } => "start_failed",
+            Self::ReadFailed { .. } => "read_failed",
+            Self::InvalidState(_) => "invalid_state",
+        }
+    }
+
+    /// Where in the recording the failure happened.
+    ///
+    /// The window shows the code; the log keeps the stage as well, because
+    /// "the microphone is unavailable" from five different stages is not a
+    /// diagnosis. The stage is a fixed word and carries no content.
+    pub fn stage(&self) -> &'static str {
+        match self {
+            Self::NotInitialized
+            | Self::NoInputDevice
+            | Self::UnsupportedConfiguration(_)
+            | Self::BackendUnavailable
+            | Self::PermissionDenied(_) => "init",
+            Self::Busy { .. } | Self::VoiceOwnsMicrophone | Self::AlreadyRunning => "claim",
+            Self::StartFailed { .. } => "start",
+            Self::ReadFailed { .. } | Self::DeviceFailed(_) => "read",
+            Self::NotRunning | Self::InvalidState(_) => "state",
+        }
+    }
+
+    /// The fixed owner name of a busy microphone, when that is the answer.
+    pub fn held_by(&self) -> Option<&'static str> {
+        match self {
+            Self::Busy { held_by } => Some(held_by),
+            Self::VoiceOwnsMicrophone => Some(crate::recorder::owner_name(
+                crate::recorder::MicrophoneOwner::Voice,
+            )),
+            _ => None,
+        }
+    }
+
+    /// A short, content-free sentence about the failure, when it has one.
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            Self::UnsupportedConfiguration(detail)
+            | Self::DeviceFailed(detail)
+            | Self::PermissionDenied(detail) => Some(detail.clone()),
+            Self::InvalidState(state) => Some((*state).to_string()),
+            Self::StartFailed { inner } | Self::ReadFailed { inner } => {
+                Some(format!("the recorder answered {inner}"))
+            }
+            _ => None,
         }
     }
 
@@ -83,6 +164,27 @@ impl fmt::Display for RecorderError {
                     "the system refused access to the microphone: {detail}"
                 )
             }
+            Self::Busy { held_by } => {
+                write!(formatter, "the microphone is already in use by {held_by}")
+            }
+            Self::VoiceOwnsMicrophone => {
+                formatter.write_str("the voice listener is using the microphone")
+            }
+            Self::StartFailed { inner } => {
+                write!(
+                    formatter,
+                    "the microphone stream could not be started ({inner})"
+                )
+            }
+            Self::ReadFailed { inner } => {
+                write!(
+                    formatter,
+                    "the microphone stream could not be read ({inner})"
+                )
+            }
+            Self::InvalidState(state) => {
+                write!(formatter, "the recorder is in the wrong state: {state}")
+            }
         }
     }
 }
@@ -103,6 +205,17 @@ mod tests {
             RecorderError::NotRunning,
             RecorderError::BackendUnavailable,
             RecorderError::PermissionDenied("access".to_string()),
+            RecorderError::Busy {
+                held_by: "a microphone check",
+            },
+            RecorderError::VoiceOwnsMicrophone,
+            RecorderError::StartFailed {
+                inner: "device_failed",
+            },
+            RecorderError::ReadFailed {
+                inner: "device_failed",
+            },
+            RecorderError::InvalidState("the stream is not open"),
         ]
     }
 
@@ -133,5 +246,65 @@ mod tests {
         assert!(RecorderError::PermissionDenied("access".to_string()).is_configuration_problem());
         assert!(!RecorderError::NotInitialized.is_configuration_problem());
         assert!(!RecorderError::DeviceFailed("x".to_string()).is_configuration_problem());
+    }
+
+    /// A stage is what turns "the microphone is unavailable" into a diagnosis.
+    #[test]
+    fn every_failure_names_the_stage_it_happened_in() {
+        for error in every_variant() {
+            let stage = error.stage();
+            assert!(
+                ["init", "claim", "start", "read", "state"].contains(&stage),
+                "{stage} is not a known stage"
+            );
+        }
+        assert_eq!(
+            RecorderError::InvalidState("the stream is not open").stage(),
+            "state"
+        );
+        assert_eq!(
+            RecorderError::StartFailed {
+                inner: "device_failed"
+            }
+            .stage(),
+            "start"
+        );
+        assert_eq!(
+            RecorderError::ReadFailed {
+                inner: "device_failed"
+            }
+            .stage(),
+            "read"
+        );
+    }
+
+    #[test]
+    fn a_busy_microphone_names_the_other_owner() {
+        assert_eq!(
+            RecorderError::Busy {
+                held_by: "a dictation"
+            }
+            .held_by(),
+            Some("a dictation")
+        );
+        assert_eq!(
+            RecorderError::VoiceOwnsMicrophone.held_by(),
+            Some(crate::recorder::owner_name(
+                crate::recorder::MicrophoneOwner::Voice
+            ))
+        );
+        assert_eq!(RecorderError::NotRunning.held_by(), None);
+    }
+
+    #[test]
+    fn the_inner_code_of_a_stage_failure_survives_in_the_detail() {
+        let error = RecorderError::StartFailed {
+            inner: "permission_denied",
+        };
+        assert_eq!(error.code(), "start_failed");
+        assert_eq!(
+            error.detail().as_deref(),
+            Some("the recorder answered permission_denied")
+        );
     }
 }

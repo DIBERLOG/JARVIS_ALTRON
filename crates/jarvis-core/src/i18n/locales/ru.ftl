@@ -1236,6 +1236,11 @@ whisper-error-already_running = Запись уже идёт.
 whisper-error-not_running = Сейчас ничего не записывается.
 whisper-error-backend_unavailable = Эта сборка не умеет записывать с такого устройства.
 whisper-error-permission_denied = Микрофон занят Windows или другой программой.
+whisper-error-recorder_busy = Микрофон уже используется другой частью приложения.
+whisper-error-vosk_owns_microphone = Микрофон занят слушателем голоса. Сначала остановите прослушивание.
+whisper-error-start_failed = Запись не удалось начать.
+whisper-error-read_failed = Запись прервалась: микрофон перестал отвечать.
+whisper-error-invalid_state = Рекордеру дали команду, которую его состояние не допускает.
 
 # Проверка микрофона в настройках: она ничего не записывает.
 whisper-mic-check-button = Проверить микрофон

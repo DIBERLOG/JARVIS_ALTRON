@@ -1243,6 +1243,11 @@ whisper-error-already_running = A recording is already running.
 whisper-error-not_running = Nothing is recording.
 whisper-error-backend_unavailable = This build cannot record from that device.
 whisper-error-permission_denied = Windows or another program is holding the microphone.
+whisper-error-recorder_busy = The microphone is already in use by another part of the application.
+whisper-error-vosk_owns_microphone = The voice listener is using the microphone. Stop listening first.
+whisper-error-start_failed = The recording could not be started.
+whisper-error-read_failed = The recording stopped: the microphone stopped answering.
+whisper-error-invalid_state = The recorder was asked to do something its state does not allow.
 
 # The microphone check in the settings, which records nothing.
 whisper-mic-check-button = Check the microphone

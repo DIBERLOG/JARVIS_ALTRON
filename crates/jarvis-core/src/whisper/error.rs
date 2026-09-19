@@ -32,9 +32,18 @@ pub enum WhisperError {
     ///
     /// The code is one of `not_initialized`, `no_input_device`,
     /// `unsupported_configuration`, `device_failed`, `backend_unavailable`,
-    /// `permission_denied`, `already_running`, or `not_running`: the interface
-    /// shows it instead of a generic "audio unavailable".
-    RecorderUnavailable { code: String },
+    /// `permission_denied`, `already_running`, `not_running`, `recorder_busy`,
+    /// `vosk_owns_microphone`, `start_failed`, `read_failed`, or
+    /// `invalid_state`: the interface shows it instead of a generic "audio
+    /// unavailable".
+    ///
+    /// The stage says where the recording died — `init`, `claim`, `start`,
+    /// `read`, or `state`. It is what the log keeps, so a missing start can no
+    /// longer be read as a broken microphone.
+    RecorderUnavailable {
+        stage: &'static str,
+        code: &'static str,
+    },
     /// The recording is too short or too quiet to transcribe.
     AudioEmpty,
     /// Another transcription is already running in this session.
@@ -111,7 +120,9 @@ impl WhisperError {
             | Self::BinaryUnavailable(detail)
             | Self::ModelUnavailable(detail)
             | Self::AudioUnavailable(detail) => Some(detail.clone()),
-            Self::RecorderUnavailable { code } => Some(code.clone()),
+            Self::RecorderUnavailable { stage, code } => {
+                Some(format!("{code} while the microphone was being {stage}"))
+            }
             Self::WrongArchitecture { expected, found } => {
                 Some(format!("built for {found}, needs {expected}"))
             }
@@ -148,8 +159,11 @@ impl fmt::Display for WhisperError {
             Self::AudioUnavailable(detail) => {
                 write!(formatter, "the audio cannot be used: {detail}")
             }
-            Self::RecorderUnavailable { code } => {
-                write!(formatter, "the microphone is not available ({code})")
+            Self::RecorderUnavailable { stage, code } => {
+                write!(
+                    formatter,
+                    "the microphone could not be used during {stage} ({code})"
+                )
             }
             Self::AudioEmpty => formatter.write_str("nothing was recorded"),
             Self::Busy => formatter.write_str("a transcription is already running"),
@@ -208,7 +222,8 @@ mod tests {
             },
             WhisperError::AudioUnavailable("not a wav".to_string()),
             WhisperError::RecorderUnavailable {
-                code: "not_initialized".to_string(),
+                stage: "read",
+                code: "invalid_state",
             },
             WhisperError::AudioEmpty,
             WhisperError::Busy,

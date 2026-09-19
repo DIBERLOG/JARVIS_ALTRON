@@ -42,13 +42,34 @@ use super::wav::{
 /// The real implementation reads the recorder the application already uses; the
 /// fake produces a scripted signal, so the session can be tested without a
 /// microphone.
+///
+/// The lifecycle is three calls and they are all mandatory: `start` opens the
+/// stream, `read_frame` runs in the loop, and `stop` gives the device back.
+/// Leaving `start` out is the defect this trait now makes impossible to hide: a
+/// source that is only read never opens anything, and the failure then looks
+/// like a broken microphone three levels up.
 pub trait FrameSource: Send {
+    /// Opens the microphone for this recording.
+    ///
+    /// The default is "this source needs no opening", which is true for a fake
+    /// and false for the real recorder.
+    fn start(&mut self) -> Result<(), WhisperError> {
+        Ok(())
+    }
+
     /// Fills the buffer with the next frame of 16 kHz mono samples.
     ///
     /// A failure — no microphone, an uninitialised recorder, a driver that went
     /// away — is a value, because a recording has to stop and free the device
     /// instead of unwinding the thread that was recording.
     fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError>;
+
+    /// Closes the stream and frees the device.
+    ///
+    /// Called on every path, including a failed read and a cancelled recording,
+    /// so it must be safe to call twice and safe to call after a failure.
+    fn stop(&mut self) {}
+
     /// Whether the source is still producing audio.
     fn is_running(&self) -> bool {
         true
@@ -129,17 +150,69 @@ pub struct DictationStatus {
 }
 
 /// Reads the microphone the application already has open.
-pub struct RecorderFrames;
+///
+/// The source owns the microphone lease for as long as it exists, so the device
+/// is opened by [`FrameSource::start`] and given back when the source is
+/// dropped — whichever way the recording ended. Before this, the dictation read
+/// frames from a stream nothing had started, and the answer from the native
+/// library arrived as a device failure.
+#[derive(Default)]
+pub struct RecorderFrames {
+    lease: Option<crate::recorder::MicrophoneLease>,
+}
+
+impl RecorderFrames {
+    /// A source that opens the microphone when the recording starts.
+    pub fn new() -> Self {
+        Self { lease: None }
+    }
+
+    /// Whether this source is holding the microphone right now.
+    pub fn holds_microphone(&self) -> bool {
+        self.lease.is_some()
+    }
+}
 
 impl FrameSource for RecorderFrames {
+    fn start(&mut self) -> Result<(), WhisperError> {
+        if self.lease.is_some() {
+            return Ok(());
+        }
+        let lease =
+            crate::recorder::MicrophoneLease::acquire(crate::recorder::MicrophoneOwner::Dictation)
+                .map_err(recorder_unavailable)?;
+        self.lease = Some(lease);
+        Ok(())
+    }
+
     fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError> {
+        // A read without the lease is the defect itself, and it is refused here
+        // as well as in the session: the frames of a stream this source never
+        // opened are not its to take.
+        if self.lease.is_none() {
+            return Err(WhisperError::RecorderUnavailable {
+                stage: "read",
+                code: "invalid_state",
+            });
+        }
         // The recorder's own code travels with the error, so the interface can
         // say *why* the microphone is unavailable instead of "audio".
-        crate::recorder::try_read_microphone(buffer).map_err(|error| {
-            WhisperError::RecorderUnavailable {
-                code: error.code().to_string(),
-            }
-        })
+        crate::recorder::try_read_microphone(buffer).map_err(recorder_unavailable)
+    }
+
+    fn stop(&mut self) {
+        // Dropping the lease stops the stream and frees the claim.
+        if self.lease.take().is_some() {
+            log::info!("dictation: microphone released (stage=stop owner=a dictation)");
+        }
+    }
+}
+
+/// Builds the session error from a recorder failure, keeping its code and stage.
+fn recorder_unavailable(error: crate::recorder::RecorderError) -> WhisperError {
+    WhisperError::RecorderUnavailable {
+        stage: error.stage(),
+        code: error.code(),
     }
 }
 
@@ -207,6 +280,22 @@ impl Drop for RecordingGuard<'_> {
         ) {
             *state = DictationState::Idle;
         }
+    }
+}
+
+/// Closes the frame source when the recording ends.
+///
+/// `record_inner` returns early on a failed read, so the close cannot be written
+/// at the end of the function: it belongs in a guard, next to the guard that
+/// resets the state. A source that keeps the device open would block the next
+/// dictation, which is exactly what the ownership rule forbids.
+struct SourceGuard<'a> {
+    source: &'a mut dyn FrameSource,
+}
+
+impl Drop for SourceGuard<'_> {
+    fn drop(&mut self) {
+        self.source.stop();
     }
 }
 
@@ -420,18 +509,25 @@ impl WhisperSession {
         let mut truncated = false;
         let mut reason = StopReason::Length;
 
+        // The stream is opened here, once, before a single frame is asked for,
+        // and the guard closes it on every path — a full recording, a failed
+        // read, a failed start, a cancellation, and a returned error — so the
+        // device can never outlive the recording that opened it.
+        let guard = SourceGuard { source };
+        guard.source.start()?;
+
         for _ in 0..total_frames {
             if self.cancel.load(Ordering::SeqCst) {
                 reason = StopReason::Requested;
                 break;
             }
-            if !source.is_running() {
+            if !guard.source.is_running() {
                 reason = StopReason::Requested;
                 break;
             }
             // A read failure is the end of the recording, with the reason kept:
             // the stream is closed by the guard and the caller is told why.
-            source.read_frame(&mut buffer)?;
+            guard.source.read_frame(&mut buffer)?;
             let peak = peak_amplitude(&buffer);
             if peak > DEFAULT_SILENCE_PEAK {
                 heard_speech = true;
@@ -450,6 +546,7 @@ impl WhisperSession {
                 break;
             }
         }
+        drop(guard);
 
         // The floor is "something was recorded", not a preference: a word that
         // ended on silence is still sent, and only an empty buffer is refused.
@@ -1177,10 +1274,225 @@ mod tests {
         assert_eq!(reopened.settings().language, "ru");
     }
 
+    /// A source that writes down what the session did to it.
+    ///
+    /// The defect was a missing `start`: the session read frames from a stream
+    /// that nothing had opened, and the native answer arrived as a device
+    /// failure. This source makes the order visible, so a missing start fails
+    /// the test instead of being reported as broken hardware.
+    struct LifecycleSource {
+        events: Arc<Mutex<Vec<&'static str>>>,
+        loud_frames: usize,
+        reads: usize,
+        endless: bool,
+    }
+
+    impl LifecycleSource {
+        /// Speech for `loud_frames` frames, then silence until the recording
+        /// ends on its own.
+        fn new(loud_frames: usize) -> Self {
+            Self {
+                events: Arc::new(Mutex::new(Vec::new())),
+                loud_frames,
+                reads: 0,
+                endless: false,
+            }
+        }
+
+        /// A source that never runs out, so only a manual stop can end it.
+        fn endless() -> Self {
+            Self {
+                events: Arc::new(Mutex::new(Vec::new())),
+                loud_frames: usize::MAX,
+                reads: 0,
+                endless: true,
+            }
+        }
+
+        fn events(&self) -> Arc<Mutex<Vec<&'static str>>> {
+            Arc::clone(&self.events)
+        }
+
+        fn recorded(events: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
+            events.lock().clone()
+        }
+    }
+
+    impl FrameSource for LifecycleSource {
+        fn start(&mut self) -> Result<(), WhisperError> {
+            self.events.lock().push("start");
+            Ok(())
+        }
+
+        fn read_frame(&mut self, buffer: &mut [i16]) -> Result<(), WhisperError> {
+            self.events.lock().push("read");
+            self.reads += 1;
+            if self.endless || self.reads <= self.loud_frames {
+                buffer.fill(3000);
+            } else {
+                buffer.fill(0);
+            }
+            Ok(())
+        }
+
+        fn stop(&mut self) {
+            self.events.lock().push("stop");
+        }
+    }
+
+    /// The whole reported sequence, at the level where it was broken:
+    /// init → check → released → dictate → START → frames → stop → Idle, and
+    /// then a second dictation that must reach START as well.
+    #[test]
+    fn a_dictation_opens_the_stream_and_a_second_one_opens_it_again() {
+        let (directory, binary, model) = prepared_directory();
+        let mut settings = enabled_settings(&binary, &model);
+        // Silence ends the recording on its own, so the test is bounded.
+        settings.silence_ms = 500;
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            settings,
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+
+        // The check is what the user pressed first. The fake source stands in
+        // for the real one here; the device itself is exercised by the
+        // integration test in `tests/microphone_lifecycle.rs`.
+        let mut first = LifecycleSource::new(2);
+        let (recording, reason) = session.record(&mut first).expect("the first recording");
+        assert_eq!(
+            reason,
+            StopReason::Silence,
+            "silence must end the recording"
+        );
+        assert!(!recording.samples.is_empty());
+
+        let events = LifecycleSource::recorded(&first.events());
+        assert_eq!(events.first().copied(), Some("start"), "START comes first");
+        assert_eq!(events.last().copied(), Some("stop"), "the stream is closed");
+        assert!(
+            events.iter().filter(|event| **event == "read").count() >= 3,
+            "frames must have been read after the start: {events:?}"
+        );
+        let start_at = events.iter().position(|event| *event == "start");
+        let stop_at = events.iter().rposition(|event| *event == "stop");
+        assert!(start_at < stop_at, "start must precede stop: {events:?}");
+        assert_eq!(session.state(), DictationState::Idle);
+        assert!(!session.holds_microphone());
+
+        // The point of the ownership rule: nothing was left open, so the next
+        // dictation reaches START again.
+        let mut second = LifecycleSource::new(2);
+        let (_, reason) = session
+            .record(&mut second)
+            .expect("the second recording must be possible");
+        assert_eq!(reason, StopReason::Silence);
+        let events = LifecycleSource::recorded(&second.events());
+        assert_eq!(events.first().copied(), Some("start"));
+        assert_eq!(events.last().copied(), Some("stop"));
+        assert_eq!(session.state(), DictationState::Idle);
+    }
+
+    /// A stop the user asks for closes the stream too, and leaves the session
+    /// ready for the next dictation.
+    #[test]
+    fn a_manual_stop_closes_the_stream_and_the_next_dictation_starts_again() {
+        let (directory, binary, model) = prepared_directory();
+        let mut settings = enabled_settings(&binary, &model);
+        settings.max_seconds = 30;
+        settings.silence_ms = 10_000;
+        let session = Arc::new(WhisperSession::with_runner(
+            directory.path(),
+            settings,
+            Arc::new(FakeTranscriber::answering("привет")),
+        ));
+        let mut source = LifecycleSource::endless();
+        let events = source.events();
+        let worker = {
+            let session = Arc::clone(&session);
+            std::thread::spawn(move || session.record(&mut source))
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while session.state() != DictationState::Recording && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(session.state(), DictationState::Recording);
+        assert!(session.cancel());
+        let ended = worker.join().unwrap().expect("the recording is a value");
+        assert_eq!(ended.1, StopReason::Requested);
+
+        let events = LifecycleSource::recorded(&events);
+        assert_eq!(events.first().copied(), Some("start"));
+        assert_eq!(
+            events.last().copied(),
+            Some("stop"),
+            "a cancelled recording closes the stream: {events:?}"
+        );
+        assert_eq!(session.state(), DictationState::Idle);
+
+        // And the next dictation reaches START, which is what the defect broke.
+        let mut next = LifecycleSource::new(2);
+        session
+            .record(&mut next)
+            .expect("a dictation after a manual stop");
+        assert_eq!(
+            LifecycleSource::recorded(&next.events()).first().copied(),
+            Some("start")
+        );
+    }
+
+    /// A start that fails closes nothing that was opened and leaves the session
+    /// idle: the failure has to be a value on the first call, not a hang.
+    #[test]
+    fn a_source_that_cannot_open_ends_the_recording_before_any_frame() {
+        struct RefusingSource;
+        impl FrameSource for RefusingSource {
+            fn start(&mut self) -> Result<(), WhisperError> {
+                Err(WhisperError::RecorderUnavailable {
+                    stage: "start",
+                    code: "start_failed",
+                })
+            }
+            fn read_frame(&mut self, _buffer: &mut [i16]) -> Result<(), WhisperError> {
+                panic!("nothing may be read when the stream never opened");
+            }
+        }
+
+        let (directory, binary, model) = prepared_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            enabled_settings(&binary, &model),
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        let mut source = RefusingSource;
+        let error = session.record(&mut source).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                WhisperError::RecorderUnavailable {
+                    stage: "start",
+                    code: "start_failed"
+                }
+            ),
+            "{error}"
+        );
+        assert_eq!(session.state(), DictationState::Idle);
+        assert!(!session.holds_microphone());
+    }
+
     /// A source that fails the way the recorder did in the reported defect.
     struct FailingSource {
         error: Option<WhisperError>,
         frames_served: usize,
+    }
+
+    /// The session error for a recorder failure, the way the real source builds
+    /// it: the code and the stage both travel.
+    fn recorder_error(error: crate::recorder::RecorderError) -> WhisperError {
+        WhisperError::RecorderUnavailable {
+            stage: error.stage(),
+            code: error.code(),
+        }
     }
 
     impl FailingSource {
@@ -1188,8 +1500,8 @@ mod tests {
         /// used to be `called Option::unwrap() on a None value`.
         fn not_initialized() -> Self {
             Self {
-                error: Some(WhisperError::AudioUnavailable(
-                    crate::recorder::RecorderError::NotInitialized.to_string(),
+                error: Some(recorder_error(
+                    crate::recorder::RecorderError::NotInitialized,
                 )),
                 frames_served: 0,
             }
@@ -1197,8 +1509,8 @@ mod tests {
 
         fn no_input_device() -> Self {
             Self {
-                error: Some(WhisperError::AudioUnavailable(
-                    crate::recorder::RecorderError::NoInputDevice.to_string(),
+                error: Some(recorder_error(
+                    crate::recorder::RecorderError::NoInputDevice,
                 )),
                 frames_served: 0,
             }
@@ -1206,11 +1518,10 @@ mod tests {
 
         fn unsupported_configuration() -> Self {
             Self {
-                error: Some(WhisperError::AudioUnavailable(
+                error: Some(recorder_error(
                     crate::recorder::RecorderError::UnsupportedConfiguration(
                         "sample rate".to_string(),
-                    )
-                    .to_string(),
+                    ),
                 )),
                 frames_served: 0,
             }
@@ -1220,15 +1531,37 @@ mod tests {
         /// produced the audio is gone.
         fn closing_channel(frames: usize) -> Self {
             Self {
-                error: Some(WhisperError::AudioUnavailable(
-                    "the audio stream ended".to_string(),
-                )),
+                error: Some(WhisperError::RecorderUnavailable {
+                    stage: "read",
+                    code: "read_failed",
+                }),
                 frames_served: frames,
+            }
+        }
+
+        /// A source that refuses to open: the microphone is held elsewhere.
+        fn busy() -> Self {
+            Self {
+                error: Some(recorder_error(crate::recorder::RecorderError::Busy {
+                    held_by: "a microphone check",
+                })),
+                frames_served: 0,
             }
         }
     }
 
     impl FrameSource for FailingSource {
+        fn start(&mut self) -> Result<(), WhisperError> {
+            // The failure the real recorder reports is a claim, not a read: this
+            // source fails where a busy microphone fails.
+            match &self.error {
+                Some(WhisperError::RecorderUnavailable { stage: "claim", .. }) => {
+                    Err(self.error.take().expect("checked above"))
+                }
+                _ => Ok(()),
+            }
+        }
+
         fn is_running(&self) -> bool {
             // A closed channel stops the source, the same way a dropped sender
             // stops a stream.
@@ -1246,9 +1579,10 @@ mod tests {
             if let Some(error) = self.error.take() {
                 return Err(error);
             }
-            Err(WhisperError::AudioUnavailable(
-                "the audio stream ended".to_string(),
-            ))
+            Err(WhisperError::RecorderUnavailable {
+                stage: "read",
+                code: "invalid_state",
+            })
         }
     }
 
@@ -1266,7 +1600,18 @@ mod tests {
         );
         let mut source = FailingSource::not_initialized();
         let error = session.record(&mut source).unwrap_err();
-        assert!(matches!(error, WhisperError::AudioUnavailable(_)));
+        assert!(
+            matches!(
+                error,
+                WhisperError::RecorderUnavailable {
+                    // `not_initialized` belongs to the preparation stage: the
+                    // recorder was never initialised in this process.
+                    stage: "init",
+                    code: "not_initialized"
+                }
+            ),
+            "{error}"
+        );
         assert_eq!(
             session.state(),
             DictationState::Idle,
@@ -1275,7 +1620,7 @@ mod tests {
         assert_eq!(
             session.last_outcome(),
             Some(DictationOutcome::Failed {
-                code: "audio_unavailable"
+                code: "recorder_unavailable"
             })
         );
         assert!(!session.holds_microphone());
@@ -1299,8 +1644,8 @@ mod tests {
             );
             let error = session.record(&mut source).unwrap_err();
             assert!(
-                matches!(error, WhisperError::AudioUnavailable(_)),
-                "{label}"
+                matches!(error, WhisperError::RecorderUnavailable { .. }),
+                "{label}: {error}"
             );
             assert_eq!(session.state(), DictationState::Idle, "{label}");
             assert!(!session.holds_microphone(), "{label}");
@@ -1308,6 +1653,34 @@ mod tests {
             // code the user cannot read.
             assert!(error.to_string().contains("microphone"), "{label}: {error}");
         }
+    }
+
+    /// The microphone is claimed before anything is read: a busy device is a
+    /// claim failure, not a read failure.
+    #[test]
+    fn a_microphone_held_elsewhere_stops_before_a_single_frame_is_read() {
+        let (directory, binary, model) = prepared_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            enabled_settings(&binary, &model),
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        let mut source = FailingSource::busy();
+        let error = session.record(&mut source).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                WhisperError::RecorderUnavailable {
+                    stage: "claim",
+                    code: "recorder_busy"
+                }
+            ),
+            "{error}"
+        );
+        // The frames of the source were never touched: the claim came first.
+        assert_eq!(source.frames_served, 0);
+        assert_eq!(session.state(), DictationState::Idle);
+        assert!(!session.holds_microphone());
     }
 
     #[test]
@@ -1324,7 +1697,10 @@ mod tests {
         // stream ending is what surfaces rather than an empty buffer.
         let mut source = FailingSource::closing_channel(10);
         let error = session.record(&mut source).unwrap_err();
-        assert!(matches!(error, WhisperError::AudioUnavailable(_)));
+        assert!(
+            matches!(error, WhisperError::RecorderUnavailable { .. }),
+            "{error}"
+        );
         assert_eq!(session.state(), DictationState::Idle);
         assert!(session.last_outcome().is_some());
     }

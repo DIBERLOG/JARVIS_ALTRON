@@ -21,8 +21,15 @@ function coreRecorderCodes() {
         fileURLToPath(new URL("../../crates/jarvis-core/src/recorder/error.rs", import.meta.url)),
         "utf8"
     )
+    // Only the `code()` function: the stage names are lowercase too, and they
+    // are not codes.
+    const start = source.indexOf("pub fn code(")
+    assert.ok(start >= 0, "RecorderError must still have a code()")
+    const rest = source.slice(start)
+    const end = rest.indexOf("\n    pub fn ")
+    const body = end >= 0 ? rest.slice(0, end) : rest
     const codes = new Set()
-    for (const match of source.matchAll(/=>\s*"([a-z_]+)"/g)) {
+    for (const match of body.matchAll(/=>\s*"([a-z_]+)"/g)) {
         codes.add(match[1])
     }
     return codes
