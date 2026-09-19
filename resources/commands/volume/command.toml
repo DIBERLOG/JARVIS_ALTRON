@@ -1,0 +1,127 @@
+# Volume, through the safe native Windows-action pipeline.
+#
+# The old pack shelled out to compiled AutoHotkey helpers (`Set sound.exe`,
+# `Mute volume.exe`) that are not part of this repository. Every command here is a
+# typed action that goes through the policy table, the allowlist and the audit log
+# the interface already uses, so nothing is started and nothing is guessed:
+# MATCHED and EXECUTABLE are separate questions, and both are answered by this
+# document and by the executor that exists in this build.
+
+[[commands]]
+id = "volume_get"
+type = "native"
+description = "Сообщает текущий уровень громкости"
+risk_level = "safe"
+
+[commands.native]
+action = "get_volume"
+
+[commands.sounds]
+ru = ["ok1", "ok2"]
+en = ["ok1", "ok2"]
+ua = ["ok1", "ok2"]
+
+[commands.phrases]
+ru = ["какая громкость", "сколько громкости", "текущая громкость", "какой уровень громкости"]
+en = ["what is the volume", "current volume", "how loud is it"]
+ua = ["яка гучність", "скільки гучності", "поточна гучність"]
+
+[[commands]]
+id = "volume_mute"
+type = "native"
+description = "Выключает звук"
+risk_level = "safe"
+
+[commands.native]
+action = "mute_volume"
+muted = true
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["выключи звук", "беззвучный режим", "режим без звука", "отключи звук"]
+en = ["mute the sound", "mute", "silent mode", "sound off"]
+ua = ["вимкни звук", "беззвучний режим", "режим без звуку", "вимкни гучність"]
+
+[[commands]]
+id = "volume_unmute"
+type = "native"
+description = "Включает звук"
+risk_level = "safe"
+
+[commands.native]
+action = "mute_volume"
+muted = false
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["включи звук", "режим со звуком", "верни звук"]
+en = ["unmute the sound", "unmute", "sound on", "turn the sound back on"]
+ua = ["увімкни звук", "режим зі звуком", "поверни звук"]
+
+[[commands]]
+id = "volume_min"
+type = "native"
+description = "Ставит громкость на 25 процентов"
+risk_level = "safe"
+
+[commands.native]
+action = "set_volume"
+percent = 25
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["звук на минимум", "громкость на минимум", "убавь звук", "сделай потише", "поставь звук на минимум", "поставь громкость на минимум", "минимальный уровень громкости"]
+en = ["volume to minimum", "minimum volume", "turn the volume down", "make it quieter"]
+ua = ["звук на мінімум", "гучність на мінімум", "убав звук", "зроби тихіше"]
+
+[[commands]]
+id = "volume_mid"
+type = "native"
+description = "Ставит громкость на 50 процентов"
+risk_level = "safe"
+
+[commands.native]
+action = "set_volume"
+percent = 50
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["звук пятьдесят", "громкость пятьдесят", "поставь звук на пятьдесят", "поставь громкость на пятьдесят", "громкость на середину", "средний уровень громкости", "поставь звук на середину"]
+en = ["volume fifty", "volume to fifty", "medium volume", "set the volume to the middle"]
+ua = ["звук п'ятдесят", "гучність п'ятдесят", "гучність на середину", "середній рівень гучності"]
+
+[[commands]]
+id = "volume_max"
+type = "native"
+description = "Ставит громкость на 100 процентов"
+risk_level = "safe"
+
+[commands.native]
+action = "set_volume"
+percent = 100
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["звук сто", "громкость сто", "поставь звук на сто", "поставь громкость на сто", "громкость на максимум", "звук на максимум", "полная громкость", "полный уровень громкости"]
+en = ["volume one hundred", "maximum volume", "volume to maximum", "full volume"]
+ua = ["звук сто", "гучність сто", "гучність на максимум", "повна гучність"]

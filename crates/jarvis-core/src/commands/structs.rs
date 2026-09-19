@@ -65,6 +65,15 @@ pub struct JCommand {
     #[serde(default)]
     pub slots: HashMap<String, SlotDefinition>,
 
+    /// A typed Windows action, for `type = "native"`. A pack names one of a fixed
+    /// set of actions; it cannot name a path or a command line.
+    #[serde(default)]
+    pub native: Option<super::NativeAction>,
+
+    /// A typed event of this application, for `type = "internal"`.
+    #[serde(default)]
+    pub internal: Option<super::InternalEvent>,
+
     // CACHE
     #[serde(skip, default)]
     sounds_cache: RwLock<HashMap<String, Arc<Vec<String>>>>,
@@ -97,6 +106,9 @@ impl Clone for JCommand {
             phrases: self.phrases.clone(),
 
             slots: self.slots.clone(),
+
+            native: self.native.clone(),
+            internal: self.internal,
 
             // empty caches for cloned instance
             sounds_cache: RwLock::new(HashMap::new()),

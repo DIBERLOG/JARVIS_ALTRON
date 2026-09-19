@@ -1,0 +1,22 @@
+# Shut the assistant down.
+#
+# The type is the terminator this build already has, and it now carries a risk
+# level the safety gate reads: the listener asks for a spoken "подтверждаю" in the
+# window before the process ends, instead of stopping on the first phrase that
+# sounds like it.
+
+[[commands]]
+id = "terminate"
+type = "terminate"
+description = "Завершает работу ассистента (после подтверждения)"
+risk_level = "confirmation_required"
+
+[commands.sounds]
+ru = ["off"]
+en = ["off"]
+ua = ["off"]
+
+[commands.phrases]
+ru = ["выключись", "вырубись", "закройся", "отключись", "заверши свою работу", "на сегодня хватит", "выгрузи себя из памяти", "ты мне надоел", "пора спать", "бай бай"]
+en = ["shut down", "shut yourself down", "turn yourself off", "stop working", "that's enough for today", "power down", "goodbye"]
+ua = ["вимкнись", "заверши свою роботу", "на сьогодні досить", "вивантаж себе з пам'яті", "бувай"]

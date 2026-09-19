@@ -54,6 +54,13 @@ pub enum ActionSource {
     LocalAi,
     /// The timer scheduler firing a stored timer or reminder.
     InternalTimer,
+    /// A command pack: a document the user installed, naming one typed action.
+    ///
+    /// It is not a guess about what was said — the phrase is one the pack lists,
+    /// and the action is one this build implements — so it is not treated as a
+    /// remote source. It still passes the policy table, the allowlist and the
+    /// audit log, which is more than the pack path did before.
+    CommandPack,
 }
 
 impl ActionSource {
@@ -63,7 +70,14 @@ impl ActionSource {
             Self::Voice => "voice",
             Self::LocalAi => "local_ai",
             Self::InternalTimer => "internal_timer",
+            Self::CommandPack => "command_pack",
         }
+    }
+
+    /// Whether the source is a request this application inferred rather than one
+    /// the user made directly. A command pack is the user's own document.
+    pub fn is_remote(&self) -> bool {
+        matches!(self, Self::LocalAi | Self::Voice)
     }
 
     pub fn label_key(&self) -> &'static str {
@@ -72,15 +86,8 @@ impl ActionSource {
             Self::Voice => "windows-source-voice",
             Self::LocalAi => "windows-source-local-ai",
             Self::InternalTimer => "windows-source-timer",
+            Self::CommandPack => "windows-source-command-pack",
         }
-    }
-
-    /// Whether this source acts without the user watching the interface right now.
-    ///
-    /// A launch asked for by the model or by voice is confirmed even when a button in the
-    /// interface would be considered safe enough to run immediately.
-    pub fn is_remote(&self) -> bool {
-        matches!(self, Self::LocalAi | Self::Voice)
     }
 }
 

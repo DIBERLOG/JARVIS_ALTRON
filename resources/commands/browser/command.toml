@@ -1,7 +1,16 @@
+# Browser.
+#
+# Starting the browser goes through the allowlist: the pack asks for the role
+# "browser", and the host starts the file the user allowed. The commands that need
+# a compiled AutoHotkey helper keep the executor they had, and the catalogue reports
+# them honestly while that helper is not next to the pack.
+
 [[commands]]
 id = "browser_open"
-type = "ahk"
-exe_path = "ahk/Run browser.exe"
+type = "native"
+description = "Запускает браузер из списка разрешённых приложений"
+risk_level = "safe"
+
 sounds.ru = ["ok1", "ok2", "ok3", "ok4"]
 sounds.en = ["ok1", "ok2", "ok3"]
 sounds.ua = ["ok1", "ok2", "ok3", "ok4", "ok5", "ok6"]
@@ -32,11 +41,14 @@ phrases.ua = [
     "потрібен браузер",
 ]
 
-
+[commands.native]
+action = "launch_application"
+role = "browser"
 
 [[commands]]
 id = "browser_close"
 type = "ahk"
+description = "Закрытие браузера запрещено политикой (нужен скомпилированный ahk/Close browser.exe)"
 risk_level = "forbidden"
 exe_path = "ahk/Close browser.exe"
 sounds.ru = ["ok1", "ok2", "ok3", "ok4"]
@@ -61,11 +73,11 @@ phrases.ua = [
     "вимкни браузер",
 ]
 
-
-
 [[commands]]
 id = "open_google"
 type = "ahk"
+description = "Открывает страницу поиска (нужен скомпилированный ahk/Run website.exe)"
+risk_level = "safe"
 exe_path = "ahk/Run website.exe"
 exe_args = ["http://google.com"]
 sounds.ru = ["ok1", "ok2", "ok3", "ok4"]

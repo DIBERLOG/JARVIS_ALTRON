@@ -4,8 +4,9 @@ use std::time::SystemTime;
 
 use jarvis_core::safety::{ConfirmationResult, GateDecision, SafetyGate};
 use jarvis_core::windows_actions::{
-    platform_backend, ActionRequestOutcome, ActionValue, VoiceRoute, WindowsActionSettings,
-    WindowsActions, VOICE_CANCEL_WORDS, VOICE_CONFIRM_WORDS,
+    platform_backend, ActionRequestOutcome, ActionSource, ActionValue, ScreenshotTarget,
+    VoiceRoute, WindowsAction, WindowsActionSettings, WindowsActions, VOICE_CANCEL_WORDS,
+    VOICE_CONFIRM_WORDS,
 };
 use jarvis_core::{
     audio_buffer::AudioRingBuffer,
@@ -16,10 +17,19 @@ use jarvis_core::{
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::seq::SliceRandom;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use crate::{diag, should_stop};
 
 static SAFETY_GATE: Lazy<Mutex<SafetyGate>> = Lazy::new(|| Mutex::new(SafetyGate::default()));
+
+/// Whether the listener is paused: it still reads the microphone, and it recognises
+/// nothing until it is resumed.
+///
+/// This is the target of the typed `stop_listening` event. It is a flag and not a
+/// stopped thread on purpose: the device stays open, the wake-word engine stays
+/// warm, and resuming costs nothing.
+static LISTENER_PAUSED: AtomicBool = AtomicBool::new(false);
 
 /// The safe Windows actions, opened once for the voice host.
 ///
@@ -91,6 +101,15 @@ fn main_loop(text_cmd_rx: Receiver<String>, rt: &tokio::runtime::Runtime) -> Res
 
         if let Ok(text) = text_cmd_rx.try_recv() {
             process_text_command(&text, &rt);
+            continue 'wake_word;
+        }
+
+        // A paused listener keeps the device open and recognises nothing. The
+        // window's own text commands above still work, which is how the pause is
+        // meant to be used.
+        if listener_paused() {
+            recorder::read_microphone(&mut frame_buffer);
+            std::thread::sleep(std::time::Duration::from_millis(20));
             continue 'wake_word;
         }
 
@@ -329,9 +348,20 @@ fn recognize_command(
                         continue;
                     }
 
-                    if recognized_voice.chars().count() < 5 {
-                        diag::rejection("too_short", recognized_voice.chars().count());
-                        continue;
+                    // A short phrase is not thrown away by length alone: "всё",
+                    // "хватит" and "жарт" are commands a pack lists, while a
+                    // two-letter noise is not. The question is asked of the matcher,
+                    // not of a second list.
+                    let normalized = commands::normalize_phrase(&recognized_voice);
+                    if normalized.chars().count() < 5 {
+                        let known = COMMANDS_LIST
+                            .get()
+                            .map(|list| commands::fetch_command(&normalized, list).is_some())
+                            .unwrap_or(false);
+                        if !known {
+                            diag::rejection("too_short", normalized.chars().count());
+                            continue;
+                        }
                     }
 
                     // execute command and check if we should chain
@@ -648,6 +678,130 @@ fn try_windows_action(text: &str, unclear: &mut Option<&'static str>) -> Option<
             None
         }
         Ok(VoiceRoute::NotAnAction) | Ok(VoiceRoute::Disabled) | Err(_) => None,
+    }
+}
+
+// --------------------------------------------------------- command pack executors
+
+/// Runs one typed action a command pack asked for.
+///
+/// The pack cannot name a program, so this is the only place the two meet: the
+/// action is translated into the same [`WindowsAction`] a button or a spoken safe
+/// action produces, and it goes through `request` — policy, allowlist, audit log,
+/// executor. Nothing here reads a phrase out of the transcript, and nothing here
+/// builds a command line.
+pub fn dispatch_native(action: &commands::NativeAction) -> Result<String, commands::NativeError> {
+    let session = WINDOWS_ACTIONS
+        .as_ref()
+        .ok_or_else(|| commands::NativeError::code("native_not_available"))?;
+    let mut session = session.lock();
+    let windows_action = translate_native(action, &session)?;
+    match session.request(windows_action, ActionSource::CommandPack) {
+        Ok(ActionRequestOutcome::Executed { result }) => {
+            diag::native_executed(action.as_str(), true);
+            Ok(announce(&result.value))
+        }
+        Ok(ActionRequestOutcome::AwaitingConfirmation { .. }) => {
+            diag::native_executed(action.as_str(), false);
+            Err(commands::NativeError::code("awaiting_confirmation"))
+        }
+        Ok(ActionRequestOutcome::Rejected { detail }) => {
+            diag::native_executed(action.as_str(), false);
+            Err(commands::NativeError::code(reject_code(&detail)))
+        }
+        Err(error) => {
+            diag::native_executed(action.as_str(), false);
+            Err(commands::NativeError::code(error.code()))
+        }
+    }
+}
+
+/// The same, as a value the policy table understands.
+fn translate_native(
+    action: &commands::NativeAction,
+    session: &WindowsActions,
+) -> Result<WindowsAction, commands::NativeError> {
+    use commands::NativeAction;
+    Ok(match action {
+        NativeAction::GetVolume => WindowsAction::GetVolume,
+        NativeAction::SetVolume { percent } => WindowsAction::SetVolume { percent: *percent },
+        NativeAction::ChangeVolume { direction, step } => WindowsAction::ChangeVolume {
+            direction: *direction,
+            step: *step,
+        },
+        NativeAction::MuteVolume { muted } => WindowsAction::MuteVolume { muted: *muted },
+        NativeAction::TakeScreenshot => WindowsAction::TakeScreenshot {
+            target: ScreenshotTarget::PrimaryMonitor,
+        },
+        NativeAction::ListWindows => WindowsAction::ListWindows,
+        NativeAction::LockWorkstation => WindowsAction::LockWorkstation,
+        // A role is answered by the user's own allowlist, by file name. The pack
+        // never names a path, and an application the user did not allow is a
+        // refusal with a reason, not a guess.
+        NativeAction::LaunchApplication { role } => {
+            let mut matches = session
+                .allowed_applications()
+                .into_iter()
+                .filter(|application| {
+                    application.enabled
+                        && commands::role_matches(role, &application.executable_file_name())
+                });
+            let first = matches
+                .next()
+                .ok_or_else(|| commands::NativeError::code("application_not_allowed"))?;
+            if matches.next().is_some() {
+                return Err(commands::NativeError::code("application_ambiguous"));
+            }
+            WindowsAction::LaunchAllowedApplication {
+                application_id: first.application_id(),
+            }
+        }
+    })
+}
+
+/// Runs one typed event a command pack asked for. No process is started.
+pub fn dispatch_internal(event: commands::InternalEvent) -> Result<bool, String> {
+    match event {
+        // The chain ends: the listener goes back to the wake word, which is what the
+        // old `stop_chaining` type did and what the phrases mean.
+        commands::InternalEvent::StopChaining => Ok(false),
+        // Recognition is paused until it is resumed. The microphone stays open.
+        commands::InternalEvent::StopListening => {
+            LISTENER_PAUSED.store(true, AtomicOrdering::SeqCst);
+            diag::internal_event(event.as_str());
+            ipc::send(IpcEvent::Idle);
+            Ok(false)
+        }
+    }
+}
+
+/// Pauses or resumes recognition, for the typed event and for the window.
+pub fn set_listener_paused(paused: bool) {
+    LISTENER_PAUSED.store(paused, AtomicOrdering::SeqCst);
+    diag::internal_event(if paused {
+        "stop_listening"
+    } else {
+        "resume_listening"
+    });
+}
+
+/// Whether recognition is paused right now.
+pub fn listener_paused() -> bool {
+    LISTENER_PAUSED.load(AtomicOrdering::SeqCst)
+}
+
+/// The short code of a refusal the action pipeline reported.
+fn reject_code(detail: &str) -> String {
+    let detail = detail.trim().to_lowercase();
+    if detail.is_empty() {
+        "action_refused".to_string()
+    } else if detail
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        detail
+    } else {
+        "action_refused".to_string()
     }
 }
 

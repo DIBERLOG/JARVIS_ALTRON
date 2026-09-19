@@ -1,0 +1,43 @@
+# Steam, and the game mode the old pack implemented by starting and closing it.
+#
+# Starting Steam goes through the allowlist by role. Closing it has no native
+# equivalent — the pack cannot name a window — so the AutoHotkey entry the old pack
+# used is kept, and the catalogue reports `executor_missing` until the compiled
+# helper is next to the pack.
+
+[[commands]]
+id = "steam_open"
+type = "native"
+description = "Запускает Steam из списка разрешённых приложений"
+risk_level = "safe"
+
+[commands.native]
+action = "launch_application"
+role = "steam"
+
+[commands.sounds]
+ru = ["game_mode"]
+en = ["game_mode"]
+ua = ["game_mode"]
+
+[commands.phrases]
+ru = ["включи игровой режим", "перейди в игровой режим", "я хочу поиграть", "включи стим", "запусти стим", "открой стим"]
+en = ["start game mode", "switch to game mode", "i want to play", "start steam", "open steam"]
+ua = ["увімкни ігровий режим", "перейди в ігровий режим", "хочу пограти", "запусти steam", "відкрий steam"]
+
+[[commands]]
+id = "steam_close"
+type = "ahk"
+description = "Возвращает рабочий режим (нужен скомпилированный ahk/Close steam.exe)"
+risk_level = "safe"
+exe_path = "ahk/Close steam.exe"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["рабочий режим", "вернись в рабочий режим", "отключи игровой режим", "выйди из игрового режима", "рабочее пространство", "выключи стим", "отключи стим", "закрой стим"]
+en = ["work mode", "back to work mode", "turn off game mode", "close steam"]
+ua = ["робочий режим", "повернись у робочий режим", "вимкни ігровий режим", "закрий steam"]

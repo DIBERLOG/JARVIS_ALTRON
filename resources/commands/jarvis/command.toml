@@ -1,0 +1,73 @@
+# Jarvis itself: its own replies, and the one system action that is refused.
+#
+# The old pack played a sound for thanks, for jokes and for an insult — that is the
+# `voice` type, unchanged. Reboot was a compiled AutoHotkey helper; it is written
+# here as the command it really is, with `risk_level = "forbidden"`, so the phrase
+# is recognised and answered with a refusal by the safety gate. Nothing is
+# executed: a forbidden command never reaches an executor.
+
+[[commands]]
+id = "jarvis_thanks"
+type = "voice"
+description = "Отвечает на благодарность"
+risk_level = "safe"
+
+[commands.sounds]
+ru = ["thanks"]
+en = ["thanks"]
+ua = ["thanks"]
+
+[commands.phrases]
+ru = ["спасибо", "молодец", "респект", "ты супер", "отличная работа", "ты крут", "ты большой молодец", "классная шутка", "очень смешно", "ты меня рассмешил", "это было весело"]
+en = ["thank you", "thanks", "well done", "great job", "you are the best"]
+ua = ["дякую", "молодець", "класна робота", "ти супер"]
+
+[[commands]]
+id = "jarvis_joke"
+type = "voice"
+description = "Рассказывает шутку"
+risk_level = "safe"
+
+[commands.sounds]
+ru = ["joke1", "joke2", "joke3", "joke4", "joke5"]
+en = ["joke1", "joke2", "joke3", "joke4", "joke5"]
+ua = ["joke1", "joke2", "joke3", "joke4", "joke5"]
+
+[commands.phrases]
+ru = ["расскажи анекдот", "рассмеши", "пошути", "шутка", "расскажи шутку", "развесели меня", "подними мне настроение", "мне скучно", "хочу шутку", "хочу анекдот", "хочу посмеяться"]
+en = ["tell me a joke", "make me laugh", "joke", "cheer me up", "i am bored"]
+ua = ["розкажи анекдот", "розсміши", "пожартуй", "жарт", "підніми настрій"]
+
+[[commands]]
+id = "jarvis_insult"
+type = "voice"
+description = "Отвечает на грубость"
+risk_level = "safe"
+
+[commands.sounds]
+ru = ["stupid"]
+en = ["stupid"]
+ua = ["stupid"]
+
+[commands.phrases]
+ru = ["ты дурак", "ты дебил", "ты глупый", "ты тупой"]
+en = ["you are stupid", "you are dumb", "you are an idiot"]
+ua = ["ти дурень", "ти дурний", "ти тупий"]
+
+[[commands]]
+id = "jarvis_reboot"
+type = "cli"
+description = "Перезагрузка компьютера запрещена политикой"
+risk_level = "forbidden"
+cli_cmd = "shutdown"
+cli_args = ["/r", "/t", "0"]
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["перезагрузись", "перезагрузи себя", "выполни перезагрузку", "перезагрузи компьютер"]
+en = ["reboot", "reboot yourself", "restart the computer"]
+ua = ["перезавантажся", "перезавантаж комп'ютер", "виконай перезавантаження"]

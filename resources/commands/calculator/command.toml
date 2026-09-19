@@ -1,0 +1,50 @@
+# Calculator.
+#
+# Starting it goes through the allowlist: the pack asks for the role "calculator",
+# and the host starts the file the *user* allowed — never a path from this
+# document. Without such an entry the command is reported as needing configuration
+# instead of failing silently.
+#
+# Closing it keeps the entry the old pack carried: forced process termination
+# (`taskkill /f`) is refused by the safety gate, and the phrase stays recognised so
+# it is answered with a refusal instead of killing a process. Closing a window is
+# the safe way to do this, and that path is the one the Windows-action pipeline
+# already offers for a window the user picked.
+
+[[commands]]
+id = "calculator_open"
+type = "native"
+description = "Запускает калькулятор из списка разрешённых приложений"
+risk_level = "safe"
+
+[commands.native]
+action = "launch_application"
+role = "calculator"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["включи калькулятор", "открой калькулятор", "покажи калькулятор", "запусти калькулятор", "калькулятор"]
+en = ["open the calculator", "start the calculator", "calculator"]
+ua = ["відкрий калькулятор", "запусти калькулятор", "покажи калькулятор", "калькулятор"]
+
+[[commands]]
+id = "calculator_close"
+type = "cli"
+description = "Закрытие калькулятора запрещено политикой: принудительное завершение процесса"
+risk_level = "forbidden"
+cli_cmd = "taskkill"
+cli_args = ["/f", "/im", "CalculatorApp.exe"]
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["закрой калькулятор", "отключи калькулятор", "выключи калькулятор", "убери калькулятор"]
+en = ["close the calculator", "shut the calculator down"]
+ua = ["закрий калькулятор", "вимкни калькулятор"]

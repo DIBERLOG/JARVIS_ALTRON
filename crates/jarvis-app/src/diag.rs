@@ -118,3 +118,20 @@ pub fn finished(command_id: &str, success: bool, code: Option<&str>, length: usi
     };
     stage(CommandStage::ExecutionResult, note);
 }
+
+/// A typed native action reached the safe action pipeline, or was refused before it
+/// could run. The action's name is a fixed key of the pack schema, never a path.
+pub fn native_executed(action: &str, success: bool) {
+    stage(
+        CommandStage::ExecutionResult,
+        Note::length(0).code(action).success(success),
+    );
+}
+
+/// A typed event of the application was handled. No process was started.
+pub fn internal_event(event: &str) {
+    stage(
+        CommandStage::ExecutionResult,
+        Note::length(0).code("internal").command(event),
+    );
+}

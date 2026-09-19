@@ -1,0 +1,177 @@
+# Windows, screenshots and the workstation, through what this build already does.
+#
+# Commands that have a typed native action use it: a screenshot goes through the
+# action pipeline (including the sensitive-window refusal), locking the workstation
+# uses the documented API, and the task manager is started only from the user's own
+# allowlist, by role and never by path.
+#
+# The commands that have no native equivalent keep the AutoHotkey executor they
+# always had. Those `.exe` files are produced from the `.ahk` sources next to them
+# and are not part of the repository, so the catalogue reports them honestly as
+# `executor_missing` instead of pretending they work.
+
+[[commands]]
+id = "windows_screenshot"
+type = "native"
+description = "Делает снимок экрана"
+risk_level = "safe"
+
+[commands.native]
+action = "take_screenshot"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["сделай скриншот", "сделай снимок экрана", "сними экран", "скриншот"]
+en = ["take a screenshot", "screenshot", "capture the screen"]
+ua = ["зроби скріншот", "зроби знімок екрана", "зніми екран"]
+
+[[commands]]
+id = "windows_lock"
+type = "native"
+description = "Блокирует рабочую станцию"
+risk_level = "safe"
+
+[commands.native]
+action = "lock_workstation"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["заблокируй компьютер", "заблокируй комп", "заблокируй экран"]
+en = ["lock the computer", "lock the workstation", "lock my pc"]
+ua = ["заблокуй комп'ютер", "заблокуй екран"]
+
+[[commands]]
+id = "windows_list"
+type = "native"
+description = "Показывает список открытых окон"
+risk_level = "safe"
+
+[commands.native]
+action = "list_windows"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["покажи окна", "какие окна открыты", "список окон"]
+en = ["show the windows", "list windows", "which windows are open"]
+ua = ["покажи вікна", "які вікна відкриті", "список вікон"]
+
+[[commands]]
+id = "windows_task_manager"
+type = "native"
+description = "Запускает диспетчер задач из списка разрешённых приложений"
+risk_level = "confirmation_required"
+
+[commands.native]
+action = "launch_application"
+role = "task_manager"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["запусти диспетчер задач", "открой диспетчер задач", "диспетчер задач"]
+en = ["open the task manager", "start the task manager", "task manager"]
+ua = ["запусти диспетчер завдань", "відкрий диспетчер завдань", "диспетчер завдань"]
+
+# ---------------------------------------------------------------- AutoHotkey
+# Kept, with the executor they always had. The catalogue says `executor_missing`
+# while the compiled helper is not next to the pack.
+
+[[commands]]
+id = "windows_minimize_all"
+type = "ahk"
+description = "Сворачивает все окна (нужен скомпилированный ahk/Roll up windows.exe)"
+risk_level = "safe"
+exe_path = "ahk/Roll up windows.exe"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["сверни все окна", "сверни окна"]
+en = ["minimize all windows", "roll up the windows"]
+ua = ["згорни всі вікна", "згорни вікна"]
+
+[[commands]]
+id = "windows_empty_trash"
+type = "ahk"
+description = "Очищает корзину (нужен скомпилированный ahk/Empty trash.exe)"
+risk_level = "confirmation_required"
+exe_path = "ahk/Empty trash.exe"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["очисти корзину", "почисти корзину", "очистка корзины"]
+en = ["empty the trash", "empty the recycle bin", "clear the trash"]
+ua = ["очисти кошик", "почисти кошик"]
+
+[[commands]]
+id = "windows_sleep"
+type = "ahk"
+description = "Переводит компьютер в спящий режим (нужен скомпилированный ahk/sleep.exe)"
+risk_level = "confirmation_required"
+exe_path = "ahk/sleep.exe"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3", "ok4"]
+en = ["ok1", "ok2", "ok3", "ok4"]
+ua = ["ok1", "ok2", "ok3", "ok4"]
+
+[commands.phrases]
+ru = ["спящий режим", "ждущий режим", "иди поспи"]
+en = ["sleep mode", "go to sleep", "standby mode"]
+ua = ["сплячий режим", "режим очікування"]
+
+[[commands]]
+id = "windows_clipboard"
+type = "ahk"
+description = "Открывает буфер обмена (нужен скомпилированный ahk/clipboard.exe)"
+risk_level = "safe"
+exe_path = "ahk/clipboard.exe"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["открой буфер обмена", "покажи буфер обмена", "запусти буфер обмена", "буфер обмена"]
+en = ["open the clipboard", "show the clipboard", "clipboard"]
+ua = ["відкрий буфер обміну", "покажи буфер обміну", "буфер обміну"]
+
+[[commands]]
+id = "windows_keyboard_layout"
+type = "ahk"
+description = "Переключает раскладку (нужен скомпилированный ahk/Set language.exe)"
+risk_level = "safe"
+exe_path = "ahk/Set language.exe"
+
+[commands.sounds]
+ru = ["ok1", "ok2", "ok3"]
+en = ["ok1", "ok2", "ok3"]
+ua = ["ok1", "ok2", "ok3"]
+
+[commands.phrases]
+ru = ["смени раскладку", "поменяй раскладку", "смени язык", "поменяй язык", "переключи на русский", "переключи на английский", "смени раскладку на русскую", "поменяй раскладку на английскую", "смени язык на русский", "поменяй язык на английский"]
+en = ["switch the keyboard layout", "change the layout", "switch to russian", "switch to english"]
+ua = ["зміни розкладку", "поміняй розкладку", "зміни мову", "переключи на українську"]

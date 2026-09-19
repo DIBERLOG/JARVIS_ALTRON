@@ -1,0 +1,28 @@
+# Stop listening: an event of this application, not a program.
+#
+# The old pack used the `stop_chaining` action, which ends the current follow-up
+# chain and returns the listener to the wake word. That is exactly what
+# `internal.event = "stop_chaining"` does, and it starts no process at all.
+#
+# "отмена" is deliberately not here: that word answers a pending confirmation, and
+# the listener handles it before any pack is consulted, so listing it here would be
+# a promise this pack cannot keep.
+
+[[commands]]
+id = "stop_listening"
+type = "internal"
+description = "Завершает текущую цепочку и возвращает слушателя к слову-активатору"
+risk_level = "safe"
+
+[commands.internal]
+event = "stop_chaining"
+
+[commands.sounds]
+ru = ["thanks", "ok1"]
+en = ["thanks", "ok1"]
+ua = ["thanks", "ok1"]
+
+[commands.phrases]
+ru = ["всё", "хватит", "не слушай", "перестань слушать", "отдыхай", "на этом всё", "хватит слушать"]
+en = ["that's all", "enough", "stop listening", "take a break"]
+ua = ["досить", "не слухай", "перестань слухати", "відпочивай"]

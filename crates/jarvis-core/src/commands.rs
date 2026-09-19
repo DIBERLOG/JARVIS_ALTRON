@@ -12,6 +12,9 @@ pub use structs::*;
 mod catalog;
 pub use catalog::*;
 
+mod executors;
+pub use executors::*;
+
 use crate::{config, i18n, APP_DIR};
 
 #[cfg(feature = "lua")]
@@ -142,7 +145,12 @@ pub fn fetch_command_in<'a>(
             let cmd_phrases = cmd.get_phrases(&lang);
 
             for cmd_phrase in cmd_phrases.iter() {
-                let cmd_phrase_lower = cmd_phrase.trim().to_lowercase();
+                // The phrase a pack declares is normalized the same way the spoken
+                // one is: a pack that writes an apostrophe, a `ё` or a comma must
+                // match the words a person says, and until this line it did not —
+                // `перезавантаж комп'ютер` was compared as `комп'ютер` against a
+                // transcript that had already lost the apostrophe.
+                let cmd_phrase_lower = normalize_phrase(cmd_phrase);
                 let cmd_phrase_chars: Vec<char> = cmd_phrase_lower.chars().collect();
 
                 // A phrase that carries a slot — `какая погода в {city}` — cannot be
@@ -311,10 +319,26 @@ pub fn execute_command(
         }
 
         // CLI command type
-        // @TODO: Consider security restrictions
+        // @TODO. Consider security restrictions
         "cli" => execute_cli(&cmd_config.cli_cmd, &cmd_config.cli_args)
             .map(|_| true)
             .map_err(|e| format!("CLI command error: {}", e)),
+
+        // A typed Windows action. It goes through the same policy, allowlist, audit
+        // log and executor as a button in the interface or a spoken safe action:
+        // this arm only hands the typed action over.
+        "native" => match &cmd_config.native {
+            Some(action) => dispatch_native(action)
+                .map(|_| true)
+                .map_err(|error| error.to_string()),
+            None => Err("native command without a native action".to_string()),
+        },
+
+        // A typed event of this application. No process is started at all.
+        "internal" => match cmd_config.internal {
+            Some(event) => dispatch_internal(event),
+            None => Err("internal command without an internal event".to_string()),
+        },
 
         // TERMINATOR command (T1000)
         "terminate" => {
@@ -433,7 +457,8 @@ const WAKE_WORDS: [&str; 6] = [
 /// * `ё` becomes `е` (and `Ї`/`ї` stay as they are): a recognizer writes what it
 ///   heard, and a person writes what they learned;
 /// * punctuation becomes a space, except inside the values a slot will take, so
-///   `погода в Москве,` and `weather in New York?` both work;
+///   `погода в Москве,` and `weather in New York?` both work, and except the braces
+///   of a slot placeholder, because `{city}` is part of the phrase a pack declares;
 /// * whitespace, including the non-breaking kind a recognizer produces, collapses
 ///   to single spaces;
 /// * a leading wake word — with the comma that follows it — is removed, because
@@ -447,6 +472,8 @@ pub fn normalize_phrase(phrase: &str) -> String {
             // character becomes a space: a comma, a full stop, a question mark.
             c if c.is_alphanumeric() || c.is_whitespace() => c,
             '-' | '_' => character,
+            // The braces of a slot placeholder are part of what a pack declares.
+            '{' | '}' => character,
             _ => ' ',
         })
         .collect();

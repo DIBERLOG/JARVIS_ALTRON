@@ -133,6 +133,18 @@ fn main() -> Result<(), String> {
     info!("Initializing IPC...");
     ipc::init();
 
+    // The two executors a command pack can name that are not a program of their own:
+    // a typed native action, which goes through the safe Windows-action pipeline, and
+    // a typed event of this application. Registering them here is what makes a
+    // `native` or `internal` command in a pack runnable; without a host, both answer
+    // with a typed refusal instead of guessing.
+    if !jarvis_core::commands::set_native_dispatch(app::dispatch_native) {
+        warn!("A native command dispatcher was already registered");
+    }
+    if !jarvis_core::commands::set_internal_dispatch(app::dispatch_internal) {
+        warn!("An internal command dispatcher was already registered");
+    }
+
     // channel for text commands (manually written in the GUI)
     let (text_cmd_tx, text_cmd_rx) = mpsc::channel::<String>();
 
@@ -147,11 +159,16 @@ fn main() -> Result<(), String> {
                 // TODO: implement reload
             }
             IpcAction::SetMuted { muted } => {
-                info!("Received mute request: {}", muted);
-                // TODO: implement mute
+                // The pause the typed `stop_listening` event sets, and the resume the
+                // window asks for. The device stays open either way.
+                app::set_listener_paused(muted);
+                info!("Listening paused: {}", muted);
+                if !muted {
+                    ipc::send(jarvis_core::ipc::IpcEvent::Listening);
+                }
             }
             IpcAction::TextCommand { text } => {
-                info!("Received text command: {}", text);
+                info!("Received text command (length={})", text.chars().count());
                 if let Err(e) = text_cmd_tx.send(text) {
                     error!("Failed to send text command to app: {}", e);
                 }
