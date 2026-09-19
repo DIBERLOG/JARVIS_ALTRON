@@ -768,6 +768,33 @@ pub fn dpapi_protect(master_key: &MasterKey) -> Result<DpapiProtectedKey, Crypto
     Ok(DpapiProtectedKey(dpapi_call(master_key.as_array(), true)?))
 }
 
+/// Seals arbitrary bytes for the current Windows user via DPAPI.
+///
+/// Used by features that must keep a small payload private without needing the master key —
+/// a reminder text, for instance, which has to be readable when the timer fires, including
+/// while the encrypted storage is locked. The scope is the current user, the same as the
+/// master-key blob, and no prompt is ever shown.
+#[cfg(windows)]
+pub fn dpapi_seal_bytes(plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    dpapi_call(plaintext, true)
+}
+
+/// Opens bytes sealed by [`dpapi_seal_bytes`] for the current Windows user.
+#[cfg(windows)]
+pub fn dpapi_open_bytes(sealed: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    dpapi_call(sealed, false)
+}
+
+#[cfg(not(windows))]
+pub fn dpapi_seal_bytes(_: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    Err(CryptoError::UnsupportedPlatform)
+}
+
+#[cfg(not(windows))]
+pub fn dpapi_open_bytes(_: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    Err(CryptoError::UnsupportedPlatform)
+}
+
 /// Recovers a DPAPI-protected master key for the current Windows user.
 #[cfg(windows)]
 pub fn dpapi_unprotect(blob: &DpapiProtectedKey) -> Result<MasterKey, CryptoError> {

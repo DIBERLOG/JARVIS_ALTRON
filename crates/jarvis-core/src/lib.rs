@@ -19,6 +19,7 @@ pub mod notes;
 pub mod vault;
 pub mod memory;
 pub mod autocorrect;
+pub mod windows_actions;
 pub mod config;
 pub mod db;
 pub mod i18n;

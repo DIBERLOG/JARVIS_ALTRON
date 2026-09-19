@@ -58,3 +58,6 @@ pub use memory::*;
 // import autocorrect commands (local spelling, word list, explicit AI text previews)
 mod autocorrect;
 pub use autocorrect::*;
+// import windows actions commands (safe, allowlisted, confirmed Windows actions)
+mod windows_actions;
+pub use windows_actions::*;

@@ -11,6 +11,7 @@
     import Footer from "@/components/Footer.svelte"
     import LocalAiSettings from "@/components/ai/LocalAiSettings.svelte"
     import AutocorrectSettings from "@/components/settings/AutocorrectSettings.svelte"
+    import WindowsActionsPanel from "@/components/windows/WindowsActionsPanel.svelte"
 
     import {
         Notification,
@@ -319,6 +320,11 @@
     <Tabs.Tab label={t('autocorrect-settings-tab')} icon={Pencil1}>
         <Space h="sm" />
         <AutocorrectSettings />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('windows-actions-tab')} icon={Code}>
+        <Space h="sm" />
+        <WindowsActionsPanel />
     </Tabs.Tab>
 
     <Tabs.Tab label={t('settings-neural-networks')} icon={Cube}>

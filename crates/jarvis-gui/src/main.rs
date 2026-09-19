@@ -19,6 +19,7 @@ pub struct AppState {
     pub local_ai: tauri_commands::LocalAiHandle,
     pub memory: tauri_commands::MemoryHandle,
     pub autocorrect: tauri_commands::AutocorrectHandle,
+    pub windows_actions: tauri_commands::WindowsActionsHandle,
 }
 
 fn main() {
@@ -64,6 +65,11 @@ fn main() {
     // derives a separate key for it; this handle only tracks summary jobs
     let memory = tauri_commands::MemoryHandle::new();
 
+    // safe Windows actions: one session for the buttons, the voice host, and the
+    // model path. It starts no program and touches no window until an action has
+    // been checked against the central policy and (for a risky one) confirmed.
+    let windows_actions = tauri_commands::WindowsActionsHandle::restore();
+
     // local spelling: dictionaries on disk, the user's own words in the shared
     // session under their own derived key, and an in-memory undo journal that is
     // cleared whenever the storage locks
@@ -83,6 +89,7 @@ fn main() {
             local_ai,
             memory,
             autocorrect,
+            windows_actions,
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -280,7 +287,40 @@ fn main() {
             tauri_commands::autocorrect_apply_improvement,
             tauri_commands::autocorrect_rule_add,
             tauri_commands::autocorrect_rule_remove,
+
+            // safe Windows actions (typed actions, one policy, one confirmation gate)
+            tauri_commands::windows_actions_overview,
+            tauri_commands::windows_actions_update_settings,
+            tauri_commands::windows_actions_request,
+            tauri_commands::windows_actions_pending,
+            tauri_commands::windows_actions_confirm,
+            tauri_commands::windows_actions_cancel,
+            tauri_commands::windows_actions_list_windows,
+            tauri_commands::windows_actions_scheduled,
+            tauri_commands::windows_actions_take_fired,
+            tauri_commands::windows_actions_prune_scheduled,
+            tauri_commands::windows_actions_audit_log,
+            tauri_commands::windows_actions_clear_audit_log,
+            tauri_commands::windows_actions_export_audit_log,
+            tauri_commands::windows_actions_add_allowed_application,
+            tauri_commands::windows_actions_remove_allowed_application,
+            tauri_commands::windows_actions_set_allowed_application_enabled,
+            tauri_commands::windows_actions_reaccept_allowed_application,
+            tauri_commands::windows_actions_route_voice,
+            tauri_commands::windows_actions_tools,
         ])
+        .setup(|app| {
+            // When a timer or reminder fires the window is poked; the item itself is
+            // collected by `windows_actions_take_fired`, so a notification the
+            // interface shows can never be the only record of what fired.
+            let handle = app.state::<AppState>().windows_actions.clone();
+            let app_handle = app.handle().clone();
+            handle.install_fired_hook(move |_view| {
+                use tauri::Emitter;
+                let _ = app_handle.emit("windows-actions-fired", ());
+            });
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
@@ -298,6 +338,9 @@ fn main() {
                     state.vault.lock_for_exit();
                     state.memory.shutdown();
                     state.local_ai.shutdown();
+                    // The scheduler thread is stopped before the process ends, so a
+                    // timer cannot fire into a window that is already gone.
+                    state.windows_actions.shutdown();
                 }
             }
         });
