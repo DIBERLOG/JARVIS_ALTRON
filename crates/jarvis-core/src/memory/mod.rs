@@ -7,7 +7,8 @@
 //!        |                 |
 //!        |                 `-- PurposeKeyProvider(JARVIS/ai-memory/v1)
 //!        |
-//!        `-- MemorySettings   switches, limits, and budgets (not secret)
+//!        +-- ContextBuilder   bounded, injection-resistant context
+//!        `-- SecretFilter     keeps credentials out of memory
 //! ```
 //!
 //! The memory reuses the application's existing storage stack: the same SQLite
@@ -24,8 +25,10 @@
 //!   passwords, keys, tokens, and vault content.
 
 pub mod config;
+pub mod context;
 pub mod error;
 pub mod model;
+pub mod redaction;
 pub mod session;
 pub mod store;
 
@@ -33,6 +36,10 @@ pub use config::{
     linear_search_warning, load_settings, MemorySettings, DEFAULT_MAX_RECENT_MESSAGES,
     DEFAULT_MEMORY_TOKEN_BUDGET, DEFAULT_SUMMARY_KEEP_RECENT, DEFAULT_SUMMARY_TRIGGER_MESSAGES,
     MEMORY_SETTINGS_SCHEMA_VERSION, SETTINGS_KEY,
+};
+pub use context::{
+    build_context, estimate_tokens, now, plan_budget, rank_facts, BudgetRequest, ContextBudget,
+    ContextPlan, ContextRequest, ContextSection, ContextWarning, UsedFact, SAFETY_RESERVE_TOKENS,
 };
 pub use error::{MemoryError, SecretKind};
 pub use model::{
@@ -44,6 +51,7 @@ pub use model::{
     MAX_FACT_CHARS, MAX_MESSAGE_BYTES, MAX_PAGE_SIZE, MAX_SUMMARY_BYTES,
     MESSAGE_PAYLOAD_SCHEMA_VERSION, SUMMARY_PAYLOAD_SCHEMA_VERSION,
 };
+pub use redaction::{scan as scan_for_secrets, SecretFinding, SecretScan};
 pub use session::{
     database_has_records, database_path, open_store as open_memory_store, MemoryStatus,
     AI_MEMORY_DB_FILE,
