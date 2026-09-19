@@ -32,6 +32,10 @@ unic-langid.workspace = true
 chrono.workspace = true
 sys-locale.workspace = true
 
+# Local spelling: pure Rust, Hunspell-compatible dictionaries, MPL-2.0, no native
+# library and no network use at runtime. See docs/AUTOCORRECT.md.
+spellbook = "0.4"
+
 # pv_recorder = { workspace = true, optional = true }
 vosk = { version = "0.3.1", optional = true }
 intent-classifier = { version = "0.1.0", optional = true }

@@ -4,9 +4,10 @@
 //!
 //! ```text
 //! master password -> Argon2id KEK -> unwraps the master key   (NotesVault owns this)
-//!                                     |-> HKDF(JARVIS/notes/v1)      -> sync.sqlite3
-//!                                     |-> HKDF(JARVIS/vault/v1)      -> vault.sqlite3
-//!                                     `-> HKDF(JARVIS/ai-memory/v1)  -> ai-memory.sqlite3
+//!                                     |-> HKDF(JARVIS/notes/v1)        -> sync.sqlite3
+//!                                     |-> HKDF(JARVIS/vault/v1)        -> vault.sqlite3
+//!                                     |-> HKDF(JARVIS/ai-memory/v1)    -> ai-memory.sqlite3
+//!                                     `-> HKDF(JARVIS/autocorrect/v1)  -> autocorrect.sqlite3
 //! ```
 //!
 //! Each feature therefore never sees the master key: it is built from a
@@ -23,6 +24,8 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::autocorrect::error::AutocorrectError;
+use crate::autocorrect::user_dictionary::EncryptedUserDictionary;
 use crate::memory::store::EncryptedMemoryStore;
 use crate::memory::{MemoryError, MemoryStatus};
 use crate::notes::vault::{NotesVault, StorageState, StorageStatus, VaultPaths};
@@ -140,10 +143,13 @@ pub struct VaultSession {
     storage: NotesVault,
     database: PathBuf,
     memory_database: PathBuf,
+    autocorrect_database: PathBuf,
     device_id: DeviceId,
     store: Option<EncryptedVaultStore>,
     /// The AI-memory store, built from its own derived key on first use.
     memory: Option<EncryptedMemoryStore>,
+    /// The user's own word list, built from its own derived key on first use.
+    autocorrect: Option<EncryptedUserDictionary>,
 }
 
 impl VaultSession {
@@ -152,14 +158,18 @@ impl VaultSession {
         let storage = NotesVault::open(data_dir)?;
         let database = storage.paths().data_dir.join(VAULT_DB_FILE);
         let memory_database = crate::memory::database_path(&storage.paths().data_dir);
+        let autocorrect_database =
+            crate::autocorrect::session::database_path(&storage.paths().data_dir);
         let device_id = storage.device_id().clone();
         Ok(Self {
             storage,
             database,
             memory_database,
+            autocorrect_database,
             device_id,
             store: None,
             memory: None,
+            autocorrect: None,
         })
     }
 
@@ -179,6 +189,16 @@ impl VaultSession {
     /// Path of the encrypted AI-memory database.
     pub fn memory_database_path(&self) -> &Path {
         &self.memory_database
+    }
+
+    /// Path of the encrypted user-dictionary database.
+    pub fn autocorrect_database_path(&self) -> &Path {
+        &self.autocorrect_database
+    }
+
+    /// The data directory the session stores everything in.
+    pub fn data_dir(&self) -> &Path {
+        &self.storage.paths().data_dir
     }
 
     /// Stable device identifier shared by every store in this session.
@@ -221,7 +241,9 @@ impl VaultSession {
     pub fn storage_status(&mut self) -> VaultResult<StorageStatus> {
         let mut storage = self.storage.status()?;
         if matches!(storage.state, StorageState::Uninitialized)
-            && (self.vault_database_has_records()? || self.has_memory_records())
+            && (self.vault_database_has_records()?
+                || self.has_memory_records()
+                || self.has_autocorrect_records())
         {
             storage.state = StorageState::KeyMissing;
             storage.has_stored_data = true;
@@ -283,6 +305,7 @@ impl VaultSession {
     pub fn lock(&mut self) {
         self.store = None;
         self.memory = None;
+        self.autocorrect = None;
         self.storage.lock();
     }
 
@@ -407,6 +430,66 @@ impl VaultSession {
         self.memory = None;
     }
 
+    // --------------------------------------------------------- user dictionary
+
+    /// Borrows the user's word list, building it from the unlocked master key on first
+    /// use. Refuses while the shared storage is locked.
+    ///
+    /// The dictionary key is derived with `JARVIS/autocorrect/v1`, so it is a different
+    /// key than the notes, vault, and memory keys, and it lives in a different database
+    /// file. The password vault is not read here, and the word list is never handed to
+    /// the AI: a check runs entirely inside this process.
+    pub fn autocorrect_store(&mut self) -> Result<&mut EncryptedUserDictionary, AutocorrectError> {
+        if !self.storage.is_unlocked() {
+            // Never keep a dictionary key around once the master key is gone.
+            self.autocorrect = None;
+            return Err(AutocorrectError::StorageLocked);
+        }
+        if self.autocorrect.is_none() {
+            let master = {
+                let notes = self
+                    .storage
+                    .store()
+                    .map_err(|_| AutocorrectError::StorageLocked)?;
+                MasterKey::from_bytes(*notes.crypto().key().as_array())
+            };
+            let provider = PurposeKeyProvider::derive(&master, KeyPurpose::Autocorrect)
+                .map_err(|_| AutocorrectError::InvalidConfiguration)?;
+            let store = crate::autocorrect::session::open_user_dictionary(
+                &self.autocorrect_database,
+                provider,
+                self.device_id.clone(),
+            )?;
+            self.autocorrect = Some(store);
+        }
+        self.autocorrect
+            .as_mut()
+            .ok_or(AutocorrectError::StorageLocked)
+    }
+
+    /// Runs `action` against the user's word list, or fails when locked.
+    pub fn with_autocorrect<T>(
+        &mut self,
+        action: impl FnOnce(&mut EncryptedUserDictionary) -> Result<T, AutocorrectError>,
+    ) -> Result<T, AutocorrectError> {
+        let store = self.autocorrect_store()?;
+        action(store)
+    }
+
+    /// Whether the word-list database holds entries. Needs no key.
+    pub fn has_autocorrect_records(&self) -> bool {
+        crate::autocorrect::session::database_has_records(&self.autocorrect_database)
+            .unwrap_or(false)
+    }
+
+    /// Drops the derived dictionary key and the decrypted words.
+    ///
+    /// Used when the user switches spelling checks off: the shared unlock state is kept,
+    /// so notes, the vault, and memory stay usable.
+    pub fn drop_autocorrect(&mut self) {
+        self.autocorrect = None;
+    }
+
     /// Notes storage, for commands that manage the shared key lifecycle.
     pub fn storage_mut(&mut self) -> &mut NotesVault {
         &mut self.storage
@@ -458,9 +541,11 @@ impl std::fmt::Debug for VaultSession {
             .debug_struct("VaultSession")
             .field("database", &self.database)
             .field("memory_database", &self.memory_database)
+            .field("autocorrect_database", &self.autocorrect_database)
             .field("unlocked", &self.is_unlocked())
             .field("vault_open", &self.store.is_some())
             .field("memory_open", &self.memory.is_some())
+            .field("autocorrect_open", &self.autocorrect.is_some())
             .finish()
     }
 }

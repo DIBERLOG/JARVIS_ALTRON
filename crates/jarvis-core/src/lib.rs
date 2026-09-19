@@ -18,6 +18,7 @@ pub mod sync;
 pub mod notes;
 pub mod vault;
 pub mod memory;
+pub mod autocorrect;
 pub mod config;
 pub mod db;
 pub mod i18n;
