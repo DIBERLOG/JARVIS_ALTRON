@@ -46,3 +46,7 @@ pub use notes::*;
 // import vault commands (encrypted password vault)
 mod vault;
 pub use vault::*;
+
+// import local AI commands (managed llama-server runtime)
+mod local_ai;
+pub use local_ai::*;

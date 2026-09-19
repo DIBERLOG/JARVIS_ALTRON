@@ -16,6 +16,7 @@ pub struct AppState {
     pub settings: SettingsManager,
     pub notes: tauri_commands::NotesHandle,
     pub vault: tauri_commands::VaultHandle,
+    pub local_ai: tauri_commands::LocalAiHandle,
 }
 
 fn main() {
@@ -52,11 +53,17 @@ fn main() {
     // (which also cancels clipboard timers) and its own derived working key
     let vault = tauri_commands::VaultHandle::new(notes.clone());
 
+    // the local AI runtime is built from the stored settings; it starts no
+    // process until the user asks for one, and it has no handle to the
+    // encrypted storages
+    let local_ai = tauri_commands::LocalAiHandle::restore(&manager);
+
     tauri::Builder::default()
         .manage(AppState {
             settings: manager,
             notes,
             vault,
+            local_ai,
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -177,18 +184,35 @@ fn main() {
             tauri_commands::vault_generate_and_copy,
             tauri_commands::vault_conflicts,
             tauri_commands::vault_resolve_conflict,
+
+            // local AI (managed llama-server runtime)
+            tauri_commands::local_ai_get_config,
+            tauri_commands::local_ai_validate,
+            tauri_commands::local_ai_save_config,
+            tauri_commands::local_ai_export_config,
+            tauri_commands::local_ai_import_config,
+            tauri_commands::local_ai_start,
+            tauri_commands::local_ai_stop,
+            tauri_commands::local_ai_restart,
+            tauri_commands::local_ai_status,
+            tauri_commands::local_ai_generate,
+            tauri_commands::local_ai_cancel,
+            tauri_commands::local_ai_select_server,
+            tauri_commands::local_ai_select_model,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // Lock the encrypted storage when the application is closing, so the
-            // master key and the clipboard timer never outlive the window.
+            // Lock the encrypted storage and stop the managed model server when
+            // the application is closing, so neither the master key nor a child
+            // process outlives the window.
             if matches!(
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     state.vault.lock_for_exit();
+                    state.local_ai.shutdown();
                 }
             }
         });

@@ -32,6 +32,14 @@ pub struct Settings {
     #[serde(default = "default_language")]
     pub language: String,
 
+    /// Local AI runtime settings, stored as a JSON object.
+    ///
+    /// The value is not secret (paths, port, context size, sampling, profile), so
+    /// it lives with the other settings rather than behind the encrypted stores;
+    /// it never holds conversation text or key material.
+    #[serde(default)]
+    pub local_ai_config: String,
+
     pub api_keys: ApiKeys,
 }
 
@@ -58,6 +66,7 @@ impl Settings {
             "noise_suppression"         => Some(format!("{:?}", self.noise_suppression)),
             "gain_normalizer"           => Some(self.gain_normalizer.to_string()),
             "language"                  => Some(self.language.clone()),
+            "local_ai_config"           => Some(self.local_ai_config.clone()),
             "api_key__picovoice"        => Some(self.api_keys.picovoice.clone()),
             "api_key__openai"           => Some(self.api_keys.openai.clone()),
             _ => None,
@@ -114,6 +123,9 @@ impl Settings {
             "language" => {
                 self.language = val.to_string();
             }
+            "local_ai_config" => {
+                self.local_ai_config = val.to_string();
+            }
             "api_key__picovoice" => {
                 self.api_keys.picovoice = val.to_string();
             }
@@ -140,6 +152,7 @@ impl Settings {
             "noise_suppression",
             "gain_normalizer",
             "language",
+            "local_ai_config",
             "api_key__picovoice",
             "api_key__openai",
         ]
@@ -168,6 +181,8 @@ impl Default for Settings {
             gain_normalizer: config::DEFAULT_GAIN_NORMALIZER,
 
             language: crate::i18n::detect_system_language().to_string(),
+
+            local_ai_config: String::new(),
 
             api_keys: ApiKeys {
                 picovoice: String::from(""),
