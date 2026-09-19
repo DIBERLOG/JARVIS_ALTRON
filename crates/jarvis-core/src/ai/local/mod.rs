@@ -1,20 +1,24 @@
-//! Local AI runtime, part one: configuration, model checks, and the loopback
-//! transport.
+//! Local AI runtime: one gateway in front of a managed `llama-server`.
 //!
 //! ```text
-//! configuration + GGUF validation  ->  config.rs, model.rs
-//! loopback HTTP/1.1 + SSE client   ->  http.rs, client.rs
+//! interface  ->  LocalAiGateway  ->  llama-server (127.0.0.1, OpenAI-compatible)
+//!                |  config + validation + resources
+//!                |  process lifecycle (start, ready, stop, stderr tail)
+//!                `  streaming client + cancellation
 //! ```
 //!
-//! The client speaks to one peer only: a `llama-server` on `127.0.0.1` or `::1`.
-//! It has no TLS, no redirects, no proxy, and no cookie handling, and it never
-//! logs a body, because the bodies contain the user's conversation. The process
-//! lifecycle and the gateway that drives it are built on top of these modules.
+//! The interface never spawns a process or speaks HTTP: it asks the gateway for a
+//! status, for a validation report, and for a generation. The gateway has no
+//! access to the encrypted storages, no shell, and no tool surface — see
+//! `docs/ADR_LOCAL_AI_GATEWAY.md`.
 
 pub mod client;
 pub mod config;
+pub mod gateway;
 pub mod http;
 pub mod model;
+pub mod process;
+pub mod resources;
 
 pub use client::{
     ApiMessage, ChatCompletionRequest, ChatTemplateKwargs, ChunkOutcome, CompletionOptions,
@@ -26,6 +30,11 @@ pub use config::{
     DEFAULT_CONTEXT_SIZE, DEFAULT_HOST, DEFAULT_MAX_TOKENS, DEFAULT_PORT,
     DEFAULT_STARTUP_TIMEOUT_SECONDS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P, SETTINGS_KEY,
 };
+pub use gateway::{
+    EventSink, GenerationEvent, GenerationHandle, GenerationOutcome, GenerationRequest,
+    LocalAiCapabilities, LocalAiGateway, LocalAiReport, LocalAiState, LocalAiStatus,
+    READY_POLL_INTERVAL,
+};
 pub use http::{
     loopback_address, BodyReader, LoopbackEndpoint, ResponseHead, DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_READ_TIMEOUT, DEFAULT_STALL_TIMEOUT, MAX_BODY_BYTES,
@@ -33,4 +42,13 @@ pub use http::{
 pub use model::{
     display_name, read_gguf_info, validate_files, validate_model, CheckLevel, GgufInfo,
     LocalModelConfig as ModelFileInfo, ModelValidation, ValidationIssue,
+};
+pub use process::{
+    drain_stderr, ManagedServer, ProcessRunner, RealProcessRunner, ServerExit, ServerProcess,
+    SpawnedServer, StderrBuffer, EXIT_POLL_INTERVAL, KILL_GRACE, STDERR_LINE_CHARS,
+    STDERR_TAIL_LINES,
+};
+pub use resources::{
+    available_memory_bytes, estimate_resources, format_bytes, total_memory_bytes, ResourceEstimate,
+    HEADROOM_WARNING_RATIO, KV_BYTES_PER_TOKEN_ESTIMATE, RUNTIME_OVERHEAD_BYTES,
 };
