@@ -240,6 +240,24 @@ fn recognize_command(
 
                     recognized_voice = recognized_voice.to_lowercase();
 
+                    // Global voice input: the phrase is an intent, not a
+                    // command. It is matched here, where the listener lives,
+                    // because the microphone has to change hands *here*: this
+                    // process stops listening, and only then does the window
+                    // process start the dictation. The recognised text is never
+                    // sent anywhere — the event carries no transcript.
+                    if jarvis_core::dictation::is_start_request(&recognized_voice) {
+                        info!("Global voice input requested");
+                        // The listener lets go of the microphone first.
+                        jarvis_core::recorder::stop_recording().ok();
+                        stt::reset_speech_recognizer();
+                        ipc::send(IpcEvent::GlobalDictationRequested);
+                        vad_state = VadState::WaitingForVoice;
+                        silence_frames = 0;
+                        audio_buffer.clear();
+                        continue;
+                    }
+
                     // check if wake word repeated (reactivate)
                     let wake_phrases = config::get_wake_phrases(&i18n::get_language());
                     let contains_wake = wake_phrases.iter().any(|wp| recognized_voice.contains(wp));

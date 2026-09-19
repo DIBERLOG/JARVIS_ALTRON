@@ -21,6 +21,30 @@ let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let manualDisconnect = false
 let enabled = false  // only connect when enabled
+/** One global dictation at a time, whatever the trigger. */
+let globalDictationRunning = false
+
+/**
+ * Runs one global dictation, and gives the microphone back to the listener.
+ *
+ * The listener stopped and told us so over this channel; when the dictation has
+ * finished, the same channel is told that listening may resume. Nothing about the
+ * transcript travels here: the result goes to the clipboard in the core, and the
+ * window only learns that it happened.
+ */
+async function runGlobalDictation() {
+    if (globalDictationRunning) return
+    globalDictationRunning = true
+    try {
+        await invoke("voice_input_start")
+    } catch (error) {
+        console.warn("voice input: the request failed", error)
+    } finally {
+        globalDictationRunning = false
+        // The listener may listen again: the microphone is free.
+        sendAction("set_muted", { muted: false })
+    }
+}
 
 export function enableIpc() {
     enabled = true
@@ -103,6 +127,13 @@ function handleEvent(data: any) {
         case "speech_recognized":
             lastRecognizedText.set(data.text || "")
             jarvisState.set("processing")
+            break
+
+        // The listener recognised the global voice input phrase and has given the
+        // microphone up. The event carries no text: the dictation runs in this
+        // process, with its own session, and its result goes to the clipboard.
+        case "global_dictation_requested":
+            void runGlobalDictation()
             break
 
         case "command_executed":
