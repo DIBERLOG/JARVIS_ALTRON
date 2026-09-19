@@ -100,7 +100,11 @@ impl ConfirmationToken {
 
     /// Whether the token has the shape this type produces.
     pub fn is_well_formed(&self) -> bool {
-        self.0.len() == 32 && self.0.chars().all(|character| character.is_ascii_hexdigit())
+        self.0.len() == 32
+            && self
+                .0
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
     }
 
     /// Constant-time comparison, so a wrong token cannot be found byte by byte.
@@ -460,7 +464,8 @@ mod tests {
         // A wrong token leaves the real question pending.
         assert!(gate.has_pending(now));
         assert_eq!(
-            gate.confirm(token.as_str(), now).map(|pending| pending.payload),
+            gate.confirm(token.as_str(), now)
+                .map(|pending| pending.payload),
             Ok("lock")
         );
         // The second use is refused: the request is gone.
@@ -481,7 +486,8 @@ mod tests {
             Err(ConfirmationFailure::Mismatch)
         ));
         assert_eq!(
-            gate.confirm(second.as_str(), now).map(|pending| pending.payload),
+            gate.confirm(second.as_str(), now)
+                .map(|pending| pending.payload),
             Ok(2)
         );
     }

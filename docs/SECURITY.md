@@ -15,6 +15,43 @@ need a future GUI confirmation flow. `browser_close` is currently `forbidden`:
 its AutoHotkey implementation elevates, closes applications, and restarts
 JARVIS.
 
+## Safe Windows actions
+
+A second, deliberately narrow action surface exists for buttons, voice, timers,
+and the local model. It is documented in full in `docs/WINDOWS_ACTIONS.md`, its
+decisions in `docs/ADR_WINDOWS_ACTIONS.md`, and its threat model in
+`docs/THREAT_MODEL_WINDOWS_ACTIONS.md`. The rules that matter for this file:
+
+* actions are typed values (`WindowsAction`) that cannot express a command line,
+  a shell string, a path from a caller, or an arbitrary argument list;
+* one policy table decides `safe`, `confirmation_required`, or `forbidden` for
+  every action and every source, and no caller may choose a risk level;
+* a risky action stores the request in the core and releases it only with a
+  128-bit single-use token that expires (45 seconds by default, 30–120
+  configurable), compared in constant time;
+* a program can be started only if it is in the allowlist, which is filled from
+  the native file dialog and pins size, mtime, and SHA-256; launchers and script
+  hosts (`cmd.exe`, `powershell.exe`, `pwsh.exe`, `wscript.exe`, `cscript.exe`,
+  `mshta.exe`, `rundll32.exe`, `regsvr32.exe`, `wt.exe`, `bash.exe`, `wsl.exe`,
+  `python.exe`, `node.exe`, `java.exe`, and others) are refused by name;
+* screenshots are written into a folder the user chose, under a name the
+  application generates, and are never sent to the model, the interface, or the
+  network; a screen-wide capture is refused while a window whose title looks
+  like a credential prompt has the focus;
+* closing a window posts `WM_CLOSE`; there is no `TerminateProcess`, no
+  `taskkill`, no `SendInput`, no `keybd_event`, and no `mouse_event` in the
+  feature, and `windows_actions_isolation.rs` fails if one appears;
+* the audit log holds no titles, paths, or message text, is not evidence, and is
+  not tamper-proof;
+* **Wake-on-LAN is not implemented, is not planned, and is excluded from the
+  project**; a test scans the workspace's own sources and fails if it appears.
+
+The older command packs keep their own behaviour and are **not** reachable from
+the model or from voice. `docs/WINDOWS_ACTIONS.md` records what is kept,
+migrated, and forbidden, including the `calculator` pack's
+`taskkill /f /im CalculatorApp.exe` and the `browser_close` pack, which stays
+`forbidden`.
+
 ## Planned GUI confirmation contract
 
 The confirmation dialog will show the action name, target program, normalized
@@ -24,6 +61,12 @@ the UI must not accept a replacement executable or argument list. Voice is not
 an acceptable confirmation channel for application termination, elevation,
 reboot/shutdown, file deletion, system-settings changes, passwords, or data
 transmission.
+
+*Implemented for the safe action surface:* `ActionPreview` carries exactly those
+fields (title key, fields, consequences, expiry), the token releases the stored
+request and nothing else, and the dialog is the only place a risky action is
+approved. The older command path still uses its 15-second spoken confirmation,
+which remains weaker than a dialog by design.
 
 ## AI boundary
 

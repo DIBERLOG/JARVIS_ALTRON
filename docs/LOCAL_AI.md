@@ -254,6 +254,44 @@ it is cleaned (`check_improvement_answer`); a finding is
 `AutocorrectError::SecretDetected(kinds)` (`secret_detected`) carrying only `SecretKind`
 values, and the text is not sent.
 
+## Structured tool calls and the safe Windows actions
+
+The third caller of the gateway is the safe action surface
+(`docs/WINDOWS_ACTIONS.md`). It is the only path on which a model may ask for
+something to *happen*, and it is deliberately the narrowest.
+
+`ChatCompletionRequest::with_tools` attaches a catalogue in the OpenAI shape
+(`tools: [{type: "function", function: {name, description, parameters}}]` plus
+`tool_choice: "auto"`), and `LocalAiClient::chat_once_turn` reads a non-streaming
+answer into `ChatTurn { text, tool_calls }`. The arguments of a call arrive as a
+JSON **string**, exactly as the model wrote them, and are parsed against that
+tool's own schema by `windows_actions::tools::decode_tool_call` — never by the
+client, and never leniently: every schema sets `additionalProperties: false`,
+and an unknown tool, an extra field, or an argument named `command`, `path`,
+`args`, `shell`, `exec`, or `script` is refused.
+
+The catalogue is offered only when the running server says it can carry one.
+`LocalAiClient::probe` reads the server's own `/props`, and
+`ServerProbe::tools_in_template` is true only when the chat template mentions
+`tools`, `tool_call`, or `tool_choice`. That flag becomes
+`LocalAiCapabilities::tools_in_template`, and
+`LocalAiGateway::generate_with_tools` refuses to run at all when it is false, so
+a model that cannot express a call is simply not offered one. **Nothing is ever
+read out of an answer's prose**: a text answer is returned as text, and the
+interface shows it without acting on it.
+
+What the model can reach through this path is exactly the catalogue: volume,
+screenshots, timers and reminders, window operations, the lock key, and
+starting an allowlisted program. It cannot reach a shell, a path, a file
+deletion, a process termination, the registry, the vault, the notes, or the AI
+memory — not because those are checked afterwards, but because no tool exists
+that could ask for them, and no action variant could carry them.
+
+A tool call is a *request*. It goes through the same `ActionPolicy` and the same
+confirmation gate as a button: `windows_actions_ai_request` decodes the call and
+hands it to the session, which answers with a result, a preview to confirm, or a
+refusal. The interface never sees the tool JSON.
+
 ## Settings
 
 Defaults are conservative: host `127.0.0.1`, port `8080`, context `8192` tokens, `cpu_threads` `0`,
@@ -331,9 +369,14 @@ process runner. Point the settings page at both files, start the server, and wai
   guaranteeing the server aborts the request.
 * The conversation is only persisted through the encrypted AI memory, and only while memory is
   enabled and the storage is unlocked (`docs/AI_MEMORY.md`); with memory off, nothing is stored
-  anywhere. There is still no tool surface: model output is never executed. Context-window
-  management exists only on the memory path, and the token budget there is an estimate, so a
-  request can still exceed the real window.
+  anywhere. Context-window management exists only on the memory path, and the token budget there
+  is an estimate, so a request can still exceed the real window.
+* The only tool surface is the safe action catalogue (`docs/WINDOWS_ACTIONS.md`). No test sends a
+  real tool call to a real model: `chat_once_turn` is covered by parsing tests over the wire shape,
+  the schemas and the decoder are covered by unit tests, and `generate_with_tools` refuses to run
+  when the template cannot carry a call — but the round trip through a live `llama-server` is
+  unverified here. When the probe says "no", the interface says so instead of falling back to
+  reading prose.
 * Errors are content-free by design, which also means a diagnosis is often just a status code plus
   the bounded stderr tail.
 * The runtime is Windows-specific in its process handling (`CREATE_NO_WINDOW`), and

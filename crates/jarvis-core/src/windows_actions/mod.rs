@@ -67,9 +67,7 @@ pub use policy::{
     reminder_looks_sensitive, ActionPolicy, FORBIDDEN_EXECUTABLE_NAMES, POLICY_TABLE,
     SHELL_LIKE_NAMES,
 };
-pub use session::{
-    FiredHook, VoiceRoute, WindowsActionSettings, WindowsActions, SETTINGS_FILE,
-};
+pub use session::{FiredHook, VoiceRoute, WindowsActionSettings, WindowsActions, SETTINGS_FILE};
 pub use timers::{
     FireSink, ScheduledItem, ScheduledKind, ScheduledStatus, ScheduledView, TimerScheduler,
     TimersState, TIMERS_FILE,

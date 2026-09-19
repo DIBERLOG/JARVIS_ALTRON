@@ -499,9 +499,7 @@ fn execute_command(text: &str, rt: &tokio::runtime::Runtime) -> bool {
 /// for a confirmation, or was refused — and `None` when it did not, so the caller can try the
 /// configured commands. Nothing is guessed at: an unclear phrase is reported as unclear.
 fn try_windows_action(text: &str) -> Option<bool> {
-    let Some(session) = WINDOWS_ACTIONS.as_ref() else {
-        return None;
-    };
+    let session = WINDOWS_ACTIONS.as_ref()?;
     let lowered = text.trim().to_lowercase();
 
     // A confirmation or a refusal answers whatever is waiting, and is handled here first: the
@@ -543,8 +541,9 @@ fn try_windows_action(text: &str) -> Option<bool> {
                 ActionRequestOutcome::Executed { result } => announce(&result.value),
                 ActionRequestOutcome::AwaitingConfirmation { preview } => format!(
                     "Это действие требует подтверждения ({}). Скажите «подтверждаю» в течение {} секунд или «отмена».",
-                    preview.action_type, preview.expires_in_seconds
+                    preview.action_kind, preview.expires_in_seconds
                 ),
+                ActionRequestOutcome::Rejected { detail } => error_message(detail),
             };
             voices::play_ok();
             ipc::send(IpcEvent::Error { message });
@@ -580,7 +579,7 @@ fn announce(value: &ActionValue) -> String {
         ActionValue::Timer { .. } => "Таймер запущен".to_string(),
         ActionValue::Cancelled { .. } => "Таймер отменён".to_string(),
         ActionValue::Windows { windows } => format!("Найдено окон: {}", windows.len()),
-        ActionValue::ApplicationStarted { .. } => "Программа запущена".to_string(),
+        ActionValue::Launched { .. } => "Программа запущена".to_string(),
         ActionValue::None => "Готово".to_string(),
     }
 }
