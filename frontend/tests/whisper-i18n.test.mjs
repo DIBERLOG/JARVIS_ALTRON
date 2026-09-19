@@ -5,12 +5,26 @@ import { fileURLToPath } from "node:url"
 
 import {
     LANGUAGES,
+    NOTE_CODES,
     errorKey,
     modelKindKey,
     noteKey,
     readinessKey,
     stateKey
 } from "../src/lib/whisper-model.ts"
+
+/** The error codes the core can produce, read from its own match arms. */
+function coreNoteCodes() {
+    const source = readFileSync(
+        fileURLToPath(new URL("../../crates/jarvis-core/src/whisper/error.rs", import.meta.url)),
+        "utf8"
+    )
+    const codes = new Set()
+    for (const match of source.matchAll(/=> "([a-z_]+)",/g)) {
+        codes.add(match[1])
+    }
+    return codes
+}
 
 const LOCALES = ["en", "ru", "ua"]
 const MODEL_FILE = fileURLToPath(new URL("../src/lib/whisper-model.ts", import.meta.url))
@@ -77,7 +91,9 @@ const FAMILY_KEYS = [
     "whisper-readiness-model",
     noteKey("windows-whisper-note-no-binary") ?? "",
     noteKey("windows-whisper-note-no-model") ?? "",
-    noteKey("windows-whisper-note-disabled") ?? ""
+    noteKey("windows-whisper-note-disabled") ?? "",
+    // Every note the status can build, one per error code in the core.
+    ...NOTE_CODES.map((code) => `whisper-note-${code.replace(/_/g, "-")}`)
 ]
 
 function localePath(language) {

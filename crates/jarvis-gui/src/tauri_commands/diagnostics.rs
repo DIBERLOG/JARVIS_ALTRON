@@ -124,6 +124,43 @@ pub fn collect(app: &tauri::AppHandle) -> DiagnosticReport {
         Some(whisper_settings.model_path.as_str()),
         "no whisper model has been chosen",
     ));
+    // What is stored, described without a path: this is the answer to "did my
+    // two files save?" and it is what a support report can safely carry.
+    let stored =
+        jarvis_core::whisper::StoredSettingsSummary::read(&crate::desktop::data_directory());
+    report.notes.extend(stored.describe());
+    // The application settings database is checked for dictation keys, because
+    // that is where the other features keep theirs: if someone looked there and
+    // found nothing, the report should say so rather than leave it a mystery.
+    let db_keys = state
+        .settings
+        .read(jarvis_core::whisper::SETTINGS_FILE)
+        .is_some()
+        || state.settings.read("whisper_settings").is_some();
+    report.notes.push(format!(
+        "the application settings database holds dictation keys: {db_keys}"
+    ));
+    report.push_component(
+        ComponentHealth::new(
+            "dictation_settings",
+            if stored.configured {
+                ComponentState::Ready
+            } else if stored.document_present {
+                ComponentState::NotConfigured
+            } else {
+                ComponentState::Missing
+            },
+        )
+        .with_detail(if stored.configured {
+            format!(
+                "{} and {} are stored",
+                stored.executable_name, stored.model_name
+            )
+        } else {
+            "no executable and model pair is stored yet".to_string()
+        }),
+    );
+
     let dictation = whisper.status();
     report.health_checks.push(HealthCheck {
         name: "dictation_ready".to_string(),

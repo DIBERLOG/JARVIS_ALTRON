@@ -104,9 +104,16 @@ pub struct DictationStatus {
     pub configured: bool,
     pub binary: Option<BinaryProbe>,
     pub model: Option<ModelProbe>,
+    /// The full path, for the settings page only.
     pub binary_path: String,
+    /// The full path, for the settings page only.
     pub model_path: String,
-    /// Content-free explanations of what is missing.
+    /// The executable's own name, safe to show anywhere.
+    pub binary_name: String,
+    /// The model's own name, safe to show anywhere.
+    pub model_name: String,
+    /// Content-free explanations of what is missing. A note is either a Fluent
+    /// key (`windows-whisper-note-…`) or a plain sentence.
     pub notes: Vec<String>,
 }
 
@@ -234,7 +241,7 @@ impl WhisperSession {
             match probe_binary(Path::new(&settings.binary_path)) {
                 Ok(probe) => Some(probe),
                 Err(error) => {
-                    notes.push(note_for(&error));
+                    push_error_notes(&mut notes, &error);
                     None
                 }
             }
@@ -249,7 +256,7 @@ impl WhisperSession {
                     Some(probe)
                 }
                 Err(error) => {
-                    notes.push(note_for(&error));
+                    push_error_notes(&mut notes, &error);
                     None
                 }
             }
@@ -263,6 +270,8 @@ impl WhisperSession {
             configured: binary.is_some() && model.is_some(),
             binary,
             model,
+            binary_name: file_name_of(&settings.binary_path),
+            model_name: file_name_of(&settings.model_path),
             binary_path: settings.binary_path.clone(),
             model_path: settings.model_path.clone(),
             notes,
@@ -477,6 +486,28 @@ impl WhisperSession {
 /// The Fluent key that explains why a file cannot be used.
 fn note_for(error: &WhisperError) -> String {
     format!("windows-whisper-note-{}", error.code().replace('_', "-"))
+}
+
+/// Adds the localized reason and, when there is one, the concrete detail.
+///
+/// The key alone says "the model cannot be used"; the detail says what was found
+/// instead, which is the difference between a person fixing it and giving up.
+fn push_error_notes(notes: &mut Vec<String>, error: &WhisperError) {
+    notes.push(note_for(error));
+    if let Some(detail) = error.detail() {
+        let detail = crate::text::shorten(&detail, 160);
+        if !notes.contains(&detail) {
+            notes.push(detail);
+        }
+    }
+}
+
+/// The file's own name, for a status line that is safe to show anywhere.
+fn file_name_of(path: &str) -> String {
+    if path.trim().is_empty() {
+        return String::new();
+    }
+    crate::text::file_label(path)
 }
 
 #[cfg(test)]
@@ -1018,6 +1049,211 @@ mod tests {
         assert_eq!(reopened.settings().language, "ru");
     }
 
+    /// The exact paths and size from the report of the defect.
+    const REPORTED_BINARY: &str = r"C:\AI\whisper.cpp\runtime\Release\whisper-cli.exe";
+    const REPORTED_MODEL: &str = r"C:\AI\whisper.cpp\ggml-small.bin";
+    const REPORTED_MODEL_BYTES: u64 = 487_601_967;
+
+    /// A directory holding the two files exactly as they are on the machine that
+    /// reported the defect: a real `whisper-cli.exe` header and a real model.
+    fn reported_directory() -> (tempfile::TempDir, String, String) {
+        let directory = tempdir().unwrap();
+        let mut pe = vec![0u8; 0x100];
+        pe[0..2].copy_from_slice(b"MZ");
+        pe[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+        pe[0x40..0x44].copy_from_slice(b"PE\0\0");
+        pe[0x44..0x46].copy_from_slice(&PE_MACHINE_AMD64.to_le_bytes());
+        let binary = directory.path().join("whisper-cli.exe");
+        std::fs::write(&binary, &pe).unwrap();
+        // The magic whisper.cpp writes: `0x67676d6c` as a little-endian integer.
+        let mut body = vec![0x6cu8, 0x6d, 0x67, 0x67];
+        body.resize(REPORTED_MODEL_BYTES as usize, 0);
+        let model = directory.path().join("ggml-small.bin");
+        std::fs::write(&model, &body).unwrap();
+        let binary_path = binary.to_string_lossy().into_owned();
+        let model_path = model.to_string_lossy().into_owned();
+        (directory, binary_path, model_path)
+    }
+
+    #[test]
+    fn the_reported_configuration_is_ready_and_survives_a_restart() {
+        // This is the defect, end to end at the core level: a real
+        // `whisper-cli.exe`, a real `ggml-small.bin` of the reported size, and
+        // the settings written, read back, and reported as ready.
+        let (directory, binary_path, model_path) = reported_directory();
+        let settings = WhisperSettings {
+            enabled: true,
+            binary_path: binary_path.clone(),
+            model_path: model_path.clone(),
+            language: "ru".to_string(),
+            ..WhisperSettings::default()
+        };
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            settings.clone(),
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        // The settings page stores what it shows, so the document exists before
+        // the restart; a session that only held the values in memory would of
+        // course not survive it.
+        session.update_settings(settings.clone()).unwrap();
+        let status = session.status();
+        assert!(
+            status.configured,
+            "the reported files must be accepted: {status:?}"
+        );
+        assert!(status.enabled);
+        assert_eq!(status.model.as_ref().unwrap().kind.label(), "small");
+        assert_eq!(
+            status.model.as_ref().unwrap().size_bytes,
+            REPORTED_MODEL_BYTES
+        );
+        // The names are safe to show anywhere, and the paths are the settings'.
+        assert_eq!(status.binary_name, "whisper-cli.exe");
+        assert_eq!(status.model_name, "ggml-small.bin");
+        assert_eq!(status.binary_path, binary_path);
+        assert_eq!(status.model_path, model_path);
+        // No notes at all: nothing is missing and nothing is unverified beyond
+        // the model's own honesty note, which the probe adds.
+        assert!(
+            !status
+                .notes
+                .iter()
+                .any(|note| note.contains("model-unavailable")),
+            "{:?}",
+            status.notes
+        );
+
+        // A new session over the same directory reads the document back.
+        let reopened = WhisperSession::open(directory.path(), WhisperSettings::default());
+        assert!(
+            reopened.settings().enabled,
+            "enabled must survive a restart"
+        );
+        assert_eq!(reopened.settings().binary_path, binary_path);
+        assert_eq!(reopened.settings().model_path, model_path);
+        assert!(reopened.status().configured);
+        assert!(reopened.settings().validate().is_ok());
+    }
+
+    #[test]
+    fn saving_enabled_alone_never_drops_the_two_paths() {
+        // The switch is saved on its own, and it must not lose what was chosen
+        // before it: one document, written whole.
+        let (directory, binary_path, model_path) = reported_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            WhisperSettings::default(),
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        // First the two files, as the settings page stores them.
+        session
+            .update_settings(WhisperSettings {
+                binary_path: binary_path.clone(),
+                model_path: model_path.clone(),
+                ..WhisperSettings::default()
+            })
+            .unwrap();
+        // Then the switch, built from what the page was showing.
+        let shown = session.settings();
+        let updated = session
+            .update_settings(WhisperSettings {
+                enabled: true,
+                ..shown.clone()
+            })
+            .unwrap();
+        assert!(updated.enabled);
+        assert_eq!(updated.binary_path, binary_path);
+        assert_eq!(updated.model_path, model_path);
+        // And a reload sees all three together.
+        let reopened = WhisperSession::open(directory.path(), WhisperSettings::default());
+        assert!(reopened.settings().enabled);
+        assert_eq!(reopened.settings().model_path, model_path);
+        assert!(reopened.status().configured);
+    }
+
+    #[test]
+    fn the_settings_document_round_trips_windows_paths_unchanged() {
+        let (directory, binary_path, model_path) = reported_directory();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            WhisperSettings::default(),
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        session
+            .update_settings(WhisperSettings {
+                binary_path: REPORTED_BINARY.to_string(),
+                model_path: REPORTED_MODEL.to_string(),
+                language: "ru".to_string(),
+                ..WhisperSettings::default()
+            })
+            .unwrap();
+        // The document on disk escapes the backslashes; reading it back gives the
+        // same paths, character for character.
+        let text = std::fs::read_to_string(directory.path().join(SETTINGS_FILE)).unwrap();
+        assert!(text.contains(r"C:\\AI\\whisper.cpp"), "{text}");
+        let stored = super::super::config::stored_settings(directory.path()).unwrap();
+        assert_eq!(stored.binary_path, REPORTED_BINARY);
+        assert_eq!(stored.model_path, REPORTED_MODEL);
+        assert_eq!(stored.language, "ru");
+        // A path with a space survives as well.
+        session
+            .update_settings(WhisperSettings {
+                binary_path: r"C:\Program Files\whisper\whisper-cli.exe".to_string(),
+                ..stored
+            })
+            .unwrap();
+        let stored = super::super::config::stored_settings(directory.path()).unwrap();
+        assert_eq!(
+            stored.binary_path,
+            r"C:\Program Files\whisper\whisper-cli.exe"
+        );
+        let _ = (binary_path, model_path);
+    }
+
+    #[test]
+    fn a_wrong_file_is_refused_with_a_localized_reason_and_a_detail() {
+        let (directory, _binary_path, _model_path) = reported_directory();
+        // Text renamed to look like a model: the header is what gives it away.
+        let mut text = b"NOTM".to_vec();
+        text.resize(REPORTED_MODEL_BYTES as usize, 0);
+        let wrong = directory.path().join("ggml-small.bin");
+        std::fs::write(&wrong, &text).unwrap();
+        let session = WhisperSession::with_runner(
+            directory.path(),
+            WhisperSettings {
+                enabled: true,
+                binary_path: directory
+                    .path()
+                    .join("whisper-cli.exe")
+                    .to_string_lossy()
+                    .into_owned(),
+                model_path: wrong.to_string_lossy().into_owned(),
+                ..WhisperSettings::default()
+            },
+            Arc::new(FakeTranscriber::answering("привет")),
+        );
+        let status = session.status();
+        assert!(!status.configured, "a wrong file must not look ready");
+        // A Fluent key for the interface, and the concrete detail for the person.
+        assert!(
+            status
+                .notes
+                .iter()
+                .any(|note| note == "windows-whisper-note-model-unavailable"),
+            "{:?}",
+            status.notes
+        );
+        assert!(
+            status.notes.iter().any(|note| note.contains("4e 4f 54 4d")),
+            "the detail must say what the header was: {:?}",
+            status.notes
+        );
+        // The note carries no path, so it is safe to show and to copy.
+        for note in &status.notes {
+            assert!(!note.contains(":\\"), "{note}");
+        }
+    }
     #[test]
     fn switching_the_feature_off_stops_a_running_recording() {
         let (directory, binary, model) = prepared_directory();

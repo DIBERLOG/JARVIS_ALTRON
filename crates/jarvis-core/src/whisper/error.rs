@@ -90,6 +90,27 @@ impl WhisperError {
     pub fn is_cancellation(&self) -> bool {
         matches!(self, Self::Cancelled)
     }
+
+    /// The content-free detail of a variant, when it has one.
+    ///
+    /// The detail is what turns "that file cannot be used" into a sentence a
+    /// person can act on. Every detail in this type is a static sentence or a
+    /// bounded number, so it can be shown and logged: none of them carries a
+    /// path, a transcript, or an audio buffer.
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            Self::InvalidConfiguration(detail)
+            | Self::BinaryUnavailable(detail)
+            | Self::ModelUnavailable(detail)
+            | Self::AudioUnavailable(detail) => Some(detail.clone()),
+            Self::WrongArchitecture { expected, found } => {
+                Some(format!("built for {found}, needs {expected}"))
+            }
+            Self::ProcessFailed { code } => code.map(|code| format!("exit code {code}")),
+            Self::UnsupportedLanguage(language) => Some(format!("language {language}")),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for WhisperError {

@@ -1193,3 +1193,23 @@ desktop-about-title = Про застосунок
 desktop-about-version = Версія
 desktop-about-license = Ліцензія проєкту не врегульована, тому публічний реліз залишається заблокованим. Особисті збірки називаються «Personal Windows MVP build».
 desktop-about-limits = Поки не реалізовано: повний зашифрований backup/restore і інсталятор Windows. Це окремі етапи.
+
+# Notes the dictation status can report, one per error code the core can produce.
+whisper-note-not-configured = Виконуваний файл і модель ще не обрано.
+whisper-note-invalid-configuration = Ці налаштування відхилено.
+whisper-note-binary-unavailable = Виконуваний файл whisper не можна використати.
+whisper-note-model-unavailable = Файл моделі не можна використати.
+whisper-note-model-unknown = Розмір моделі не вказано в її назві.
+whisper-note-wrong-architecture = Виконуваний файл не для 64-бітної Windows.
+whisper-note-audio-unavailable = Це аудіо не можна використати.
+whisper-note-audio-empty = Нічого не записано.
+whisper-note-busy = Розшифрування вже триває.
+whisper-note-process-unavailable = Не вдалося запустити процес whisper.
+whisper-note-process-failed = Процес whisper завершився з помилкою.
+whisper-note-timed-out = Це тривало занадто довго, і роботу зупинено.
+whisper-note-invalid-response = Читабельний текст не отримано.
+whisper-note-cancelled = Скасовано.
+whisper-note-unsupported-language = Такої мови не підтримується.
+whisper-note-storage = Не вдалося записати власні файли функції.
+whisper-file-executable = Executable
+whisper-file-model = Model

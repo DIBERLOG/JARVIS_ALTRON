@@ -199,6 +199,105 @@ pub fn stored_settings(directory: &Path) -> Option<WhisperSettings> {
     WhisperSettings::from_json(&text).ok()
 }
 
+/// A content-free description of what is stored, for the diagnostics report.
+///
+/// It answers the question a person actually has after choosing two files —
+/// "did it save?" — without putting a path into a report that may be copied
+/// somewhere else. Only the *presence* and the *shape* of the values are
+/// described; the executable's name and the model's name are safe to show, and
+/// a full path is not.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredSettingsSummary {
+    /// Whether the document exists at all.
+    pub document_present: bool,
+    /// Whether it could be parsed. A damaged document falls back to the defaults.
+    pub document_readable: bool,
+    pub enabled: bool,
+    /// Whether an executable is set, and its file name only.
+    pub executable_set: bool,
+    pub executable_name: String,
+    pub model_set: bool,
+    pub model_name: String,
+    pub language: String,
+    /// Whether the stored document names both files, which is what "configured"
+    /// means for the rest of the application.
+    pub configured: bool,
+    /// A version mismatch means the document came from another build.
+    pub schema_version: u32,
+}
+
+impl StoredSettingsSummary {
+    /// Reads the document and describes it without revealing a path.
+    pub fn read(directory: &Path) -> Self {
+        let path = directory.join(SETTINGS_FILE);
+        let text = std::fs::read_to_string(&path).ok();
+        let document_present = text.is_some();
+        let settings = text
+            .as_deref()
+            .and_then(|text| WhisperSettings::from_json(text).ok());
+        let document_readable = settings.is_some();
+        let settings = settings.unwrap_or_default();
+        Self {
+            document_present,
+            document_readable,
+            enabled: settings.enabled,
+            executable_set: !settings.binary_path.trim().is_empty(),
+            executable_name: if settings.binary_path.trim().is_empty() {
+                String::new()
+            } else {
+                crate::text::file_label(&settings.binary_path)
+            },
+            model_set: !settings.model_path.trim().is_empty(),
+            model_name: if settings.model_path.trim().is_empty() {
+                String::new()
+            } else {
+                crate::text::file_label(&settings.model_path)
+            },
+            language: settings.language.clone(),
+            configured: settings.is_configured(),
+            schema_version: settings.schema_version,
+        }
+    }
+
+    /// One line per fact, with no path anywhere.
+    pub fn describe(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "dictation settings document: {}",
+            if !self.document_present {
+                "absent"
+            } else if self.document_readable {
+                "readable"
+            } else {
+                "present but damaged, so the defaults are in use"
+            }
+        ));
+        lines.push(format!("dictation enabled: {}", self.enabled));
+        lines.push(format!(
+            "executable set: {}{}",
+            self.executable_set,
+            if self.executable_name.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", self.executable_name)
+            }
+        ));
+        lines.push(format!(
+            "model set: {}{}",
+            self.model_set,
+            if self.model_name.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", self.model_name)
+            }
+        ));
+        lines.push(format!("language: {}", self.language));
+        lines.push(format!("configured: {}", self.configured));
+        lines.push(format!("settings schema version: {}", self.schema_version));
+        lines
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

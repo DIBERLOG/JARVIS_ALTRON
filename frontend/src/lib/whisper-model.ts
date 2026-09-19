@@ -51,6 +51,10 @@ export interface DictationStatus {
     model: ModelProbe | null
     binary_path: string
     model_path: string
+    /** The executable's own name, safe to show anywhere. */
+    binary_name: string
+    /** The model's own name, safe to show anywhere. */
+    model_name: string
     notes: string[]
 }
 
@@ -133,6 +137,38 @@ export function errorKey(code: string): string {
         "storage"
     ]
     return known.includes(code) ? `whisper-error-${code}` : "whisper-error-unknown"
+}
+
+/**
+ * The note keys the core can build, without its own prefix.
+ *
+ * They mirror `WhisperError::code()` in the core: every error the status can
+ * report has a key, so the user never sees a raw identifier. The translation
+ * test reads the core's own list and requires each key in all three locales.
+ */
+export const NOTE_CODES: readonly string[] = [
+    "disabled",
+    "not_configured",
+    "invalid_configuration",
+    "binary_unavailable",
+    "model_unavailable",
+    "model_unknown",
+    "wrong_architecture",
+    "audio_unavailable",
+    "audio_empty",
+    "busy",
+    "process_unavailable",
+    "process_failed",
+    "timed_out",
+    "invalid_response",
+    "cancelled",
+    "unsupported_language",
+    "storage"
+]
+
+/** The Fluent key of a note built from an error code. */
+export function noteKeyForCode(code: string): string {
+    return `whisper-note-${code.replace(/_/g, "-")}`
 }
 
 /**

@@ -1199,3 +1199,23 @@ desktop-about-title = About
 desktop-about-version = Version
 desktop-about-license = The project licence is unresolved, so a public release stays blocked. Personal builds are called "Personal Windows MVP build".
 desktop-about-limits = Not implemented yet: the full encrypted backup and restore, and the Windows installer. Both are separate stages.
+
+# Notes the dictation status can report, one per error code the core can produce.
+whisper-note-not-configured = No executable and model are chosen yet.
+whisper-note-invalid-configuration = Those settings were rejected.
+whisper-note-binary-unavailable = The whisper executable cannot be used.
+whisper-note-model-unavailable = The model file cannot be used.
+whisper-note-model-unknown = The model's size is not stated in its name.
+whisper-note-wrong-architecture = The executable is not built for 64-bit Windows.
+whisper-note-audio-unavailable = That audio cannot be used.
+whisper-note-audio-empty = Nothing was recorded.
+whisper-note-busy = A transcription is already running.
+whisper-note-process-unavailable = The whisper process could not be started.
+whisper-note-process-failed = The whisper process failed.
+whisper-note-timed-out = It took too long and was stopped.
+whisper-note-invalid-response = No readable transcript was produced.
+whisper-note-cancelled = It was cancelled.
+whisper-note-unsupported-language = That language is not offered.
+whisper-note-storage = The feature could not write its own files.
+whisper-file-executable = Executable
+whisper-file-model = Model

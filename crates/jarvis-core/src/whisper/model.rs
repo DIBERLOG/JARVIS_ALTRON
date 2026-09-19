@@ -202,15 +202,46 @@ pub fn pe_architecture(bytes: &[u8]) -> Option<Architecture> {
     })
 }
 
+/// The magic `ggml` writes at the start of a model file.
+///
+/// `GGML_FILE_MAGIC` is `0x67676d6c`, and it is written as a little-endian
+/// 32-bit integer, so the first four *bytes* of a real `ggml-*.bin` are
+/// `6C 6D 67 67` — which reads as `lmgg`, not as `ggml`. Both byte orders are
+/// accepted here, because a model converted on a big-endian machine, or an
+/// older tool, can produce the other one, and the value is the same either way.
+pub const GGML_FILE_MAGIC: u32 = 0x6767_6d6c;
+
 /// The container a model file starts with.
+///
+/// This is the check that a real `whisper.cpp` model has to pass. It is
+/// deliberately about the first four bytes only: nothing here claims to verify
+/// the contents, and the notes say so.
 pub fn model_container(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.len() >= 4 && &bytes[0..4] == b"ggml" {
+    if bytes.len() < 4 {
+        return None;
+    }
+    let head = [bytes[0], bytes[1], bytes[2], bytes[3]];
+    // The same value in either byte order is the same container: `6c 6d 67 67`
+    // is the magic written little-endian, `67 67 6d 6c` is the same magic
+    // written big-endian (and reads as `ggml`). Both are accepted, so a model
+    // from any converter is recognized by the value rather than by the spelling.
+    if u32::from_le_bytes(head) == GGML_FILE_MAGIC || u32::from_be_bytes(head) == GGML_FILE_MAGIC {
         return Some("ggml");
     }
-    if bytes.len() >= 4 && &bytes[0..4] == b"GGUF" {
+    if &bytes[0..4] == b"GGUF" {
         return Some("gguf");
     }
     None
+}
+
+/// The first four bytes as hex, for an error that has to be diagnosable without
+/// naming a file.
+pub fn header_hex(bytes: &[u8]) -> String {
+    let mut rendered = String::with_capacity(12);
+    for byte in bytes.iter().take(4) {
+        rendered.push_str(&format!("{byte:02x} "));
+    }
+    rendered.trim_end().to_string()
 }
 
 /// Inspects the executable the user picked.
@@ -270,9 +301,13 @@ pub fn probe_model(path: &Path) -> Result<ModelProbe, WhisperError> {
     }
     let header = read_prefix(path, 16)?;
     let container = model_container(&header).ok_or_else(|| {
-        WhisperError::ModelUnavailable(
-            "that file does not start with a ggml or gguf container".to_string(),
-        )
+        // The first four bytes are named, because they are what separates "the
+        // user picked the wrong file" from "this build does not know this
+        // container". Four bytes of a model header carry no user content.
+        WhisperError::ModelUnavailable(format!(
+            "that file does not start with a ggml or gguf container (it starts with {})",
+            header_hex(&header)
+        ))
     })?;
     let name = path
         .file_name()
@@ -469,6 +504,67 @@ mod tests {
         ));
     }
 
+    /// The size the user reported for their `ggml-small.bin`.
+    const REPORTED_SMALL_BYTES: u64 = 487_601_967;
+
+    #[test]
+    fn a_real_whisper_model_is_accepted_with_the_magic_whisper_cpp_writes() {
+        // `GGML_FILE_MAGIC` is written as a little-endian 32-bit integer, so the
+        // first four bytes of a real model are `6C 6D 67 67`. This is the file
+        // that was refused before: the check used to look for the ASCII bytes
+        // `ggml`, which a real file does not have.
+        let directory = directory();
+        let mut body = vec![0x6cu8, 0x6d, 0x67, 0x67];
+        body.resize(REPORTED_SMALL_BYTES as usize, 0);
+        let path = write(directory.path(), "ggml-small.bin", &body);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            REPORTED_SMALL_BYTES,
+            "the fixture must be the size that was reported"
+        );
+        let probe = probe_model(&path).expect("the official model must be accepted");
+        assert_eq!(probe.kind, ModelKind::Small);
+        assert_eq!(probe.container, "ggml");
+        assert_eq!(probe.size_bytes, REPORTED_SMALL_BYTES);
+        // The honesty note is still there: nothing verified the contents.
+        assert!(probe.notes.iter().any(|note| note.contains("not verified")));
+    }
+
+    #[test]
+    fn the_same_magic_in_the_other_byte_order_is_the_same_container() {
+        let directory = directory();
+        let mut body = vec![0x67u8, 0x67, 0x6d, 0x6c];
+        body.resize((MIN_MODEL_BYTES + 16) as usize, 0);
+        let path = write(directory.path(), "ggml-base.bin", &body);
+        let probe = probe_model(&path).unwrap();
+        assert_eq!(probe.container, "ggml");
+        assert_eq!(probe.kind, ModelKind::Base);
+    }
+
+    #[test]
+    fn a_file_whose_header_is_something_else_is_still_refused_and_says_what_it_found() {
+        let directory = directory();
+        let mut body = b"NOTM".to_vec();
+        body.resize((MIN_MODEL_BYTES + 16) as usize, 0);
+        let path = write(directory.path(), "ggml-small.bin", &body);
+        let error = probe_model(&path).unwrap_err();
+        assert!(matches!(error, WhisperError::ModelUnavailable(_)));
+        // The message names the four bytes, so the cause is visible at once.
+        assert!(error.to_string().contains("4e 4f 54 4d"), "{error}");
+        // Validation is not weakened: a big file with the wrong header is refused.
+        let mut text = b"# a text file".to_vec();
+        text.resize((MIN_MODEL_BYTES + 16) as usize, b' ');
+        let text = write(directory.path(), "notes.bin", &text);
+        assert!(probe_model(&text).is_err());
+    }
+
+    #[test]
+    fn the_reported_header_bytes_are_rendered_as_hex() {
+        assert_eq!(header_hex(&[0x6c, 0x6d, 0x67, 0x67]), "6c 6d 67 67");
+        assert_eq!(header_hex(&[0x47, 0x47, 0x55, 0x46]), "47 47 55 46");
+        assert_eq!(header_hex(&[0x01]), "01");
+        assert_eq!(header_hex(&[]), "");
+    }
     #[test]
     fn a_gguf_container_is_accepted_as_well() {
         let directory = directory();

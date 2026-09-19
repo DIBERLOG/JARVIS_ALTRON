@@ -170,6 +170,36 @@
         settings = { ...settings, ...changes }
         saved = false
     }
+
+    /**
+     * Stores a switch or a select immediately.
+     *
+     * A switch that only changes what this page holds would be overwritten by
+     * the next state poll, which is exactly the defect this replaces: the value
+     * has to reach the core, and the page then shows what the core kept.
+     */
+    async function store(changes: Partial<WhisperSettings>) {
+        if (!settings) return
+        const candidate = { ...settings, ...changes }
+        const problem = settingsProblem(candidate)
+        if (problem) {
+            actionError = t(problem)
+            return
+        }
+        settings = candidate
+        busy = true
+        try {
+            settings = await whisperApi.updateSettings(normalizedSettings(candidate))
+            saved = true
+            actionError = ""
+            await load()
+        } catch (error) {
+            actionError = describe(error)
+            await load()
+        } finally {
+            busy = false
+        }
+    }
 </script>
 
 <Text weight={700} size="lg">{t("whisper-title")}</Text>
@@ -188,6 +218,12 @@
         {#each status.notes as note (note)}
             <Text size="xs" color="dimmed">{noteText(note)}</Text>
         {/each}
+        {#if status.binary_name || status.model_name}
+            <Text size="xs" color="dimmed">
+                {t("whisper-file-executable")}: {status.binary_name || "—"} ·
+                {t("whisper-file-model")}: {status.model_name || "—"}
+            </Text>
+        {/if}
         {#if status.model}
             <Text size="xs" color="dimmed">
                 {t("whisper-model-label")}: {t(modelKindKey(status.model.kind))}
@@ -203,7 +239,7 @@
 <Switch
     label={t("whisper-enabled")}
     checked={settings.enabled}
-    on:change={() => patch({ enabled: !settings.enabled })}
+    on:change={() => store({ enabled: !settings.enabled })}
 />
 <Text size="xs" color="dimmed">{t("whisper-enabled-hint")}</Text>
 <Space h="xs" />
@@ -261,7 +297,7 @@
 <Space h="xs" />
 <label class="field">
     <span>{t("whisper-language")}</span>
-    <select bind:value={settings.language} on:change={() => patch({})}>
+    <select bind:value={settings.language} on:change={() => store({ language: settings.language })}>
         {#each LANGUAGES as language (language)}
             <option value={language}>{language}</option>
         {/each}
@@ -299,12 +335,12 @@
 <Switch
     label={t("whisper-translate")}
     checked={settings.translate}
-    on:change={() => patch({ translate: !settings.translate })}
+    on:change={() => store({ translate: !settings.translate })}
 />
 <Switch
     label={t("whisper-keep-audio")}
     checked={settings.keep_audio}
-    on:change={() => patch({ keep_audio: !settings.keep_audio })}
+    on:change={() => store({ keep_audio: !settings.keep_audio })}
 />
 <Text size="xs" color="dimmed">{t("whisper-keep-audio-hint")}</Text>
 <Space h="xs" />

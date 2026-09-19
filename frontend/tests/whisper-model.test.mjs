@@ -2,6 +2,8 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 import {
+    NOTE_CODES,
+    noteKeyForCode,
     DEFAULT_SECONDS,
     DEFAULT_THREADS,
     LANGUAGES,
@@ -104,6 +106,43 @@ test("an unknown error code is named instead of shown raw", () => {
     assert.equal(errorKey("something_else"), "whisper-error-unknown")
 })
 
+test("windows paths survive the round trip through the settings object", () => {
+    // The values the settings page sends to the core and gets back: JSON escapes
+    // the backslashes, and nothing else may touch them.
+    const chosen = {
+        ...defaultSettings(),
+        enabled: true,
+        binary_path: String.raw`C:\AI\whisper.cpp\runtime\Release\whisper-cli.exe`,
+        model_path: String.raw`C:\AI\whisper.cpp\ggml-small.bin`,
+        language: "ru"
+    }
+    const normalized = normalizedSettings(chosen)
+    assert.equal(normalized.binary_path, chosen.binary_path)
+    assert.equal(normalized.model_path, chosen.model_path)
+    assert.equal(normalized.language, "ru")
+    assert.equal(normalized.enabled, true)
+    // And through JSON, exactly as the command layer carries it.
+    const restored = JSON.parse(JSON.stringify(normalized))
+    assert.equal(restored.binary_path, chosen.binary_path)
+    assert.equal(restored.model_path, chosen.model_path)
+    // A path with a space keeps the space; surrounding whitespace is trimmed.
+    const spaced = normalizedSettings({
+        ...chosen,
+        binary_path: String.raw`C:\Program Files\whisper\whisper-cli.exe`
+    })
+    assert.equal(spaced.binary_path, String.raw`C:\Program Files\whisper\whisper-cli.exe`)
+    assert.equal(normalizedSettings({ ...chosen, model_path: "  C:\\m.bin  " }).model_path, "C:\\m.bin")
+})
+
+test("every note the core can produce has a key, so no raw identifier is shown", () => {
+    for (const code of NOTE_CODES) {
+        assert.equal(noteKeyForCode(code), `whisper-note-${code.replace(/_/g, "-")}`)
+        assert.equal(noteKey(`windows-whisper-note-${code.replace(/_/g, "-")}`), noteKeyForCode(code))
+    }
+    // The code that was shown raw in the defect report is in the list.
+    assert.ok(NOTE_CODES.includes("model_unavailable"))
+    assert.equal(noteKeyForCode("model_unavailable"), "whisper-note-model-unavailable")
+})
 test("a note from the core is a key when the core sent a key", () => {
     assert.equal(noteKey("windows-whisper-note-no-model"), "whisper-note-no-model")
     // A plain sentence is shown as it is, not translated by guessing.
