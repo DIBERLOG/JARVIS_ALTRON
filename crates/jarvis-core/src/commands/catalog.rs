@@ -89,8 +89,12 @@ pub struct CatalogEntry {
     pub requires_confirmation: bool,
     /// Whether the command can run as it is.
     pub enabled: bool,
-    /// Why it cannot, as a stable code: `no_phrases`, `executable_missing`,
-    /// `script_missing`, `unsupported_type`.
+    /// The one word for the card: `ready`, `configuration_required`, `disabled`,
+    /// `forbidden`, `executor_missing`, `dependency_missing`.
+    pub status: String,
+    /// Why it cannot, as a stable code: `no_phrases`, `allowlist_required`,
+    /// `executable_missing`, `script_missing`, `unsupported_type`,
+    /// `disabled_in_settings`, `forbidden_by_policy`.
     pub unavailable_reason: Option<String>,
 }
 
@@ -200,7 +204,15 @@ pub fn build_catalog(directory: &Path, language: &str) -> CommandCatalog {
 /// Turns one parsed command into a card.
 pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str) -> CatalogEntry {
     let phrases = phrases_for(command, language);
-    let (enabled, unavailable_reason) = availability(pack_path, command, &phrases);
+    let (available, reason) = availability(pack_path, command, &phrases);
+    // A forbidden command never reaches an executor, whatever it names: the card
+    // says so instead of showing an executor that will not be used.
+    let (enabled, unavailable_reason) = if command.risk_level == RiskLevel::Forbidden {
+        (false, Some("forbidden_by_policy".to_string()))
+    } else {
+        (available, reason)
+    };
+    let status = status_of(command, enabled, unavailable_reason.as_deref());
 
     let mut slots: Vec<CatalogSlot> = command
         .slots
@@ -223,7 +235,28 @@ pub fn entry_of(pack: &str, pack_path: &Path, command: &JCommand, language: &str
         risk_level: command.risk_level.as_str().to_string(),
         requires_confirmation: command.risk_level == RiskLevel::ConfirmationRequired,
         enabled,
+        status,
         unavailable_reason,
+    }
+}
+
+/// The one word a card shows, derived from the risk and from what is missing.
+///
+/// MATCHED and EXECUTABLE are separate questions and stay separate here: a command
+/// whose phrase is listed and whose executor is missing is *not* ready, and it is
+/// not "unknown" either — it says which of the two is missing.
+fn status_of(command: &JCommand, enabled: bool, reason: Option<&str>) -> String {
+    if command.risk_level == RiskLevel::Forbidden {
+        return "forbidden".to_string();
+    }
+    if enabled {
+        return "ready".to_string();
+    }
+    match reason {
+        Some("executable_missing") | Some("unsupported_type") => "executor_missing".to_string(),
+        Some("script_missing") => "dependency_missing".to_string(),
+        Some("allowlist_required") => "configuration_required".to_string(),
+        _ => "disabled".to_string(),
     }
 }
 
@@ -259,6 +292,11 @@ pub fn global_voice_input_entry(phrase: &str, enabled: bool) -> CatalogEntry {
         risk_level: RiskLevel::Safe.as_str().to_string(),
         requires_confirmation: false,
         enabled: enabled && has_phrase,
+        status: if enabled && has_phrase {
+            "ready".to_string()
+        } else {
+            "disabled".to_string()
+        },
         unavailable_reason,
     }
 }
@@ -289,6 +327,25 @@ fn availability(
         return (false, Some("no_phrases".to_string()));
     }
     match command.cmd_type.as_str() {
+        // A typed action goes through the pipeline this build already runs, so the
+        // only question is whether it needs something the user has to configure.
+        "native" => match &command.native {
+            Some(action) => {
+                if action.needs_allowed_application() {
+                    // The pack asks for a role; the user's allowlist answers it. Until
+                    // an entry matches, the command is not ready and says so.
+                    (false, Some("allowlist_required".to_string()))
+                } else {
+                    (true, None)
+                }
+            }
+            None => (false, Some("unsupported_type".to_string())),
+        },
+        // A typed event of the application needs nothing but the host.
+        "internal" => match command.internal {
+            Some(_) => (true, None),
+            None => (false, Some("unsupported_type".to_string())),
+        },
         "ahk" => {
             if resolves(pack_path, &command.exe_path) {
                 (true, None)
@@ -534,16 +591,161 @@ mod tests {
     }
 
     #[test]
+    fn a_card_says_which_question_is_unanswered() {
+        // MATCHED and EXECUTABLE are separate. Every installed command is a card
+        // with a status from the closed set, and "ready" is never claimed for a
+        // command that has no executor or that the policy refuses.
+        const STATUSES: [&str; 6] = [
+            "ready",
+            "configuration_required",
+            "disabled",
+            "forbidden",
+            "executor_missing",
+            "dependency_missing",
+        ];
+        let catalog = installed();
+        for entry in &catalog.entries {
+            assert!(
+                STATUSES.contains(&entry.status.as_str()),
+                "{} has an unknown status {}",
+                entry.id,
+                entry.status
+            );
+            if entry.status == "ready" {
+                assert!(entry.enabled, "{} claims ready while disabled", entry.id);
+                assert!(
+                    entry.unavailable_reason.is_none(),
+                    "{} claims ready with a reason",
+                    entry.id
+                );
+            } else {
+                assert!(
+                    entry.unavailable_reason.is_some(),
+                    "{} is not ready and does not say why",
+                    entry.id
+                );
+            }
+            if entry.risk_level == "forbidden" {
+                assert_eq!(entry.status, "forbidden", "{}", entry.id);
+                assert!(!entry.enabled);
+            }
+        }
+
+        let status = |id: &str| {
+            catalog
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("{id} must be installed"))
+                .status
+                .clone()
+        };
+        // Typed actions that need nothing from the user are ready.
+        for id in [
+            "volume_get",
+            "volume_mute",
+            "volume_unmute",
+            "volume_min",
+            "volume_mid",
+            "volume_max",
+            "windows_screenshot",
+            "windows_lock",
+            "windows_list",
+            "stop_listening",
+        ] {
+            assert_eq!(status(id), "ready", "{id}");
+        }
+        // A launch waits for the user's allowlist, and the card says so.
+        for id in [
+            "browser_open",
+            "calculator_open",
+            "steam_open",
+            "windows_task_manager",
+        ] {
+            assert_eq!(status(id), "configuration_required", "{id}");
+        }
+        // The policy refuses these, whichever executor they name.
+        assert_eq!(status("jarvis_reboot"), "forbidden");
+        assert_eq!(status("calculator_close"), "forbidden");
+        assert_eq!(status("browser_close"), "forbidden");
+        // A command whose compiled helper is not in the repository is not ready.
+        for id in [
+            "open_google",
+            "steam_close",
+            "windows_empty_trash",
+            "windows_sleep",
+            "windows_clipboard",
+            "windows_keyboard_layout",
+        ] {
+            assert_eq!(status(id), "executor_missing", "{id}");
+        }
+        // The terminator asks for a confirmation, and is still usable.
+        let terminate = catalog
+            .entries
+            .iter()
+            .find(|entry| entry.id == "terminate")
+            .expect("the terminator");
+        assert_eq!(terminate.status, "ready");
+        assert!(terminate.requires_confirmation);
+    }
+
+    #[test]
+    fn a_command_that_cannot_run_is_described_and_never_guessed_at() {
+        // A native launch is configuration, not a broken command.
+        let mut launch = JCommand::for_test("browser_open", "native");
+        launch.native = Some(crate::commands::NativeAction::LaunchApplication {
+            role: "browser".to_string(),
+        });
+        launch
+            .phrases
+            .insert("ru".to_string(), vec!["открой браузер".to_string()]);
+        let directory = fixture("status");
+        let entry = entry_of("browser", &directory, &launch, "ru");
+        assert_eq!(entry.status, "configuration_required");
+        assert_eq!(
+            entry.unavailable_reason.as_deref(),
+            Some("allowlist_required")
+        );
+
+        // The same shape with an action that needs nothing is ready.
+        launch.native = Some(crate::commands::NativeAction::GetVolume);
+        let entry = entry_of("browser", &directory, &launch, "ru");
+        assert_eq!(entry.status, "ready");
+        assert!(entry.enabled);
+
+        // A native command with no action at all is not ready and never runs.
+        launch.native = None;
+        let entry = entry_of("browser", &directory, &launch, "ru");
+        assert_eq!(entry.status, "executor_missing");
+        assert_eq!(
+            entry.unavailable_reason.as_deref(),
+            Some("unsupported_type")
+        );
+
+        // An internal command needs nothing but the host.
+        let mut internal = JCommand::for_test("stop_listening", "internal");
+        internal.internal = Some(crate::commands::InternalEvent::StopChaining);
+        internal
+            .phrases
+            .insert("ru".to_string(), vec!["хватит".to_string()]);
+        let entry = entry_of("stop", &directory, &internal, "ru");
+        assert_eq!(entry.status, "ready");
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
     fn the_global_voice_input_is_a_card_from_the_settings() {
         let entry = global_voice_input_entry("Джарвис, продиктую текст", true);
         assert_eq!(entry.category, "global_voice_input");
         assert_eq!(entry.source, "settings");
         assert_eq!(entry.pack, "settings");
         assert!(entry.enabled);
+        assert_eq!(entry.status, "ready");
         assert_eq!(entry.phrases, vec!["продиктую текст".to_string()]);
 
         let disabled = global_voice_input_entry("Джарвис, продиктую текст", false);
         assert!(!disabled.enabled);
+        assert_eq!(disabled.status, "disabled");
         assert_eq!(
             disabled.unavailable_reason.as_deref(),
             Some("disabled_in_settings")
