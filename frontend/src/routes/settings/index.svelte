@@ -13,6 +13,7 @@
     import AutocorrectSettings from "@/components/settings/AutocorrectSettings.svelte"
     import WindowsActionsPanel from "@/components/windows/WindowsActionsPanel.svelte"
     import WhisperSettingsPanel from "@/components/settings/WhisperSettings.svelte"
+    import BackupSettingsPanel from "@/components/settings/BackupSettings.svelte"
     import DesktopSettings from "@/components/desktop/DesktopSettings.svelte"
     import DiagnosticsPanel from "@/components/desktop/DiagnosticsPanel.svelte"
 
@@ -335,6 +336,11 @@
     <Tabs.Tab label={t('whisper-tab')} icon={LightningBolt}>
         <Space h="sm" />
         <WhisperSettingsPanel />
+    </Tabs.Tab>
+
+    <Tabs.Tab label={t('backup-tab')} icon={Cube}>
+        <Space h="sm" />
+        <BackupSettingsPanel />
     </Tabs.Tab>
 
     <Tabs.Tab label={t('windows-actions-tab')} icon={Code}>
