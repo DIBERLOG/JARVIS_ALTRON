@@ -41,7 +41,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 
 use jarvis_core::dictation::{
-    self, ClipboardWriter, DictationEngine, DictationError, DictationStage, DictationStatusView,
+    self, ClipboardWriter, DictationEngine, DictationError, DictationStatusView,
     ElementKind, ForegroundProbe, GlobalDictationSettings, TargetSnapshot, TextCorrector,
     TextInserter, TranscribedText, VoiceHost, VoiceInputPreference, VoiceIntent, VoiceTranscriber,
     WindowIdentity,
@@ -619,11 +619,6 @@ pub async fn voice_input_preview(
 #[tauri::command]
 pub async fn voice_input_copy_again(state: tauri::State<'_, AppState>) -> Result<bool, String> {
     Ok(state.voice_input.copy_again())
-}
-
-/// The stage name a tray row shows.
-pub fn stage_name(stage: DictationStage) -> &'static str {
-    stage.as_str()
 }
 
 #[cfg(test)]

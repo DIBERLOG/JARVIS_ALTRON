@@ -136,14 +136,6 @@ pub fn host_path() -> Option<PathBuf> {
     }
 }
 
-/// The version the host reported, when it has.
-pub fn handshake_version() -> Option<u32> {
-    match HOST.lock().handshake {
-        Handshake::Version(version) => Some(version),
-        Handshake::None => None,
-    }
-}
-
 /// Called when the window sees the host's handshake.
 pub fn note_handshake(protocol_version: u32) {
     let mut host = HOST.lock();
@@ -318,11 +310,6 @@ pub fn stop() {
     host.pid = None;
     host.handshake = Handshake::None;
     host.stopping = false;
-}
-
-/// Whether this window has a host of its own alive.
-pub fn is_owned() -> bool {
-    HOST.lock().child.is_some()
 }
 
 #[cfg(test)]

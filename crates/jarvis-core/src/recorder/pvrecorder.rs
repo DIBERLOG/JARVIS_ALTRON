@@ -133,63 +133,6 @@ pub fn try_read_microphone(frame_buffer: &mut [i16]) -> Result<(), RecorderError
     }
 }
 
-pub fn read_microphone(frame_buffer: &mut [i16]) {
-    if try_read_microphone(frame_buffer).is_err() {
-        frame_buffer.fill(0);
-    }
-}
-
-#[allow(dead_code)]
-fn read_microphone_original(frame_buffer: &mut [i16]) {
-    // ensure microphone is initialized
-    if RECORDER.get().is_some() {
-        // read to frame buffer
-
-        let frame = RECORDER.get().unwrap().read();
-
-        match frame {
-            Ok(f) => {
-                frame_buffer.copy_from_slice(f.as_slice());
-            }
-            Err(msg) => {
-                // @TODO: Fix? PvRecorder always wait for PCM buffer size of 512.
-                error!("Failed to read audio frame. {:?}", msg);
-            }
-        }
-    }
-}
-
-pub fn start_recording(device_index: i32, frame_length: u32) -> Result<(), ()> {
-    // ensure microphone is initialized
-    init_microphone(device_index, frame_length);
-
-    // start recording
-    let Some(recorder) = RECORDER.get() else {
-        // The microphone could not be opened, so there is nothing to start.
-        return Err(());
-    };
-    if IS_RECORDING.load(Ordering::SeqCst) {
-        return Err(());
-    }
-    match recorder.start() {
-        Ok(_) => {
-            info!("START recording from microphone ...");
-
-            // change recording state
-            IS_RECORDING.store(true, Ordering::SeqCst);
-
-            // success
-            Ok(())
-        }
-        Err(msg) => {
-            error!("Failed to START audio recording: {}", msg);
-
-            // fail
-            Err(())
-        }
-    }
-}
-
 /// Starts the microphone, reporting why it could not start.
 ///
 /// The unwrap that used to be here panicked on a machine whose microphone could
@@ -237,32 +180,6 @@ pub fn try_stop_recording() -> Result<(), RecorderError> {
 /// A bounded, content-free reason from the native library.
 fn shorten(message: &str) -> String {
     crate::text::shorten(message, 120)
-}
-
-pub fn stop_recording() -> Result<(), ()> {
-    // ensure microphone is initialized & recording is in process
-    if RECORDER.get().is_some() && IS_RECORDING.load(Ordering::SeqCst) {
-        // stop recording
-        match RECORDER.get().unwrap().stop() {
-            Ok(_) => {
-                info!("STOP recording from microphone ...");
-
-                // change recording state
-                IS_RECORDING.store(false, Ordering::SeqCst);
-
-                // success
-                return Ok(());
-            }
-            Err(msg) => {
-                error!("Failed to STOP audio recording: {}", msg);
-
-                // fail
-                return Err(());
-            }
-        }
-    }
-
-    Ok(()) // if already stopped or not yet initialized
 }
 
 pub fn list_audio_devices() -> Vec<String> {

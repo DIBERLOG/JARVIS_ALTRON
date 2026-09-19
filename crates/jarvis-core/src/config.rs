@@ -4,6 +4,7 @@ use structs::RecorderType;
 use structs::SpeechToTextEngine;
 use structs::WakeWordEngine;
 
+#[cfg(feature = "jarvis_app")]
 use once_cell::sync::Lazy;
 use std::env;
 use std::fs;

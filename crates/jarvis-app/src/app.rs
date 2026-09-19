@@ -16,7 +16,6 @@ use jarvis_core::{
 };
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rand::seq::SliceRandom;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use crate::{diag, should_stop};

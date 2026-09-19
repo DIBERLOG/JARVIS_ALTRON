@@ -289,8 +289,10 @@ pub fn execute_cli(cmd: &str, args: &[String]) -> std::io::Result<Child> {
 pub fn execute_command(
     cmd_path: &PathBuf,
     cmd_config: &JCommand,
-    phrase: Option<&str>,
-    slots: Option<&HashMap<String, SlotValue>>,
+    // Command packs share this contract; only the optional Lua executor consumes
+    // the transcript and slots. Native/CLI packs must not interpolate them.
+    _phrase: Option<&str>,
+    _slots: Option<&HashMap<String, SlotValue>>,
 ) -> Result<bool, String> {
     // execute command by the type
     match cmd_config.cmd_type.as_str() {
@@ -299,7 +301,7 @@ pub fn execute_command(
 
         // LUA command
         #[cfg(feature = "lua")]
-        "lua" => execute_lua_command(cmd_path, cmd_config, phrase, slots),
+        "lua" => execute_lua_command(cmd_path, cmd_config, _phrase, _slots),
 
         // AutoHotkey command
         // @TODO: Consider adding ahk source files execution?

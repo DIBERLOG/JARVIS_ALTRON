@@ -1,7 +1,5 @@
 use once_cell::sync::Lazy;
 use peak_alloc::PeakAlloc;
-use std::env;
-use std::process::Command;
 use std::sync::Mutex;
 use sysinfo::{Components, CpuRefreshKind, Pid, ProcessRefreshKind, RefreshKind, System};
 

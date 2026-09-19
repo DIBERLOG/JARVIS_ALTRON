@@ -4,11 +4,6 @@
 use jarvis_core::{config, db, i18n, voices, SettingsManager, DB};
 use tauri::Manager;
 
-#[macro_use]
-extern crate simple_log;
-
-mod events;
-
 mod desktop;
 mod tauri_commands;
 

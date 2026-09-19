@@ -585,6 +585,24 @@ pub fn get_selected_microphone_index() -> i32 {
     idx
 }
 
+#[cfg(test)]
+mod structural_tests {
+    #[test]
+    fn native_backend_exposes_no_legacy_recording_bypass() {
+        let source = include_str!("recorder/pvrecorder.rs");
+        for forbidden in [
+            "pub fn read_microphone(",
+            "pub fn start_recording(",
+            "pub fn stop_recording(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "native backend must stay behind try_* and MicrophoneLease: {forbidden}"
+            );
+        }
+    }
+}
+
 pub fn get_audio_devices() -> Vec<String> {
     match RECORDER_TYPE.get() {
         Some(RecorderType::PvRecorder) => pvrecorder::list_audio_devices(),
