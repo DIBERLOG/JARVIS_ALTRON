@@ -79,6 +79,8 @@ pub enum KeyPurpose {
     Notes,
     Vault,
     AiMemory,
+    /// The user's spelling dictionary: names and internal terms the user taught.
+    Autocorrect,
 }
 
 impl KeyPurpose {
@@ -88,6 +90,7 @@ impl KeyPurpose {
             Self::Notes => "JARVIS/notes/v1",
             Self::Vault => "JARVIS/vault/v1",
             Self::AiMemory => "JARVIS/ai-memory/v1",
+            Self::Autocorrect => "JARVIS/autocorrect/v1",
         }
     }
 
@@ -96,15 +99,20 @@ impl KeyPurpose {
             Self::Notes => "notes",
             Self::Vault => "vault",
             Self::AiMemory => "ai-memory",
+            Self::Autocorrect => "autocorrect",
         }
     }
 
     /// Every purpose this build knows how to derive.
-    pub fn all() -> [Self; 3] {
-        [Self::Notes, Self::Vault, Self::AiMemory]
+    pub fn all() -> [Self; 4] {
+        [
+            Self::Notes,
+            Self::Vault,
+            Self::AiMemory,
+            Self::Autocorrect,
+        ]
     }
 }
-
 
 /// Hidden authenticated-metadata prefix for record payloads.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -911,6 +919,7 @@ mod tests {
         let notes = derive_purpose_key(&master, KeyPurpose::Notes).unwrap();
         let vault = derive_purpose_key(&master, KeyPurpose::Vault).unwrap();
         let memory = derive_purpose_key(&master, KeyPurpose::AiMemory).unwrap();
+        let autocorrect = derive_purpose_key(&master, KeyPurpose::Autocorrect).unwrap();
 
         // Deterministic: unlocking again must produce the same keys.
         let notes_again = derive_purpose_key(&master, KeyPurpose::Notes).unwrap();
@@ -920,6 +929,9 @@ mod tests {
         assert_ne!(notes.as_array(), vault.as_array());
         assert_ne!(notes.as_array(), memory.as_array());
         assert_ne!(vault.as_array(), memory.as_array());
+        assert_ne!(notes.as_array(), autocorrect.as_array());
+        assert_ne!(vault.as_array(), autocorrect.as_array());
+        assert_ne!(memory.as_array(), autocorrect.as_array());
         assert_ne!(notes.as_array(), master.as_array());
 
         // A different master key yields different purpose keys.
@@ -935,8 +947,15 @@ mod tests {
         assert_eq!(KeyPurpose::Notes.label(), "JARVIS/notes/v1");
         assert_eq!(KeyPurpose::Vault.label(), "JARVIS/vault/v1");
         assert_eq!(KeyPurpose::AiMemory.label(), "JARVIS/ai-memory/v1");
+        assert_eq!(KeyPurpose::Autocorrect.label(), "JARVIS/autocorrect/v1");
+        let mut labels: Vec<&str> = KeyPurpose::all().iter().map(KeyPurpose::label).collect();
+        assert_eq!(labels.len(), 4);
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(labels.len(), 4, "every purpose needs its own label");
         for purpose in KeyPurpose::all() {
             assert!(purpose.label().starts_with("JARVIS/"));
+            assert!(!purpose.as_str().is_empty());
         }
     }
 
