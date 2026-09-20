@@ -27,6 +27,7 @@
 
 pub mod coordinator;
 pub mod download;
+pub mod firstrun;
 pub mod layout;
 pub mod plan;
 pub mod state;
@@ -47,6 +48,11 @@ pub use download::{
     download_artifact, identity_path, sha256_file, ArtifactExpectation, ArtifactTrust,
     DownloadError, DownloadOutcome, DownloadRequest, DownloadTransport, PartIdentity,
     ReqwestTransport, MAX_DOWNLOAD_ATTEMPTS,
+};
+pub use firstrun::{
+    first_run_arguments, free_loopback_port, run_first_run, FirstRunOptions, FirstRunReport,
+    TEST_CONTEXT_SIZE, TEST_GPU_LAYERS, TEST_HOST, TEST_MAX_TOKENS, TEST_PROMPT,
+    TEST_READINESS_TIMEOUT,
 };
 pub use layout::{
     available_disk_bytes, cleanup_owned_temp, commit_staging_dir, directory_size, discard_staging,

@@ -8,8 +8,8 @@
 //!
 //! # The interface sends nothing but consent
 //!
-//! Everything the installation depends on Р Р†Р вЂљРІР‚Сњ the URL, the size, the SHA-256, the
-//! destination directory, the launch arguments Р Р†Р вЂљРІР‚Сњ is chosen by
+//! Everything the installation depends on Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў the URL, the size, the SHA-256, the
+//! destination directory, the launch arguments Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў is chosen by
 //! [`SetupCatalog`], which in the application is always [`PinnedCatalog`]
 //! reading the manifests compiled into the build. The frontend sends a
 //! [`StartRequest`], which is two booleans.
@@ -24,7 +24,7 @@
 //!
 //! # Cancellation
 //!
-//! Every long loop Р Р†Р вЂљРІР‚Сњ the download, the hash, the extraction, the first-run test Р Р†Р вЂљРІР‚Сњ
+//! Every long loop Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў the download, the hash, the extraction, the first-run test Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў
 //! checks one cancellation flag. A cancelled run keeps its `.part` file and its
 //! staging directory, which is what makes a later retry a resume rather than a
 //! restart.
@@ -43,7 +43,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::super::managed::{
-    extract_runtime_archive_with, has_installation_receipt, managed_model_manifest,
+    extract_runtime_archive_cancellable, has_installation_receipt, managed_model_manifest,
     managed_runtime_manifest, validate_pe_x64, validate_runtime_archive,
     write_installation_receipt, InstallationFacts, RuntimeArchiveSpec, RUNTIME_ARCHIVE_FILES,
     RUNTIME_INSTALLED_FILES, MAX_RUNTIME_ARCHIVE_FILES, MAX_RUNTIME_COMPRESSION_RATIO,
@@ -51,9 +51,10 @@ use super::super::managed::{
 };
 use super::super::model::read_gguf_info;
 use super::download::{
-    download_artifact, sha256_file, ArtifactExpectation, ArtifactTrust, DownloadError,
-    DownloadRequest, DownloadTransport, ReqwestTransport,
+    download_artifact, sha256_file, sha256_file_cancellable, ArtifactExpectation, ArtifactTrust,
+    DownloadError, DownloadRequest, DownloadTransport, ReqwestTransport,
 };
+use super::firstrun::{self, FirstRunOptions};
 use super::layout::{
     available_disk_bytes, cleanup_owned_temp, commit_staging_dir, directory_size, discard_staging,
     is_owned_temp, prepare_staging, promote_file, retain_previous, CleanupReport, LayoutError,
@@ -427,6 +428,59 @@ impl SetupCoordinator {
         Ok(self.status())
     }
 
+    /// Runs the technical first-run validation against the installed paths.
+    ///
+    /// `existing_port` is set when a compatible managed server is already
+    /// running: the check then probes that server instead of starting a second
+    /// one, and neither that server nor any other process is stopped by it. The
+    /// run holds the same single-operation slot as an installation, so a test and
+    /// a download can never be in flight at once.
+    pub fn run_test(
+        &self,
+        existing_port: Option<u16>,
+        options: FirstRunOptions,
+        sink: Option<SetupEventSink>,
+    ) -> Result<SetupStatus, SetupErrorCode> {
+        if self
+            .running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(SetupErrorCode::AlreadyRunning);
+        }
+        self.cancel.store(false, Ordering::SeqCst);
+        if let Ok(mut slot) = self.inner.sink.lock() {
+            *slot = sink;
+        }
+        self.inner.begin_run(false);
+        {
+            let mut status = self.inner.lock();
+            status.test = None;
+        }
+        let inner = Arc::clone(&self.inner);
+        let cancel = Arc::clone(&self.cancel);
+        let running = Arc::clone(&self.running);
+        let spawned = std::thread::Builder::new()
+            .name("jarvis-local-ai-first-run".to_string())
+            .spawn(move || {
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    execute_first_run(&inner, &cancel, existing_port, options)
+                }));
+                match outcome {
+                    Ok(Ok(())) => inner.finish(SetupStage::Complete, None),
+                    Ok(Err(SetupErrorCode::Cancelled)) => inner.finish(SetupStage::Cancelled, None),
+                    Ok(Err(code)) => inner.finish(SetupStage::Failed, Some(code)),
+                    Err(_) => inner.finish(SetupStage::Failed, Some(SetupErrorCode::Io)),
+                }
+                running.store(false, Ordering::SeqCst);
+            });
+        if spawned.is_err() {
+            self.running.store(false, Ordering::SeqCst);
+            return Err(SetupErrorCode::Io);
+        }
+        Ok(self.status())
+    }
+
     /// Retries a failed run, resuming anything that is already on the disk.
     pub fn retry(
         &self,
@@ -453,7 +507,7 @@ impl SetupCoordinator {
 
     /// Removes every temporary directory this application owns.
     ///
-    /// A directory without the ownership marker Р Р†Р вЂљРІР‚Сњ including one a user created Р Р†Р вЂљРІР‚Сњ
+    /// A directory without the ownership marker Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў including one a user created Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў
     /// is counted and left alone.
     pub fn cleanup_temp(&self) -> Result<CleanupReport, SetupErrorCode> {
         if self.is_running() {
@@ -548,6 +602,8 @@ impl SetupCoordinator {
             report.model_bytes = model.metadata().map(|m| m.len()).unwrap_or(0);
             report.model_size_ok = report.model_bytes == spec.model.expected_size;
             if report.model_size_ok {
+                // This runs on a user command rather than inside a run, so there
+                // is no cancellation token to honour.
                 report.model_hash_ok = sha256_file(&model)
                     .map(|actual| actual.eq_ignore_ascii_case(&spec.model.sha256))
                     .unwrap_or(false);
@@ -765,6 +821,11 @@ impl Inner {
         self.lock().plan = plan;
     }
 
+    /// Records the outcome of a first-run test in this session.
+    fn set_test(&self, outcome: TestOutcome) {
+        self.lock().test = Some(outcome);
+    }
+
     fn scan_now(&self) -> InstalledState {
         self.last_scan
             .lock()
@@ -910,7 +971,7 @@ pub fn plan_for(
     } else {
         ComponentPlanKind::Install
     };
-    // A managed model that is present Р Р†Р вЂљРІР‚Сњ usable or damaged Р Р†Р вЂљРІР‚Сњ is replaced in
+    // A managed model that is present Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў usable or damaged Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў is replaced in
     // place, and the previous directory is kept until the swap. Only a machine
     // with no managed model at all gets the single-copy "clean" plan.
     let has_managed_model = installed.model_bytes > 0 || installed.previous_model_bytes > 0;
@@ -1041,13 +1102,19 @@ fn map_runtime_error(error: super::super::managed::RuntimeInstallError) -> Setup
         E::ArchiveUnexpectedFile => SetupErrorCode::ArchiveUnexpectedFile,
         E::RuntimeMissing => SetupErrorCode::RuntimeMissing,
         E::RuntimeArchitectureMismatch => SetupErrorCode::RuntimeArchitectureMismatch,
+        E::Cancelled => SetupErrorCode::Cancelled,
         E::Io => SetupErrorCode::Io,
     }
 }
 
 /// Checks a model file. `hash_verified` is set when the caller has just hashed
 /// exactly these bytes.
-fn check_model(path: &Path, spec: &CatalogSpec, hash_verified: bool) -> Result<(), SetupErrorCode> {
+fn check_model(
+    path: &Path,
+    spec: &CatalogSpec,
+    hash_verified: bool,
+    cancel: &AtomicBool,
+) -> Result<(), SetupErrorCode> {
     let metadata = path.metadata().map_err(|_| SetupErrorCode::Io)?;
     if !metadata.is_file() {
         return Err(SetupErrorCode::ModelInvalid);
@@ -1056,7 +1123,9 @@ fn check_model(path: &Path, spec: &CatalogSpec, hash_verified: bool) -> Result<(
         return Err(SetupErrorCode::SizeMismatch);
     }
     if !hash_verified {
-        let actual = sha256_file(path).map_err(|_| SetupErrorCode::Io)?;
+        let actual =
+            sha256_file_cancellable(path, &mut || cancel.load(Ordering::Relaxed))
+                .map_err(map_download_error)?;
         if !actual.eq_ignore_ascii_case(&spec.model.sha256) {
             return Err(SetupErrorCode::HashMismatch);
         }
@@ -1180,7 +1249,7 @@ impl Run<'_> {
         let final_dir = roots.model_dir();
         let final_model = final_dir.join(&self.spec.model.filename);
         if final_model.is_file() {
-            check_model(&final_model, &self.spec, false)?;
+            check_model(&final_model, &self.spec, false, self.cancel)?;
             return Ok(final_model);
         }
         let payload = roots.payload_dir(SetupComponent::Model.staging_name());
@@ -1204,7 +1273,7 @@ impl Run<'_> {
         commit_staging_dir(&payload, &final_dir).map_err(map_layout_error)?;
         // The SHA-256 of exactly these bytes was verified before the promotion,
         // and the promotion was a rename, so only the metadata is re-checked.
-        check_model(&final_model, &self.spec, true)?;
+        check_model(&final_model, &self.spec, true, self.cancel)?;
         let facts = InstallationFacts {
             kind: "model".to_string(),
             version: self.spec.model_revision.clone(),
@@ -1216,6 +1285,61 @@ impl Run<'_> {
         write_installation_receipt(&final_dir, &facts).map_err(|_| SetupErrorCode::Io)?;
         Ok(final_model)
     }
+}
+
+/// The technical first-run validation, in the documented order.
+///
+/// The check is the last thing that happens after an installation: it starts the
+/// active server, waits for it, asks one short impersonal question, and stops the
+/// process it started.
+fn execute_first_run(
+    inner: &Inner,
+    cancel: &AtomicBool,
+    existing_port: Option<u16>,
+    options: FirstRunOptions,
+) -> Result<(), SetupErrorCode> {
+    let spec = inner.catalog.spec();
+    let server = inner
+        .roots
+        .runtime_server_path_named(spec.runtime_server_name);
+    let model = inner.roots.model_path_named(&spec.model.filename);
+    if !server.is_file() || !model.is_file() {
+        return Err(SetupErrorCode::Interrupted);
+    }
+
+    let options = FirstRunOptions {
+        port: existing_port.or_else(firstrun::free_loopback_port),
+        ..options
+    };
+    let report = firstrun::run_first_run(
+        // Reusing a server this application already started means no second
+        // process, and no chance of stopping one that is not ours.
+        if existing_port.is_some() {
+            None
+        } else {
+            Some(server.as_path())
+        },
+        &model,
+        &options,
+        cancel,
+        |stage| inner.enter_stage(stage),
+    );
+
+    let outcome = TestOutcome {
+        passed: report.outcome.passed,
+        server_ready: report.outcome.server_ready,
+        answer_received: report.outcome.answer_received,
+        elapsed_ms: report.outcome.elapsed_ms,
+        answer_tokens: report.outcome.answer_tokens,
+    };
+    inner.set_test(outcome);
+    if let Some(code) = report.error_code {
+        return Err(code);
+    }
+    if !outcome.passed {
+        return Err(SetupErrorCode::TestFailed);
+    }
+    Ok(())
 }
 
 /// The whole installation, in the documented order.
@@ -1277,8 +1401,12 @@ fn execute(inner: &Inner, cancel: &AtomicBool, request: StartRequest) -> Result<
 
         run.enter(SetupStage::ExtractRuntime)?;
         let payload = roots.payload_dir(SetupComponent::Runtime.staging_name());
-        extract_runtime_archive_with(&archive, &payload, &archive_rules)
-            .map_err(map_runtime_error)?;
+        // The extraction polls the same token, so a cancellation is honoured
+        // between chunks instead of after the whole archive is unpacked.
+        extract_runtime_archive_cancellable(&archive, &payload, &archive_rules, &|| {
+            cancel.load(Ordering::Relaxed)
+        })
+        .map_err(map_runtime_error)?;
         // Only now, with a verified payload on the disk, is the archive dropped.
         let _ = fs::remove_file(&archive);
 
@@ -1313,11 +1441,11 @@ fn execute(inner: &Inner, cancel: &AtomicBool, request: StartRequest) -> Result<
         if staged.is_file() {
             // A verified copy from an interrupted run: it has not been hashed in
             // this session, so it is hashed before it may be activated.
-            check_model(&staged, &run.spec, false)?;
+            check_model(&staged, &run.spec, false, cancel)?;
         } else {
             // The download verified exactly these bytes, and the promotion below
             // is a rename, so the hash is not repeated.
-            check_model(&part, &run.spec, true)?;
+            check_model(&part, &run.spec, true, cancel)?;
             promote_file(&part, &staged).map_err(map_layout_error)?;
         }
 
@@ -1453,6 +1581,15 @@ mod tests {
             status.warnings,
             status.plan
         );
+    }
+
+    /// A first-run check that does not wait two minutes for a port nothing listens on.
+    fn quick_test_options() -> FirstRunOptions {
+        FirstRunOptions {
+            readiness_timeout: std::time::Duration::from_millis(60),
+            poll_interval: std::time::Duration::from_millis(5),
+            ..FirstRunOptions::default()
+        }
     }
 
     /// The installed model file of the fixture catalog.
@@ -2048,6 +2185,102 @@ mod tests {
     }
 
     #[test]
+    fn a_first_run_check_needs_a_finished_installation() {
+        let directory = tempdir().unwrap();
+        let server = FakeServer::start();
+        let (coordinator, _archive, _model) = coordinator(directory.path(), &server);
+        // Nothing is installed yet, so there is nothing to test. The refusal is
+        // reported by the run, which is where the page reads it.
+        let status = coordinator.run_test(None, quick_test_options(), None).unwrap();
+        assert!(status.running);
+        let status = wait_for_settle(&coordinator);
+        assert_eq!(status.stage, SetupStage::Failed);
+        assert_eq!(status.error_code, Some(SetupErrorCode::Interrupted));
+        // A refused run always releases the slot.
+        assert!(!coordinator.is_running());
+    }
+
+    #[test]
+    fn a_first_run_check_against_a_file_that_cannot_run_reports_it_and_leaves_nothing_behind() {
+        let directory = tempdir().unwrap();
+        let server = FakeServer::start();
+        let (coordinator, archive, model) = coordinator(directory.path(), &server);
+        server.push(FakeResponse::full(archive));
+        server.push(FakeResponse::full(model));
+        assert_complete(&run_install(&coordinator, false));
+
+        // The installed `llama-server.exe` is a PE stub, so the loader refuses it.
+        // The check must report a typed failure, must not hang, and must not
+        // leave the run in flight.
+        let status = coordinator.run_test(None, quick_test_options(), None).unwrap();
+        assert!(status.running);
+        let status = wait_for_settle(&coordinator);
+        assert_eq!(status.stage, SetupStage::Failed);
+        assert_eq!(
+            status.error_code,
+            Some(SetupErrorCode::ProcessUnavailable)
+        );
+        // The outcome is recorded, so the page can explain what happened.
+        let outcome = status.test.expect("the outcome is recorded");
+        assert!(!outcome.passed);
+        assert!(!outcome.server_ready);
+        assert!(!outcome.answer_received);
+        // The installed files are untouched by a failed check.
+        let roots = ManagedRoots::new(directory.path());
+        assert_eq!(fs::read(roots.runtime_server_path()).unwrap(), fixtures::pe_x64());
+        assert!(installed_model(&roots).is_file());
+    }
+
+    #[test]
+    fn a_first_run_check_reuses_a_running_server_and_never_starts_a_second_one() {
+        let directory = tempdir().unwrap();
+        let server = FakeServer::start();
+        let (coordinator, archive, model) = coordinator(directory.path(), &server);
+        server.push(FakeResponse::full(archive));
+        server.push(FakeResponse::full(model));
+        assert_complete(&run_install(&coordinator, false));
+
+        // A port nothing listens on stands in for "the check only probes".
+        let dead_port = firstrun::free_loopback_port().unwrap();
+        let started = coordinator
+            .run_test(Some(dead_port), quick_test_options(), None)
+            .unwrap();
+        assert!(started.running);
+        let status = wait_for_settle(&coordinator);
+        assert_eq!(status.error_code, Some(SetupErrorCode::TestTimedOut));
+        let outcome = status.test.expect("the outcome is recorded");
+        assert!(!outcome.server_ready);
+    }
+
+    #[test]
+    fn a_first_run_check_can_be_cancelled_during_readiness() {
+        let directory = tempdir().unwrap();
+        let server = FakeServer::start();
+        let (coordinator, archive, model) = coordinator(directory.path(), &server);
+        server.push(FakeResponse::full(archive));
+        server.push(FakeResponse::full(model));
+        assert_complete(&run_install(&coordinator, false));
+
+        let dead_port = firstrun::free_loopback_port().unwrap();
+        let handle = coordinator.clone();
+        let sink: SetupEventSink = Arc::new(move |event: SetupEvent| {
+            if event.stage == SetupStage::Readiness {
+                handle.cancel();
+            }
+        });
+        coordinator.run_test(Some(dead_port), quick_test_options(), Some(sink)).unwrap();
+        let status = wait_for_settle(&coordinator);
+        assert_eq!(status.stage, SetupStage::Cancelled);
+        // A cancellation is not an error to explain, and the run is over.
+        assert_eq!(status.error_code, None);
+        assert!(!coordinator.is_running());
+        // The server the check did not start is still there.
+        assert!(ManagedRoots::new(directory.path())
+            .runtime_server_path()
+            .is_file());
+    }
+
+    #[test]
     fn the_pinned_numbers_the_report_quotes_come_from_the_pure_planner() {
         let directory = tempdir().unwrap();
         let server = FakeServer::start();
@@ -2058,6 +2291,11 @@ mod tests {
         assert_eq!(super::super::plan::update_required_bytes(), 10_693_101_184);
     }
 }
+
+
+
+
+
 
 
 

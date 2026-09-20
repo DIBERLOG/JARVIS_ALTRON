@@ -111,6 +111,41 @@ pub fn collect(app: &tauri::AppHandle) -> DiagnosticReport {
         }
     }
 
+    // The managed installation is reported whether or not its paths are the
+    // active ones, so "the installer finished but the manual paths are still in
+    // use" is visible instead of looking like a missing component. The overall
+    // status stays unverified until the first-run check has actually passed: this
+    // report must never claim a working local AI that nobody has seen answer.
+    {
+        use jarvis_core::ai::local::setup::{ComponentState, SetupStage};
+        let setup = state.local_ai_setup.coordinator().status();
+        if setup.runtime.state == ComponentState::Ready {
+            report
+                .notes
+                .push("a managed llama.cpp runtime is installed and verified".to_string());
+        }
+        if setup.model.state == ComponentState::Ready {
+            report
+                .notes
+                .push("a managed Qwen3 model is installed and verified".to_string());
+        }
+        report.health_checks.push(HealthCheck {
+            name: "local_ai_setup".to_string(),
+            passed: setup.stage == SetupStage::Complete,
+            detail: Some(format!("stage {}", setup.stage.code())),
+        });
+        let verified = setup.test.is_some_and(|outcome| outcome.passed);
+        report.health_checks.push(HealthCheck {
+            name: "local_ai_first_run".to_string(),
+            passed: verified,
+            detail: Some(if verified {
+                "the managed server answered a technical check".to_string()
+            } else {
+                "manual verification required: the first-run check has not passed yet".to_string()
+            }),
+        });
+    }
+
     // -------------------------------------------------------------- whisper
     let whisper = state.whisper.session();
     let whisper_settings = whisper.settings();

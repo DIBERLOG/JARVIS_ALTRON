@@ -418,6 +418,7 @@ fn main() {
             tauri_commands::local_ai_setup_remove_runtime,
             tauri_commands::local_ai_setup_remove_model,
             tauri_commands::local_ai_setup_validate_existing,
+            tauri_commands::local_ai_setup_run_test,
 
             // AI memory (encrypted conversations, summaries, facts)
             tauri_commands::memory_status,

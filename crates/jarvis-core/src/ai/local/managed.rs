@@ -6,7 +6,7 @@
 //! performs its existing validation before it can start `llama-server`.
 
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -301,6 +301,8 @@ pub enum RuntimeInstallError {
     ArchiveUnexpectedFile,
     RuntimeMissing,
     RuntimeArchitectureMismatch,
+    /// The caller asked to stop while the archive was being unpacked.
+    Cancelled,
     Io,
 }
 
@@ -521,6 +523,20 @@ pub fn extract_runtime_archive_with(
     staging: &Path,
     spec: &RuntimeArchiveSpec<'_>,
 ) -> Result<PathBuf, RuntimeInstallError> {
+    extract_runtime_archive_cancellable(archive, staging, spec, &|| false)
+}
+
+/// [`extract_runtime_archive_with`] that can be stopped between chunks.
+///
+/// `cancelled` is polled for every written chunk, so the setup coordinator can
+/// honour a cancellation while a large library is being unpacked instead of after
+/// the whole archive has been written.
+pub fn extract_runtime_archive_cancellable(
+    archive: &Path,
+    staging: &Path,
+    spec: &RuntimeArchiveSpec<'_>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<PathBuf, RuntimeInstallError> {
     // The shape is checked first, so nothing is written for an archive that will
     // be refused anyway.
     validate_runtime_archive(archive, spec)?;
@@ -531,7 +547,11 @@ pub fn extract_runtime_archive_with(
         .canonicalize()
         .map_err(|_| RuntimeInstallError::Io)?;
     let mut server = None;
+    let mut buffer = vec![0_u8; 64 * 1024];
     for index in 0..zip.len() {
+        if cancelled() {
+            return Err(RuntimeInstallError::Cancelled);
+        }
         let mut entry = zip
             .by_index(index)
             .map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
@@ -544,7 +564,24 @@ pub fn extract_runtime_archive_with(
             return Err(RuntimeInstallError::ArchivePathTraversal);
         }
         let mut output = File::create(&target).map_err(|_| RuntimeInstallError::Io)?;
-        std::io::copy(&mut entry, &mut output).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+        loop {
+            if cancelled() {
+                // The half-written file is removed: a partially extracted
+                // library must never look like a verified one.
+                drop(output);
+                let _ = fs::remove_file(&target);
+                return Err(RuntimeInstallError::Cancelled);
+            }
+            let count = entry
+                .read(&mut buffer)
+                .map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+            if count == 0 {
+                break;
+            }
+            output
+                .write_all(&buffer[..count])
+                .map_err(|_| RuntimeInstallError::Io)?;
+        }
         output.sync_all().map_err(|_| RuntimeInstallError::Io)?;
         if name == spec.server_name {
             server = Some(target);
@@ -841,8 +878,48 @@ mod tests {
     }
 
     #[test]
-    fn an_archive_that_is_missing_a_required_file_is_refused() {
+    fn an_extraction_can_be_stopped_and_leaves_no_partial_library_behind() {
         use super::super::setup::fixtures;
+        let directory = tempdir().unwrap();
+        let allowed = ["llama-server.exe", "llama.dll"];
+        let keep = ["llama-server.exe", "llama.dll"];
+        let spec = RuntimeArchiveSpec {
+            allowed: &allowed,
+            keep: &keep,
+            max_files: 8,
+            max_unpacked_bytes: 8 * 1024 * 1024,
+            max_compression_ratio: 1000,
+            require_pe_x64: true,
+            server_name: "llama-server.exe",
+        };
+        let archive = directory.path().join("runtime.zip");
+        fs::write(
+            &archive,
+            fixtures::zip_archive(&[
+                ("llama-server.exe", fixtures::pe_x64()),
+                ("llama.dll", fixtures::bytes(1024 * 1024, 9)),
+            ]),
+        )
+        .unwrap();
+
+        let staging = directory.path().join("payload");
+        // Cancelled before the first entry is written.
+        assert_eq!(
+            extract_runtime_archive_cancellable(&archive, &staging, &spec, &|| true),
+            Err(RuntimeInstallError::Cancelled)
+        );
+        assert!(
+            !staging.join("llama-server.exe").exists(),
+            "a cancelled extraction must not leave a file that looks installed"
+        );
+
+        // And it still works when the caller never cancels.
+        assert!(extract_runtime_archive_cancellable(&archive, &staging, &spec, &|| false).is_ok());
+        assert!(staging.join("llama.dll").is_file());
+    }
+
+    #[test]
+    fn an_archive_that_is_missing_a_required_file_is_refused() {        use super::super::setup::fixtures;
         let directory = tempdir().unwrap();
         let allowed = ["llama-server.exe", "llama.dll"];
         let keep = ["llama-server.exe", "llama.dll"];

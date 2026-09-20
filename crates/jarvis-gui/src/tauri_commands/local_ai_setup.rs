@@ -28,8 +28,8 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 
 use jarvis_core::ai::local::setup::{
-    ActiveOrigin, CleanupReport, ExistingValidation, SetupCoordinator, SetupErrorCode, SetupEvent,
-    SetupEventSink, SetupStatus, SetupStage, StartRequest,
+    ActiveOrigin, CleanupReport, ExistingValidation, FirstRunOptions, SetupCoordinator,
+    SetupErrorCode, SetupEvent, SetupEventSink, SetupStatus, SetupStage, StartRequest,
 };
 use jarvis_core::ai::local::{LocalAiConfig, SETTINGS_KEY};
 use jarvis_core::SettingsManager;
@@ -106,6 +106,19 @@ pub struct RecoveryView {
     pub model_installed: bool,
 }
 
+/// The result of the technical first-run check.
+///
+/// The prompt and the answer are deliberately absent: they are never returned by
+/// the backend, never written to a log, and never stored.
+#[derive(Clone, Debug, Serialize)]
+pub struct SetupTestView {
+    pub passed: bool,
+    pub server_ready: bool,
+    pub answer_received: bool,
+    pub elapsed_ms: u64,
+    pub answer_tokens: Option<u32>,
+}
+
 /// The whole setup state, as the interface reads it.
 #[derive(Clone, Debug, Serialize)]
 pub struct LocalAiSetupView {
@@ -140,6 +153,8 @@ pub struct LocalAiSetupView {
     pub warning_codes: Vec<String>,
     pub recovery: RecoveryView,
     pub offer: SetupOfferView,
+    /// Present after the technical check has run in this session.
+    pub test: Option<SetupTestView>,
 }
 
 /// One progress event, for a channel rather than a poll.
@@ -315,6 +330,13 @@ pub fn build_view(
                 .collect(),
             stage_codes: status.offer.stage_codes.clone(),
         },
+        test: status.test.map(|outcome| SetupTestView {
+            passed: outcome.passed,
+            server_ready: outcome.server_ready,
+            answer_received: outcome.answer_received,
+            elapsed_ms: outcome.elapsed_ms,
+            answer_tokens: outcome.answer_tokens,
+        }),
     }
 }
 
@@ -522,6 +544,48 @@ pub fn local_ai_setup_validate_existing(
     ))
 }
 
+/// Runs the technical first-run check on the installed managed files.
+///
+/// The check starts the active server itself, waits for it to answer, asks one
+/// short impersonal question, and stops the process it started. When a compatible
+/// managed server is already running — the same executable with the same model,
+/// started by this application — that server is reused and no second process is
+/// started, so a working server is never duplicated and a foreign process is
+/// never stopped.
+#[tauri::command(async)]
+pub fn local_ai_setup_run_test(
+    state: tauri::State<'_, AppState>,
+) -> Result<LocalAiSetupView, String> {
+    let existing_port = compatible_running_port(&state);
+    state
+        .local_ai_setup
+        .coordinator()
+        .run_test(existing_port, FirstRunOptions::default(), None)
+        .map_err(describe)?;
+    Ok(current_view(&state))
+}
+
+/// The port of a running managed server that this application started, when it
+/// is running exactly the files a check would otherwise start.
+fn compatible_running_port(state: &tauri::State<'_, AppState>) -> Option<u16> {
+    let status = state.local_ai.gateway().status().ok()?;
+    if !status.state.accepts_generation() {
+        return None;
+    }
+    let (managed_server, managed_model) = state.local_ai_setup.coordinator().managed_paths()?;
+    let running_server = status.server_file.as_deref()?;
+    let running_model = status.model_file.as_deref()?;
+    // Both must be the installed managed files, so a server the user configured
+    // by hand is never adopted by this check.
+    if Path::new(running_server) == managed_server.as_path()
+        && Path::new(running_model) == managed_model.as_path()
+    {
+        Some(status.port)
+    } else {
+        None
+    }
+}
+
 /// Writes the two verified paths into the settings and applies them.
 fn apply_managed_paths(
     local_ai: &LocalAiHandle,
@@ -620,6 +684,7 @@ mod tests {
             "runtime_pre_release",
             "recovery",
             "offer",
+            "test",
         ] {
             assert!(
                 present.contains(required),
@@ -741,6 +806,7 @@ mod tests {
             "warning_codes",
             "recovery",
             "offer",
+            "test",
             // RecoveryView
             "interrupted",
             "interrupted_stage",
@@ -768,6 +834,12 @@ mod tests {
             "architecture",
             "ram_recommendation_bytes",
             "context_recommendation",
+            // SetupTestView
+            "passed",
+            "server_ready",
+            "answer_received",
+            "elapsed_ms",
+            "answer_tokens",
         ]
         .into_iter()
         .map(|key| key.to_string())

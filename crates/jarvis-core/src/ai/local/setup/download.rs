@@ -2,7 +2,7 @@
 //!
 //! The rules this module implements, in the order they protect the user:
 //!
-//! * only a compiled-in artifact may be fetched — a URL that is not one of the
+//! * only a compiled-in artifact may be fetched Р Р†Р вЂљРІР‚Сњ a URL that is not one of the
 //!   pinned manifests is refused before a socket is opened, so neither the
 //!   interface nor a model response can redirect an installation;
 //! * the body is written to `<name>.part` and only becomes `<name>` after its
@@ -17,7 +17,7 @@
 //! * the number of attempts is bounded and a stalled attempt counts against it,
 //!   so a broken endpoint cannot produce an endless retry loop;
 //! * cancellation is checked for every chunk. A cancelled download keeps its
-//!   `.part` file — that is what makes the next run resumable — while a download
+//!   `.part` file Р Р†Р вЂљРІР‚Сњ that is what makes the next run resumable Р Р†Р вЂљРІР‚Сњ while a download
 //!   that failed a *correctness* check deletes it, because those bytes are known
 //!   to be wrong.
 
@@ -352,10 +352,25 @@ pub fn validate_expectation(
 /// SHA-256 of a file, read in bounded chunks so a large model cannot exhaust
 /// memory.
 pub fn sha256_file(path: &Path) -> Result<String, DownloadError> {
+    sha256_file_cancellable(path, &mut || false)
+}
+
+/// [`sha256_file`] that can be stopped between chunks.
+///
+/// Hashing five gigabytes takes long enough to notice, so the setup coordinator
+/// polls a cancellation token while it runs instead of blocking until the digest
+/// is complete.
+pub fn sha256_file_cancellable(
+    path: &Path,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<String, DownloadError> {
     let mut file = File::open(path).map_err(|_| DownloadError::Io)?;
     let mut digest = Sha256::new();
     let mut buffer = vec![0_u8; CHUNK_BYTES];
     loop {
+        if cancelled() {
+            return Err(DownloadError::Cancelled);
+        }
         let count = file.read(&mut buffer).map_err(|_| DownloadError::Io)?;
         if count == 0 {
             break;
@@ -404,7 +419,7 @@ where
     // second of a transfer.
     let existing = part.metadata().map(|metadata| metadata.len()).unwrap_or(0);
     if existing == expectation.expected_size {
-        let actual = sha256_file(part)?;
+        let actual = sha256_file_cancellable(part, &mut cancelled)?;
         if actual.eq_ignore_ascii_case(&expectation.sha256) {
             progress(DownloadProgress {
                 downloaded: existing,
@@ -470,7 +485,7 @@ where
         if response.status == 416 {
             let on_disk = part.metadata().map(|metadata| metadata.len()).unwrap_or(0);
             if on_disk == expectation.expected_size {
-                let actual = sha256_file(part)?;
+                let actual = sha256_file_cancellable(part, &mut cancelled)?;
                 if actual.eq_ignore_ascii_case(&expectation.sha256) {
                     clear_identity(part);
                     return Ok(DownloadOutcome {
@@ -494,7 +509,7 @@ where
 
         // A `200` to a ranged request means the server ignored the range. The
         // answer is a whole body from byte zero, so the partial file must be
-        // truncated — appending it would corrupt the result.
+        // truncated Р Р†Р вЂљРІР‚Сњ appending it would corrupt the result.
         let effective_resume = if response.status == 206 && requested_range.is_some() {
             match response.content_range {
                 Some(range)
@@ -580,7 +595,7 @@ where
                     }
                     continue;
                 }
-                let actual = sha256_file(part)?;
+                let actual = sha256_file_cancellable(part, &mut cancelled)?;
                 if !actual.eq_ignore_ascii_case(&expectation.sha256) {
                     // The bytes are provably wrong; keeping them would only
                     // make the next attempt resume from bad data.
@@ -726,6 +741,61 @@ mod tests {
 
     fn part_path(directory: &Path, name: &str) -> PathBuf {
         directory.join(format!("{name}.part"))
+    }
+
+    /// A transport that records every request the downloader made.
+    ///
+    /// Counting on this side rather than on the server's removes a real source of
+    /// flakiness: a connection the server accepts but never reads still counts as
+    /// a request only if the client actually sent one, and the range each attempt
+    /// asked for is recorded exactly as the downloader asked it.
+    struct RecordingTransport {
+        inner: ReqwestTransport,
+        ranges: std::sync::Mutex<Vec<Option<u64>>>,
+    }
+
+    impl RecordingTransport {
+        fn new() -> Self {
+            Self {
+                inner: ReqwestTransport::new().unwrap(),
+                ranges: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn ranges(&self) -> Vec<Option<u64>> {
+            self.ranges.lock().unwrap().clone()
+        }
+    }
+
+    impl DownloadTransport for RecordingTransport {
+        fn fetch(
+            &self,
+            url: &str,
+            range_from: Option<u64>,
+        ) -> Result<TransportResponse, DownloadError> {
+            self.ranges.lock().unwrap().push(range_from);
+            self.inner.fetch(url, range_from)
+        }
+    }
+
+    /// Runs one download through the recording transport.
+    fn run_recorded(
+        expectation: &ArtifactExpectation,
+        part: &Path,
+    ) -> (Result<DownloadOutcome, DownloadError>, Vec<Option<u64>>) {
+        let transport = RecordingTransport::new();
+        let result = download_artifact(
+            &transport,
+            DownloadRequest {
+                expectation,
+                part,
+                trust: ArtifactTrust::LoopbackTesting,
+            },
+            |_| {},
+            || false,
+        );
+        let ranges = transport.ranges();
+        (result, ranges)
     }
 
     fn run(
@@ -973,13 +1043,18 @@ mod tests {
         let part = part_path(directory.path(), "model.gguf");
         let expectation = expectation_for(&server, &payload, "model.gguf");
 
-        let outcome = run(&server, &expectation, &part).unwrap();
+        let (result, ranges) = run_recorded(&expectation, &part);
+        let outcome = result.unwrap();
         assert_eq!(outcome.bytes, payload.len() as u64);
         assert_eq!(outcome.fetches, 2);
         assert_eq!(outcome.resumed_from, (payload.len() / 4) as u64);
         assert_eq!(fs::read(&part).unwrap(), payload);
-        // The second request really did carry a Range header.
-        assert!(server.requests()[1].range_start == Some((payload.len() / 4) as u64));
+        // The first request asked for the whole file; the second asked for the
+        // rest, which is what makes the retry a resume.
+        assert_eq!(
+            ranges,
+            vec![None, Some((payload.len() / 4) as u64)]
+        );
     }
 
     #[test]
@@ -1081,10 +1156,13 @@ mod tests {
         // No identity file: the previous run left nothing to prove identity with.
         server.push(FakeResponse::full(payload.clone()));
         let expectation = expectation_for(&server, &payload, "model.gguf");
-        let outcome = run(&server, &expectation, &part).unwrap();
+        let (result, ranges) = run_recorded(&expectation, &part);
+        let outcome = result.unwrap();
         assert_eq!(outcome.resumed_from, 0);
         assert_eq!(fs::read(&part).unwrap(), payload);
-        assert_eq!(server.requests()[0].range_start, None);
+        // Without an identity the bytes on disk cannot be proven to belong to
+        // this resource, so the whole file is fetched again.
+        assert_eq!(ranges, vec![None]);
     }
 
     #[test]
@@ -1098,7 +1176,8 @@ mod tests {
         let outcome = run(&server, &expectation, &part).unwrap();
         assert_eq!(outcome.fetches, 0);
         assert_eq!(outcome.bytes, payload.len() as u64);
-        assert!(server.requests().is_empty());
+        let (_, ranges) = run_recorded(&expectation, &part);
+        assert!(ranges.is_empty());
     }
 
     #[test]
@@ -1179,9 +1258,10 @@ mod tests {
         let directory = tempdir().unwrap();
         let part = part_path(directory.path(), "model.gguf");
         let expectation = expectation_for(&server, &payload, "model.gguf");
-        let error = run(&server, &expectation, &part).unwrap_err();
-        assert_eq!(error, DownloadError::Network);
-        assert_eq!(server.requests().len(), MAX_DOWNLOAD_ATTEMPTS as usize);
+        let (result, ranges) = run_recorded(&expectation, &part);
+        assert_eq!(result.unwrap_err(), DownloadError::Network);
+        // The attempt count is bounded by the constant, not by the server.
+        assert_eq!(ranges.len(), MAX_DOWNLOAD_ATTEMPTS as usize);
     }
 
     #[test]
@@ -1195,9 +1275,10 @@ mod tests {
         let directory = tempdir().unwrap();
         let part = part_path(directory.path(), "model.gguf");
         let expectation = expectation_for(&server, &payload, "model.gguf");
-        let error = run(&server, &expectation, &part).unwrap_err();
-        assert_eq!(error, DownloadError::NoProgress);
-        assert!(server.requests().len() <= MAX_STALLED_ATTEMPTS as usize + 1);
+        let (result, ranges) = run_recorded(&expectation, &part);
+        assert_eq!(result.unwrap_err(), DownloadError::NoProgress);
+        // A stalled endpoint is given up on quickly.
+        assert!(ranges.len() <= MAX_STALLED_ATTEMPTS as usize);
     }
 
     #[test]
@@ -1244,4 +1325,22 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
     }
+
+    #[test]
+    fn hashing_can_be_cancelled_instead_of_blocking_on_a_large_file() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("big.bin");
+        fs::write(&path, body(512 * 1024, 30)).unwrap();
+        // A cancelled hash reports a cancellation, not a wrong digest.
+        assert_eq!(
+            sha256_file_cancellable(&path, &mut || true),
+            Err(DownloadError::Cancelled)
+        );
+        // And the same call still produces the digest when it is not cancelled.
+        assert!(sha256_file_cancellable(&path, &mut || false).is_ok());
+    }
 }
+
+
+
+
