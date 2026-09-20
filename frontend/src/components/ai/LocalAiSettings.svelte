@@ -24,6 +24,8 @@
 
     import { Alert, Button, Text } from "@svelteuidev/core"
 
+    import LocalAiSetupWizard from "./LocalAiSetupWizard.svelte"
+
     $: t = (key: string) => translate($translations, key)
 
     let settings: LocalAiSettings = defaultSettings()
@@ -138,6 +140,13 @@
 </script>
 
 <div class="ai-settings">
+    <!-- The managed setup sits above the manual fields: the wizard installs a
+         verified pair, and the form below stays available for a pair the user
+         already has. It loads its own state, so it takes no props. -->
+    <section class="ai-setup-section">
+        <LocalAiSetupWizard />
+    </section>
+
     <Text weight={600}>{t('ai-settings-title')}</Text>
     <p class="ai-desc">{t('ai-settings-desc')}</p>
 
@@ -468,5 +477,15 @@
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+}
+
+/* A bordered block so the wizard reads as a separate decision from the form. */
+.ai-setup-section {
+    padding: 0.7rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.25);
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 </style>

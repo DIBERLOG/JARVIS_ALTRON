@@ -1572,3 +1572,173 @@ conversation-error-question_too_long = The question is empty or too long
 conversation-error-conversation_busy = One question is already in flight
 conversation-error-conversation_wrong_stage = The conversation stages were broken
 conversation-error-unknown = Unknown error
+# Managed local AI setup ("set up local AI"): the wizard that installs the runtime
+# and the model through the core. Every stage, step, component, state, error and
+# warning code the core can report has a message here, because the panel renders
+# a code it was given rather than a sentence it composed.
+
+ai-setup-title = Set up local AI
+ai-setup-desc = JARVIS can install the local runtime and the model for you: it downloads them once, checks them, and keeps them in your own user data folder. Nothing is sent to a cloud service.
+ai-setup-steps = Setup steps
+
+ai-setup-step-preflight = Preparation
+ai-setup-step-runtime = Runtime
+ai-setup-step-model = Model
+ai-setup-step-configure = Settings
+ai-setup-step-launch_test = Check
+ai-setup-step-done = Done
+
+ai-setup-stage-idle = Not started
+ai-setup-stage-preflight = Checking the machine
+ai-setup-stage-download_runtime = Downloading the runtime
+ai-setup-stage-validate_runtime = Verifying the runtime
+ai-setup-stage-extract_runtime = Unpacking the runtime
+ai-setup-stage-activate_runtime = Enabling the runtime
+ai-setup-stage-download_model = Downloading the model
+ai-setup-stage-validate_model = Verifying the model
+ai-setup-stage-activate_model = Enabling the model
+ai-setup-stage-configure = Applying the settings
+ai-setup-stage-launch_test = Starting the server
+ai-setup-stage-readiness = Waiting for the server
+ai-setup-stage-test_inference = Test question
+ai-setup-stage-complete = Finished
+ai-setup-stage-cancelled = Cancelled
+ai-setup-stage-failed = Failed
+
+ai-setup-component-runtime = Runtime
+ai-setup-component-model = Model
+
+ai-setup-state-absent = Not installed
+ai-setup-state-partial = Partially downloaded
+ai-setup-state-ready = Ready
+ai-setup-state-damaged = Damaged
+ai-setup-state-updating = Updating
+
+ai-setup-error-insufficient_space = There is not enough free disk space
+ai-setup-error-network = The network dropped the download
+ai-setup-error-timeout = The operation took too long
+ai-setup-error-no_progress = The download stopped making progress
+ai-setup-error-hash_mismatch = The checksum of the downloaded file does not match
+ai-setup-error-size_mismatch = The downloaded size does not match the expected one
+ai-setup-error-content_length_mismatch = The server reported an unexpected file length
+ai-setup-error-range_mismatch = The server refused to continue a partial download
+ai-setup-error-identity_changed = The source now offers a different file than the verified one
+ai-setup-error-too_large = The file is larger than the allowed limit
+ai-setup-error-refused_url = The download address was refused
+ai-setup-error-archive_invalid = The archive is unreadable
+ai-setup-error-archive_unexpected_file = The archive contains a file that does not belong to it
+ai-setup-error-archive_path_traversal = The archive tries to write outside its folder
+ai-setup-error-runtime_missing = The runtime executable was not found
+ai-setup-error-runtime_architecture_mismatch = The runtime is built for a different processor architecture
+ai-setup-error-model_invalid = The model file is unreadable
+ai-setup-error-model_architecture_mismatch = The model uses an unsupported architecture
+ai-setup-error-model_quantization_mismatch = The model uses an unsupported quantisation
+ai-setup-error-not_same_volume = Working files must be on the same disk as the installation
+ai-setup-error-not_owned = The files were not installed by JARVIS, so they are left alone
+ai-setup-error-destination_exists = A file is already in the way
+ai-setup-error-cancelled = Cancelled
+ai-setup-error-already_running = A run is already in progress
+ai-setup-error-not_running = Nothing is running right now
+ai-setup-error-io = A read or write on the disk failed
+ai-setup-error-interrupted = The previous run was interrupted
+ai-setup-error-test_failed = The test question was not answered
+ai-setup-error-test_timed_out = The test question took too long
+ai-setup-error-process_unavailable = The process could not be started
+ai-setup-error-settings_refused = The settings were refused
+
+ai-setup-warning-runtime_pre_release = The runtime is an official pre-release build
+ai-setup-warning-internet_required_for_download = The internet is needed for the download only
+ai-setup-warning-manual_settings_preserved = The paths you chose by hand are kept as they are
+ai-setup-warning-download_resumed = The earlier partial download was resumed
+ai-setup-warning-staging_reused = A verified copy from the earlier run was reused
+ai-setup-warning-previous_version_retained = The previous version was kept in case you want it back
+ai-setup-warning-runtime_already_installed = The runtime is already installed
+ai-setup-warning-model_already_installed = The model is already installed
+ai-setup-warning-space_is_tight = Free space is tight: the installation should fit, but only just
+ai-setup-warning-space_unknown = The free space on the disk could not be read
+ai-setup-warning-user_model_untouched = Your own model file is not changed
+
+ai-setup-unknown = Unrecognized value
+
+ai-setup-runtime-name = Build
+ai-setup-runtime-version = Version
+ai-setup-pre-release = Pre-release
+ai-setup-pre-release-note = This is an official pre-release build from the developers of the runtime. It is newer than the last stable release and may still contain bugs.
+ai-setup-source = Source
+ai-setup-checksum-auto = The file is checked against its published checksum automatically, before anything is unpacked or used.
+ai-setup-model-name = Model
+ai-setup-license = Licence
+ai-setup-download-size = Download size
+ai-setup-peak-space = Peak space during installation
+ai-setup-available-space = Free space
+ai-setup-missing-space = Not enough free space:
+ai-setup-ram-estimate = Recommended memory
+ai-setup-install-root = The installation goes into your user data folder (LocalAppData) and needs no administrator rights.
+ai-setup-offline-after = After the installation everything works offline: the model runs on this machine.
+ai-setup-internet-during = The internet is needed for the download only; after that the local mode works offline.
+
+ai-setup-plan-title = Space needed
+ai-setup-plan-download = Download
+ai-setup-plan-temporary = Temporary files
+ai-setup-plan-installed = Installed
+ai-setup-plan-rollback = Kept for rollback
+ai-setup-plan-reserve = Reserve
+ai-setup-plan-peak = Peak
+ai-setup-plan-available = Free on disk
+ai-setup-gib-note = Binary units (GiB) are shown first, decimal units (GB) second, so a vendor's "5.03 GB" and the report here read as the same size.
+
+ai-setup-install = Install automatically
+ai-setup-choose-files = Choose existing files
+ai-setup-cancel = Cancel
+ai-setup-retry = Retry
+ai-setup-cleanup = Clean up temporary files
+ai-setup-remove-runtime = Remove the managed runtime
+ai-setup-remove-model = Remove the managed model
+ai-setup-confirm-remove-runtime = Remove the managed runtime?
+ai-setup-confirm-remove-model = Remove the managed model?
+ai-setup-confirm-yes = Yes, remove it
+ai-setup-confirm-no = No, keep it
+ai-setup-refresh = Refresh
+ai-setup-validate = Check what is installed
+ai-setup-use-managed = Use the managed files
+ai-setup-use-managed-note = This switches the settings to the files JARVIS installed.
+ai-setup-run-test = Run the technical check
+
+ai-setup-progress = Progress
+ai-setup-speed = Speed
+ai-setup-downloaded = Downloaded
+ai-setup-stage = Current stage
+ai-setup-stages-title = Run stages
+
+ai-setup-test-title = Technical check
+ai-setup-test-passed = The check passed
+ai-setup-test-failed = The check did not pass
+ai-setup-test-server-ready = The server started
+ai-setup-test-answer = An answer arrived
+ai-setup-test-elapsed = Time
+ai-setup-test-no-text = The question and the answer are never shown and never written to a log: only whether an answer arrived.
+ai-setup-test-unavailable = The technical check is not available in this build of the core yet.
+
+ai-setup-recovery-title = The previous run was interrupted
+ai-setup-recovery-interrupted = The installation was interrupted and did not finish.
+ai-setup-recovery-resumable = The partially downloaded file is resumed, not downloaded again from the beginning.
+ai-setup-recovery-staging = A verified copy is ready: it will be activated without downloading anything again.
+ai-setup-recovery-installed = Already installed:
+
+ai-setup-manual-title = Use your own files
+ai-setup-manual-desc = If you already have the runtime executable and a model file, choose them with the native dialog. Nothing is uploaded and nothing is moved.
+ai-setup-manual-server = Choose the runtime file
+ai-setup-manual-model = Choose the model file
+ai-setup-manual-verified = The chosen files are checked again: the panel never claims a file works.
+ai-setup-validated = Checked
+ai-setup-not-available = Not available
+ai-setup-busy = Please wait…
+
+ai-setup-done-title = Local AI is ready
+ai-setup-done-desc = The runtime and the model are installed and checked. The local mode now works offline. You can run the technical check again at any time from the settings.
+ai-setup-diagnostics-hint = The list shows one short reason for the last failure, and the full run stages are above it. Nothing personal is written to a log.
+
+ai-setup-origin-managed = Installed by JARVIS
+ai-setup-origin-user_provided = Chosen by you
+ai-setup-origin-mixed = Partly managed and partly chosen
+ai-setup-origin-unset = Not chosen yet

@@ -1565,3 +1565,173 @@ conversation-error-question_too_long = Питання порожнє або за
 conversation-error-conversation_busy = Уже триває одне питання
 conversation-error-conversation_wrong_stage = Етапи розмови порушено
 conversation-error-unknown = Невідома помилка
+# Кероване налаштування локального ШІ («налаштувати локальний ШІ»): майстер, який
+# ставить середовище виконання та модель через ядро. Для кожного коду етапу, кроку,
+# компонента, стану, помилки й попередження тут є повідомлення: панель показує код,
+# який отримала, а не складене нею речення.
+
+ai-setup-title = Налаштувати локальний ШІ
+ai-setup-desc = JARVIS може сам встановити локальне середовище виконання та модель: завантажить їх один раз, перевірить і збереже у вашій папці даних. У хмару нічого не надсилається.
+ai-setup-steps = Кроки налаштування
+
+ai-setup-step-preflight = Підготовка
+ai-setup-step-runtime = Середовище виконання
+ai-setup-step-model = Модель
+ai-setup-step-configure = Налаштування
+ai-setup-step-launch_test = Перевірка
+ai-setup-step-done = Готово
+
+ai-setup-stage-idle = Не запущено
+ai-setup-stage-preflight = Перевірка комп'ютера
+ai-setup-stage-download_runtime = Завантаження середовища виконання
+ai-setup-stage-validate_runtime = Перевірка середовища виконання
+ai-setup-stage-extract_runtime = Розпакування середовища виконання
+ai-setup-stage-activate_runtime = Увімкнення середовища виконання
+ai-setup-stage-download_model = Завантаження моделі
+ai-setup-stage-validate_model = Перевірка моделі
+ai-setup-stage-activate_model = Увімкнення моделі
+ai-setup-stage-configure = Застосування налаштувань
+ai-setup-stage-launch_test = Запуск сервера
+ai-setup-stage-readiness = Очікування сервера
+ai-setup-stage-test_inference = Тестове питання
+ai-setup-stage-complete = Завершено
+ai-setup-stage-cancelled = Скасовано
+ai-setup-stage-failed = Помилка
+
+ai-setup-component-runtime = Середовище виконання
+ai-setup-component-model = Модель
+
+ai-setup-state-absent = Не встановлено
+ai-setup-state-partial = Завантажено частково
+ai-setup-state-ready = Готово
+ai-setup-state-damaged = Пошкоджено
+ai-setup-state-updating = Оновлення
+
+ai-setup-error-insufficient_space = На диску бракує вільного місця
+ai-setup-error-network = Мережа перервала завантаження
+ai-setup-error-timeout = Операція тривала занадто довго
+ai-setup-error-no_progress = Завантаження перестало просуватися
+ai-setup-error-hash_mismatch = Контрольна сума завантаженого файлу не збігається
+ai-setup-error-size_mismatch = Розмір завантаженого файлу не збігається з очікуваним
+ai-setup-error-content_length_mismatch = Сервер повідомив неочікувану довжину файлу
+ai-setup-error-range_mismatch = Сервер відмовився продовжувати часткове завантаження
+ai-setup-error-identity_changed = Джерело тепер віддає інший файл, а не перевірений
+ai-setup-error-too_large = Файл більший за дозволений розмір
+ai-setup-error-refused_url = Адресу завантаження відхилено
+ai-setup-error-archive_invalid = Архів не читається
+ai-setup-error-archive_unexpected_file = В архіві є файл, якого там не повинно бути
+ai-setup-error-archive_path_traversal = Архів намагається записати дані поза своєю папкою
+ai-setup-error-runtime_missing = Виконуваний файл середовища виконання не знайдено
+ai-setup-error-runtime_architecture_mismatch = Середовище виконання зібрано для іншої архітектури процесора
+ai-setup-error-model_invalid = Файл моделі не читається
+ai-setup-error-model_architecture_mismatch = Модель використовує непідтримувану архітектуру
+ai-setup-error-model_quantization_mismatch = Модель використовує непідтримуване квантування
+ai-setup-error-not_same_volume = Робочі файли мають бути на тому самому диску, що й встановлення
+ai-setup-error-not_owned = Файли встановлені не JARVIS, тому їх не чіпають
+ai-setup-error-destination_exists = Потрібне місце вже зайняте файлом
+ai-setup-error-cancelled = Скасовано
+ai-setup-error-already_running = Встановлення вже триває
+ai-setup-error-not_running = Зараз нічого не виконується
+ai-setup-error-io = Збій читання або запису на диску
+ai-setup-error-interrupted = Попередній запуск було перервано
+ai-setup-error-test_failed = Відповіді на тестове питання не отримано
+ai-setup-error-test_timed_out = Тестове питання тривало занадто довго
+ai-setup-error-process_unavailable = Не вдалося запустити процес
+ai-setup-error-settings_refused = Налаштування відхилено
+
+ai-setup-warning-runtime_pre_release = Це офіційна попередня збірка середовища виконання
+ai-setup-warning-internet_required_for_download = Інтернет потрібен лише для завантаження
+ai-setup-warning-manual_settings_preserved = Вказані вручну шляхи залишаються без змін
+ai-setup-warning-download_resumed = Раніше розпочате завантаження продовжено
+ai-setup-warning-staging_reused = Перевірену копію попереднього запуску використано повторно
+ai-setup-warning-previous_version_retained = Попередню версію збережено на випадок повернення
+ai-setup-warning-runtime_already_installed = Середовище виконання вже встановлено
+ai-setup-warning-model_already_installed = Модель уже встановлено
+ai-setup-warning-space_is_tight = Вільного місця обмаль: встановлення має вміститися, але ледве
+ai-setup-warning-space_unknown = Не вдалося прочитати вільне місце на диску
+ai-setup-warning-user_model_untouched = Ваш власний файл моделі не змінюється
+
+ai-setup-unknown = Невідоме значення
+
+ai-setup-runtime-name = Збірка
+ai-setup-runtime-version = Версія
+ai-setup-pre-release = Попередня версія
+ai-setup-pre-release-note = Це офіційна попередня збірка від розробників середовища виконання. Вона новіша за останній стабільний випуск і може містити помилки.
+ai-setup-source = Джерело
+ai-setup-checksum-auto = Файл автоматично звіряється з опублікованою контрольною сумою, перш ніж щось розпаковується чи використовується.
+ai-setup-model-name = Модель
+ai-setup-license = Ліцензія
+ai-setup-download-size = Розмір завантаження
+ai-setup-peak-space = Піковий обсяг на диску
+ai-setup-available-space = Вільне місце
+ai-setup-missing-space = Бракує вільного місця:
+ai-setup-ram-estimate = Рекомендована пам'ять
+ai-setup-install-root = Встановлення відбувається в папку даних користувача (LocalAppData) і не потребує прав адміністратора.
+ai-setup-offline-after = Після встановлення все працює без мережі: модель виконується на цьому комп'ютері.
+ai-setup-internet-during = Інтернет потрібен лише для завантаження, далі локальний режим працює без мережі.
+
+ai-setup-plan-title = Скільки потрібно місця
+ai-setup-plan-download = Завантаження
+ai-setup-plan-temporary = Тимчасові файли
+ai-setup-plan-installed = Встановлено
+ai-setup-plan-rollback = Залишено для відкату
+ai-setup-plan-reserve = Резерв
+ai-setup-plan-peak = Пік
+ai-setup-plan-available = Вільно на диску
+ai-setup-gib-note = Спершу показано двійкові одиниці (GiB), потім десяткові (GB), щоб «5,03 ГБ» на сайті постачальника та звіт тут читалися як той самий розмір.
+
+ai-setup-install = Встановити автоматично
+ai-setup-choose-files = Вибрати наявні файли
+ai-setup-cancel = Скасувати
+ai-setup-retry = Повторити
+ai-setup-cleanup = Видалити тимчасові файли
+ai-setup-remove-runtime = Видалити кероване середовище
+ai-setup-remove-model = Видалити керовану модель
+ai-setup-confirm-remove-runtime = Видалити кероване середовище виконання?
+ai-setup-confirm-remove-model = Видалити керовану модель?
+ai-setup-confirm-yes = Так, видалити
+ai-setup-confirm-no = Ні, залишити
+ai-setup-refresh = Оновити
+ai-setup-validate = Перевірити встановлене
+ai-setup-use-managed = Використати керовані файли
+ai-setup-use-managed-note = Налаштування перемкнуться на файли, які встановив JARVIS.
+ai-setup-run-test = Запустити технічну перевірку
+
+ai-setup-progress = Перебіг встановлення
+ai-setup-speed = Швидкість
+ai-setup-downloaded = Завантажено
+ai-setup-stage = Поточний етап
+ai-setup-stages-title = Етапи запуску
+
+ai-setup-test-title = Технічна перевірка
+ai-setup-test-passed = Перевірку пройдено
+ai-setup-test-failed = Перевірку не пройдено
+ai-setup-test-server-ready = Сервер запустився
+ai-setup-test-answer = Відповідь надійшла
+ai-setup-test-elapsed = Час
+ai-setup-test-no-text = Питання та відповідь ніколи не показуються й не записуються до журналу: лише те, що відповідь надійшла.
+ai-setup-test-unavailable = Технічна перевірка поки недоступна в цій збірці ядра.
+
+ai-setup-recovery-title = Попередній запуск було перервано
+ai-setup-recovery-interrupted = Встановлення перервалося і не завершилося.
+ai-setup-recovery-resumable = Частково завантажений файл довантажується, а не починається заново.
+ai-setup-recovery-staging = Перевірена копія вже готова: її буде увімкнено без повторного завантаження.
+ai-setup-recovery-installed = Уже встановлено:
+
+ai-setup-manual-title = Власні файли
+ai-setup-manual-desc = Якщо у вас уже є виконуваний файл середовища виконання та файл моделі, виберіть їх у системному діалозі. Нічого не завантажується й не переміщується.
+ai-setup-manual-server = Вибрати файл середовища виконання
+ai-setup-manual-model = Вибрати файл моделі
+ai-setup-manual-verified = Вибрані файли перевіряються заново: панель ніколи не стверджує, що файл робочий.
+ai-setup-validated = Перевірено
+ai-setup-not-available = Недоступно
+ai-setup-busy = Зачекайте…
+
+ai-setup-done-title = Локальний ШІ готовий
+ai-setup-done-desc = Середовище виконання та модель встановлено й перевірено. Локальний режим тепер працює без мережі. Технічну перевірку можна будь-коли запустити знову з налаштувань.
+ai-setup-diagnostics-hint = У списку одна коротка причина останньої невдачі, а повні етапи запуску вище. Нічого особистого до журналу не записується.
+
+ai-setup-origin-managed = Встановлено JARVIS
+ai-setup-origin-user_provided = Вибрано вами
+ai-setup-origin-mixed = Частково кероване, частково вибране
+ai-setup-origin-unset = Ще не вибрано
