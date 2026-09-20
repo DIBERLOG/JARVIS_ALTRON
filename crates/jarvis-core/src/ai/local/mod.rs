@@ -19,6 +19,7 @@ pub mod http;
 pub mod model;
 pub mod process;
 pub mod resources;
+pub mod managed;
 
 pub use client::{
     ApiMessage, ChatCompletionRequest, ChatTemplateKwargs, ChunkOutcome, CompletionOptions,
@@ -51,4 +52,9 @@ pub use process::{
 pub use resources::{
     available_memory_bytes, estimate_resources, format_bytes, total_memory_bytes, ResourceEstimate,
     HEADROOM_WARNING_RATIO, KV_BYTES_PER_TOKEN_ESTIMATE, RUNTIME_OVERHEAD_BYTES,
+};
+pub use managed::{
+    download_verified, managed_model_manifest, managed_runtime_manifest, managed_model_directory,
+    managed_runtime_directory, DownloadError, DownloadProgress, ManagedArtifact,
+    ManagedModelManifest, ManagedRuntimeManifest,
 };
