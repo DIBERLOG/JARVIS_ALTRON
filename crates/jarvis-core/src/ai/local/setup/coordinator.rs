@@ -350,6 +350,38 @@ impl SetupCoordinator {
         self.inner.refresh()
     }
 
+    /// Runs the checks an installation would run first, without starting one.
+    ///
+    /// The plan, the free space, the state on the disk, and the reason an
+    /// installation would be refused are all reported. Nothing is downloaded, and
+    /// the only directory that may be created is the application data root the
+    /// installation would live in anyway.
+    pub fn preflight(&self) -> Result<SetupStatus, SetupErrorCode> {
+        if self.is_running() {
+            return Err(SetupErrorCode::AlreadyRunning);
+        }
+        let status = self.inner.refresh();
+        let error = if fs::create_dir_all(self.inner.roots.data_dir()).is_err() {
+            Some(SetupErrorCode::Io)
+        } else if !self.inner.roots.staging_is_on_the_same_volume() {
+            // Without one volume every promotion would be a copy.
+            Some(SetupErrorCode::NotSameVolume)
+        } else if status.plan.available_bytes > 0 && !status.plan.fits() {
+            Some(SetupErrorCode::InsufficientSpace)
+        } else {
+            None
+        };
+        {
+            let mut shared = self.inner.lock();
+            shared.stage = SetupStage::Preflight;
+            shared.step = WizardStep::Preflight;
+            shared.component = None;
+            shared.error_code = error;
+        }
+        self.inner.persist(SetupStage::Preflight, error);
+        Ok(self.inner.decorate(false))
+    }
+
     /// Starts one installation. Returns immediately with the initial status.
     ///
     /// Refuses with [`SetupErrorCode::AlreadyRunning`] when another run holds the

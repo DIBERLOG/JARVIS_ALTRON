@@ -47,7 +47,10 @@ intent-classifier = { version = "0.1.0", optional = true }
 tokio = { version = "1", features = ["sync"], optional = true }
 
 mlua = { workspace = true, optional = true }
-reqwest = { workspace = true, optional = true }
+# The managed local AI setup downloads its pinned artifacts over HTTPS, so the
+# HTTP client is a plain dependency rather than part of the `lua` feature: the
+# setup module is compiled in every feature combination.
+reqwest.workspace = true
 tempfile.workspace = true
 zip.workspace = true
 
@@ -92,5 +95,5 @@ jarvis_app = [
     "ort", "ndarray", "tokenizers", "regex",]
 
 intent = ["intent-classifier", "tokio"]
-lua = ["mlua", "reqwest", "winrt-notification"]
+lua = ["mlua", "winrt-notification"]
 lua_only = ["lua", "tokio"]

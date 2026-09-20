@@ -13,6 +13,9 @@ pub struct AppState {
     pub notes: tauri_commands::NotesHandle,
     pub vault: tauri_commands::VaultHandle,
     pub local_ai: tauri_commands::LocalAiHandle,
+    /// The managed local AI installation: one typed coordinator, one run at a
+    /// time, and no URL, hash, path, or command from the interface.
+    pub local_ai_setup: tauri_commands::LocalAiSetupHandle,
     pub memory: tauri_commands::MemoryHandle,
     pub autocorrect: tauri_commands::AutocorrectHandle,
     pub windows_actions: tauri_commands::WindowsActionsHandle,
@@ -67,6 +70,12 @@ fn main() {
     // process until the user asks for one, and it has no handle to the
     // encrypted storages
     let local_ai = tauri_commands::LocalAiHandle::restore(&manager);
+
+    // The setup coordinator installs the pinned runtime and the pinned model into
+    // the application data root. It downloads nothing until the user asks, it
+    // keeps exactly one operation in flight, and it holds no handle to the
+    // encrypted storages.
+    let local_ai_setup = tauri_commands::LocalAiSetupHandle::new(desktop::data_directory());
 
     // AI memory reaches the encrypted storage through the shared session, which
     // derives a separate key for it; this handle only tracks summary jobs
@@ -241,6 +250,7 @@ fn main() {
             notes,
             vault,
             local_ai,
+            local_ai_setup,
             memory,
             autocorrect,
             windows_actions,
@@ -398,6 +408,16 @@ fn main() {
             tauri_commands::local_ai_cancel,
             tauri_commands::local_ai_select_server,
             tauri_commands::local_ai_select_model,
+            tauri_commands::local_ai_setup_status,
+            tauri_commands::local_ai_setup_preflight,
+            tauri_commands::local_ai_setup_start,
+            tauri_commands::local_ai_setup_cancel,
+            tauri_commands::local_ai_setup_retry,
+            tauri_commands::local_ai_setup_cleanup_temp,
+            tauri_commands::local_ai_setup_use_managed,
+            tauri_commands::local_ai_setup_remove_runtime,
+            tauri_commands::local_ai_setup_remove_model,
+            tauri_commands::local_ai_setup_validate_existing,
 
             // AI memory (encrypted conversations, summaries, facts)
             tauri_commands::memory_status,

@@ -51,6 +51,10 @@ pub use vault::*;
 mod local_ai;
 pub use local_ai::*;
 
+// import the managed local AI setup (one installation at a time, typed API)
+mod local_ai_setup;
+pub use local_ai_setup::*;
+
 // import AI memory commands (encrypted conversations, summaries, facts)
 mod memory;
 pub use memory::*;
