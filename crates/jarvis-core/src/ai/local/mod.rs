@@ -20,6 +20,7 @@ pub mod managed;
 pub mod model;
 pub mod process;
 pub mod resources;
+pub mod setup;
 
 pub use client::{
     ApiMessage, ChatCompletionRequest, ChatTemplateKwargs, ChunkOutcome, CompletionOptions,
@@ -41,11 +42,15 @@ pub use http::{
     DEFAULT_READ_TIMEOUT, DEFAULT_STALL_TIMEOUT, MAX_BODY_BYTES,
 };
 pub use managed::{
-    activate_managed_model, download_verified, extract_runtime_archive, managed_model_directory,
-    managed_model_manifest, managed_runtime_directory, managed_runtime_manifest,
-    required_model_space_bytes, validate_managed_model, DownloadError, DownloadProgress,
-    ManagedArtifact, ManagedModelManifest, ManagedRuntimeManifest, ModelInstallError,
-    RuntimeInstallError,
+    activate_managed_model, activate_managed_model_after_hash, download_verified,
+    extract_runtime_archive, extract_runtime_archive_with, has_installation_receipt,
+    managed_model_directory, managed_model_manifest, managed_runtime_directory,
+    managed_runtime_manifest, pinned_runtime_archive_spec, read_installation_receipt,
+    validate_managed_model, validate_managed_model_metadata, validate_pe_x64,
+    validate_runtime_archive, write_installation_receipt, DownloadError, DownloadProgress,
+    InstallationFacts, InstallationReceipt, ManagedArtifact, ManagedModelManifest,
+    ManagedRuntimeManifest, ModelInstallError, RuntimeArchiveSpec, RuntimeInstallError,
+    RECEIPT_FILE,
 };
 pub use model::{
     display_name, read_gguf_info, validate_files, validate_model, CheckLevel, GgufInfo,

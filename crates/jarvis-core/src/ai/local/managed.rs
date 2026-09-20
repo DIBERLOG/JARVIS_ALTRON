@@ -6,7 +6,7 @@
 //! performs its existing validation before it can start `llama-server`.
 
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -20,9 +20,9 @@ pub const MAX_MODEL_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 pub const MAX_RUNTIME_ARCHIVE_FILES: usize = 64;
 /// The CPU archive is small; this cap stops decompression bombs before disk use.
 pub const MAX_RUNTIME_UNPACKED_BYTES: u64 = 96 * 1024 * 1024;
-const MAX_RUNTIME_COMPRESSION_RATIO: u64 = 100;
+pub const MAX_RUNTIME_COMPRESSION_RATIO: u64 = 100;
 
-const RUNTIME_ARCHIVE_FILES: &[&str] = &[
+pub const RUNTIME_ARCHIVE_FILES: &[&str] = &[
     "ggml-base.dll",
     "ggml-cpu-alderlake.dll",
     "ggml-cpu-cannonlake.dll",
@@ -76,7 +76,7 @@ const RUNTIME_ARCHIVE_FILES: &[&str] = &[
     "mtmd.dll",
 ];
 
-const RUNTIME_INSTALLED_FILES: &[&str] = &[
+pub const RUNTIME_INSTALLED_FILES: &[&str] = &[
     "ggml-base.dll",
     "ggml-cpu-alderlake.dll",
     "ggml-cpu-cannonlake.dll",
@@ -211,22 +211,66 @@ pub fn activate_runtime(staging: &Path, data_dir: &Path) -> Result<PathBuf, Runt
         let _ = fs::remove_dir_all(&final_dir);
         return Err(error);
     }
-    let receipt = InstallationReceipt {
+    let facts = InstallationFacts {
         kind: "llama.cpp".to_string(),
         version: manifest.version.to_string(),
         artifact_name: manifest.artifact.filename.to_string(),
         sha256: manifest.artifact.sha256.to_string(),
         size_bytes: manifest.artifact.expected_size,
-        installed_at: chrono::Utc::now().to_rfc3339(),
         files: RUNTIME_INSTALLED_FILES
             .iter()
             .map(|name| (*name).to_string())
             .collect(),
     };
-    let receipt_path = final_dir.join("installation-receipt.json");
-    crate::fsutil::write_json_atomic(&receipt_path, &receipt)
-        .map_err(|_| RuntimeInstallError::Io)?;
+    write_installation_receipt(&final_dir, &facts).map_err(|_| RuntimeInstallError::Io)?;
     Ok(server)
+}
+
+/// What an installation receipt records.
+///
+/// A receipt is proof of ownership: the removal commands only delete a directory
+/// that carries one of these, so a folder the user created is never touched. It
+/// holds no path and no conversation content.
+#[derive(Clone, Debug)]
+pub struct InstallationFacts {
+    pub kind: String,
+    pub version: String,
+    pub artifact_name: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub files: Vec<String>,
+}
+
+/// Name of the receipt inside an installed component directory.
+pub const RECEIPT_FILE: &str = "installation-receipt.json";
+
+/// Writes the receipt for an installed component.
+pub fn write_installation_receipt(
+    directory: &Path,
+    facts: &InstallationFacts,
+) -> std::io::Result<()> {
+    let receipt = InstallationReceipt {
+        kind: facts.kind.clone(),
+        version: facts.version.clone(),
+        artifact_name: facts.artifact_name.clone(),
+        sha256: facts.sha256.clone(),
+        size_bytes: facts.size_bytes,
+        installed_at: chrono::Utc::now().to_rfc3339(),
+        files: facts.files.clone(),
+    };
+    crate::fsutil::write_json_atomic(&directory.join(RECEIPT_FILE), &receipt)
+}
+
+/// Reads the receipt of an installed component, when it carries one.
+pub fn read_installation_receipt(directory: &Path) -> Option<InstallationReceipt> {
+    let text = fs::read_to_string(directory.join(RECEIPT_FILE)).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Whether a directory was installed by this application and can therefore be
+/// removed by it.
+pub fn has_installation_receipt(directory: &Path, kind: &str) -> bool {
+    read_installation_receipt(directory).is_some_and(|receipt| receipt.kind == kind)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -278,13 +322,27 @@ pub fn activate_managed_model(
     staging_model: &Path,
     data_dir: &Path,
 ) -> Result<PathBuf, ModelInstallError> {
+    validate_managed_model(staging_model)?;
+    activate_managed_model_after_hash(staging_model, data_dir)
+}
+
+/// [`activate_managed_model`] for a caller that has just verified the full
+/// SHA-256 of the staging file.
+///
+/// The bytes cannot have changed since, because the promotion is a rename inside
+/// one volume, so re-reading several gigabytes would only repeat work. The size,
+/// the GGUF header, the architecture, and the quantisation are still checked.
+pub fn activate_managed_model_after_hash(
+    staging_model: &Path,
+    data_dir: &Path,
+) -> Result<PathBuf, ModelInstallError> {
     let manifest = managed_model_manifest();
     let final_dir = managed_model_directory(data_dir);
     let final_model = final_dir.join(manifest.artifact.filename);
     if final_model.is_file() {
         return validate_managed_model(&final_model).map(|_| final_model);
     }
-    validate_managed_model(staging_model)?;
+    validate_managed_model_metadata(staging_model)?;
     let parent = final_dir.parent().ok_or(ModelInstallError::Io)?;
     fs::create_dir_all(parent).map_err(|_| ModelInstallError::Io)?;
     if final_dir.exists() {
@@ -296,32 +354,20 @@ pub fn activate_managed_model(
         return Err(ModelInstallError::GgufInvalid);
     }
     fs::rename(staging_parent, &final_dir).map_err(|_| ModelInstallError::Io)?;
-    if let Err(error) = validate_managed_model(&final_model) {
+    if let Err(error) = validate_managed_model_metadata(&final_model) {
         let _ = fs::remove_dir_all(&final_dir);
         return Err(error);
     }
-    let receipt = InstallationReceipt {
+    let facts = InstallationFacts {
         kind: "model".to_string(),
         version: manifest.source_revision.to_string(),
         artifact_name: manifest.artifact.filename.to_string(),
         sha256: manifest.artifact.sha256.to_string(),
         size_bytes: manifest.artifact.expected_size,
-        installed_at: chrono::Utc::now().to_rfc3339(),
         files: vec![manifest.artifact.filename.to_string()],
     };
-    crate::fsutil::write_json_atomic(&final_dir.join("installation-receipt.json"), &receipt)
-        .map_err(|_| ModelInstallError::Io)?;
+    write_installation_receipt(&final_dir, &facts).map_err(|_| ModelInstallError::Io)?;
     Ok(final_model)
-}
-
-/// Completed artifact, `.part`, staging, and a 512 MiB safety margin.
-pub fn required_model_space_bytes() -> u64 {
-    managed_model_manifest()
-        .artifact
-        .expected_size
-        .checked_mul(2)
-        .and_then(|value| value.checked_add(512 * 1024 * 1024))
-        .expect("pinned model size fits u64")
 }
 
 /// Checks a completed managed model without loading tensors into memory. This is
@@ -329,15 +375,23 @@ pub fn required_model_space_bytes() -> u64 {
 /// managed activation has a stricter pinned identity.
 pub fn validate_managed_model(path: &Path) -> Result<super::GgufInfo, ModelInstallError> {
     let manifest = managed_model_manifest();
+    let info = validate_managed_model_metadata(path)?;
+    if sha256_file(path)? != manifest.artifact.sha256 {
+        return Err(ModelInstallError::HashMismatch);
+    }
+    Ok(info)
+}
+
+/// Everything a managed model check needs except the full-file hash: the size,
+/// the GGUF header, the architecture, and the quantisation.
+pub fn validate_managed_model_metadata(path: &Path) -> Result<super::GgufInfo, ModelInstallError> {
+    let manifest = managed_model_manifest();
     let metadata = path.metadata().map_err(|_| ModelInstallError::Io)?;
     if !metadata.is_file() {
         return Err(ModelInstallError::GgufInvalid);
     }
     if metadata.len() != manifest.artifact.expected_size {
         return Err(ModelInstallError::SizeMismatch);
-    }
-    if sha256_file(path)? != manifest.artifact.sha256 {
-        return Err(ModelInstallError::HashMismatch);
     }
     let info = super::read_gguf_info(path).map_err(|_| ModelInstallError::GgufInvalid)?;
     if !info
@@ -367,48 +421,122 @@ fn sha256_file(path: &Path) -> Result<String, ModelInstallError> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
-/// Validates and extracts the server's minimal runtime set into an empty staging
-/// directory. It never starts an executable and never writes outside `staging`.
-pub fn extract_runtime_archive(
+/// The rules one runtime archive is checked against.
+///
+/// Pinned in production, and supplied by a test fixture in the setup tests, so
+/// the same extraction code path is exercised with a few kilobytes instead of a
+/// real release download.
+pub struct RuntimeArchiveSpec<'a> {
+    /// Names the archive is allowed to contain. Anything else is refused, which
+    /// also rejects a directory entry or a symbolic link.
+    pub allowed: &'a [&'static str],
+    /// Names that must be written and must exist afterwards.
+    pub keep: &'a [&'static str],
+    pub max_files: usize,
+    pub max_unpacked_bytes: u64,
+    /// Largest unpacked-to-packed ratio a single entry may have.
+    pub max_compression_ratio: u64,
+    /// Whether `llama-server.exe` must be an x86-64 PE image.
+    pub require_pe_x64: bool,
+    /// Entry name of the server executable.
+    pub server_name: &'a str,
+}
+
+/// The spec for the pinned release archive.
+pub fn pinned_runtime_archive_spec() -> RuntimeArchiveSpec<'static> {
+    RuntimeArchiveSpec {
+        allowed: RUNTIME_ARCHIVE_FILES,
+        keep: RUNTIME_INSTALLED_FILES,
+        max_files: MAX_RUNTIME_ARCHIVE_FILES,
+        max_unpacked_bytes: MAX_RUNTIME_UNPACKED_BYTES,
+        max_compression_ratio: MAX_RUNTIME_COMPRESSION_RATIO,
+        require_pe_x64: true,
+        // The pinned release contains exactly one server executable.
+        server_name: "llama-server.exe",
+    }
+}
+
+/// Checks the shape of an archive without writing anything.
+///
+/// Returns the total unpacked size, so a caller can compare it with what it
+/// planned for. Refuses a traversal, an unexpected entry, a directory, a
+/// symbolic link, and a decompression bomb.
+pub fn validate_runtime_archive(
     archive: &Path,
-    staging: &Path,
-) -> Result<PathBuf, RuntimeInstallError> {
+    spec: &RuntimeArchiveSpec<'_>,
+) -> Result<u64, RuntimeInstallError> {
     let file = File::open(archive).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
     let mut zip = zip::ZipArchive::new(file).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
-    if zip.len() == 0 || zip.len() > MAX_RUNTIME_ARCHIVE_FILES {
+    if zip.is_empty() || zip.len() > spec.max_files {
         return Err(RuntimeInstallError::ArchiveTooLarge);
     }
-    fs::create_dir_all(staging).map_err(|_| RuntimeInstallError::Io)?;
-    let staging = staging
-        .canonicalize()
-        .map_err(|_| RuntimeInstallError::Io)?;
     let mut total = 0_u64;
-    let mut server = None;
+    let mut present: Vec<String> = Vec::new();
     for index in 0..zip.len() {
-        let mut entry = zip
+        let entry = zip
             .by_index(index)
             .map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
         let name = entry.name().to_string();
         if !safe_archive_name(&name) {
             return Err(RuntimeInstallError::ArchivePathTraversal);
         }
-        if entry.is_dir() || entry.is_symlink() || !RUNTIME_ARCHIVE_FILES.contains(&name.as_str()) {
+        if entry.is_dir() || entry.is_symlink() || !spec.allowed.contains(&name.as_str()) {
             return Err(RuntimeInstallError::ArchiveUnexpectedFile);
         }
         let size = entry.size();
         let packed = entry.compressed_size();
-        if size > MAX_RUNTIME_UNPACKED_BYTES
-            || (packed > 0 && size / packed > MAX_RUNTIME_COMPRESSION_RATIO)
+        if size > spec.max_unpacked_bytes
+            || (packed > 0 && size / packed > spec.max_compression_ratio)
         {
             return Err(RuntimeInstallError::ArchiveTooLarge);
         }
         total = total
             .checked_add(size)
             .ok_or(RuntimeInstallError::ArchiveTooLarge)?;
-        if total > MAX_RUNTIME_UNPACKED_BYTES {
+        if total > spec.max_unpacked_bytes {
             return Err(RuntimeInstallError::ArchiveTooLarge);
         }
-        if !RUNTIME_INSTALLED_FILES.contains(&name.as_str()) {
+        present.push(name);
+    }
+    for required in spec.keep {
+        if !present.iter().any(|name| name == required) {
+            return Err(RuntimeInstallError::RuntimeMissing);
+        }
+    }
+    Ok(total)
+}
+
+/// Validates and extracts the server's minimal runtime set into an empty staging
+/// directory. It never starts an executable and never writes outside `staging`.
+pub fn extract_runtime_archive(
+    archive: &Path,
+    staging: &Path,
+) -> Result<PathBuf, RuntimeInstallError> {
+    extract_runtime_archive_with(archive, staging, &pinned_runtime_archive_spec())
+}
+
+/// [`extract_runtime_archive`] against an explicit set of rules.
+pub fn extract_runtime_archive_with(
+    archive: &Path,
+    staging: &Path,
+    spec: &RuntimeArchiveSpec<'_>,
+) -> Result<PathBuf, RuntimeInstallError> {
+    // The shape is checked first, so nothing is written for an archive that will
+    // be refused anyway.
+    validate_runtime_archive(archive, spec)?;
+    let file = File::open(archive).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+    fs::create_dir_all(staging).map_err(|_| RuntimeInstallError::Io)?;
+    let staging = staging
+        .canonicalize()
+        .map_err(|_| RuntimeInstallError::Io)?;
+    let mut server = None;
+    for index in 0..zip.len() {
+        let mut entry = zip
+            .by_index(index)
+            .map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+        let name = entry.name().to_string();
+        if !spec.keep.contains(&name.as_str()) {
             continue;
         }
         let target = staging.join(&name);
@@ -418,13 +546,15 @@ pub fn extract_runtime_archive(
         let mut output = File::create(&target).map_err(|_| RuntimeInstallError::Io)?;
         std::io::copy(&mut entry, &mut output).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
         output.sync_all().map_err(|_| RuntimeInstallError::Io)?;
-        if name == "llama-server.exe" {
+        if name == spec.server_name {
             server = Some(target);
         }
     }
     let server = server.ok_or(RuntimeInstallError::RuntimeMissing)?;
-    validate_pe_x64(&server)?;
-    for required in RUNTIME_INSTALLED_FILES {
+    if spec.require_pe_x64 {
+        validate_pe_x64(&server)?;
+    }
+    for required in spec.keep {
         if !staging.join(required).is_file() {
             return Err(RuntimeInstallError::RuntimeMissing);
         }
@@ -441,19 +571,27 @@ fn safe_archive_name(name: &str) -> bool {
 
 /// Checks only the DOS/PE headers and the x86-64 machine tag. This deliberately
 /// does not execute or load the binary.
-fn validate_pe_x64(path: &Path) -> Result<(), RuntimeInstallError> {
+///
+/// The layout is the one the PE format defines: `e_lfanew` points at the
+/// `IMAGE_NT_HEADERS`, whose first four bytes are the `PE\0\0` signature and
+/// whose next two bytes are `IMAGE_FILE_HEADER.Machine`. The machine tag is
+/// therefore at `e_lfanew + 4`, not `e_lfanew + 6`; reading the wrong offset
+/// would report every real x64 executable as the wrong architecture and refuse
+/// a correct installation.
+pub fn validate_pe_x64(path: &Path) -> Result<(), RuntimeInstallError> {
     let bytes = fs::read(path).map_err(|_| RuntimeInstallError::Io)?;
     if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
         return Err(RuntimeInstallError::RuntimeArchitectureMismatch);
     }
     let offset = u32::from_le_bytes(bytes[0x3c..0x40].try_into().unwrap()) as usize;
-    let machine = offset
-        .checked_add(6)
-        .filter(|value| *value <= bytes.len())
+    if bytes.get(offset..offset + 4) != Some(b"PE\0\0") {
+        return Err(RuntimeInstallError::RuntimeArchitectureMismatch);
+    }
+    let machine_at = offset
+        .checked_add(4)
+        .filter(|value| *value <= bytes.len().saturating_sub(2))
         .ok_or(RuntimeInstallError::RuntimeArchitectureMismatch)?;
-    if bytes.get(offset..offset + 4) != Some(b"PE\0\0")
-        || bytes.get(machine..machine + 2) != Some(&0x8664_u16.to_le_bytes())
-    {
+    if bytes.get(machine_at..machine_at + 2) != Some(&0x8664_u16.to_le_bytes()) {
         return Err(RuntimeInstallError::RuntimeArchitectureMismatch);
     }
     Ok(())
@@ -461,8 +599,10 @@ fn validate_pe_x64(path: &Path) -> Result<(), RuntimeInstallError> {
 
 /// Downloads a compiled-in artifact. `cancelled` and `progress` are polled for
 /// every chunk, so callers can run this on a worker without freezing the UI.
-/// On every failure the `.part` file is removed and an existing destination is
-/// preserved.
+///
+/// This is a thin wrapper over the setup module's downloader, so there is exactly
+/// one implementation of "fetch, bound, hash, then rename". A failed download
+/// keeps its `.part` file, which is what makes the setup retry a resume.
 pub fn download_verified<F, C>(
     artifact: &ManagedArtifact,
     destination: &Path,
@@ -482,14 +622,45 @@ where
     }
     let parent = destination.parent().ok_or(DownloadError::Destination)?;
     fs::create_dir_all(parent).map_err(|_| DownloadError::Io)?;
+    let expectation = super::setup::download::ArtifactExpectation::from(artifact.clone());
     let part = destination.with_file_name(format!("{}.part", artifact.filename));
-    let result = download_to_part(artifact, &part, &mut progress, &mut cancelled);
-    match result {
-        Ok(()) => fs::rename(&part, destination).map_err(|_| DownloadError::Io),
-        Err(error) => {
-            let _ = fs::remove_file(&part);
-            Err(error)
-        }
+    let transport =
+        super::setup::download::ReqwestTransport::new().map_err(|_| DownloadError::Network)?;
+    let request = super::setup::download::DownloadRequest {
+        expectation: &expectation,
+        part: &part,
+        trust: super::setup::download::ArtifactTrust::Pinned,
+    };
+    match super::setup::download::download_artifact(
+        &transport,
+        request,
+        &mut progress,
+        &mut cancelled,
+    ) {
+        // Verified: promote by a rename, which costs no space.
+        Ok(_) => super::setup::layout::promote_file(&part, destination)
+            .map_err(|_| DownloadError::Io),
+        Err(error) => Err(map_setup_download_error(error)),
+    }
+}
+
+/// Maps the setup downloader's error to the vocabulary this module already had.
+fn map_setup_download_error(
+    error: super::setup::download::DownloadError,
+) -> DownloadError {
+    use super::setup::download::DownloadError as Setup;
+    match error {
+        Setup::RefusedUrl => DownloadError::RefusedUrl,
+        Setup::Destination => DownloadError::Destination,
+        Setup::TooLarge => DownloadError::TooLarge,
+        Setup::SizeMismatch => DownloadError::SizeMismatch,
+        Setup::HashMismatch => DownloadError::HashMismatch,
+        Setup::Cancelled => DownloadError::Cancelled,
+        Setup::Network | Setup::Timeout | Setup::NoProgress => DownloadError::Network,
+        Setup::ContentLengthMismatch
+        | Setup::RangeMismatch
+        | Setup::IdentityChanged
+        | Setup::Io => DownloadError::Io,
     }
 }
 
@@ -510,71 +681,6 @@ fn validate_artifact(artifact: &ManagedArtifact) -> Result<(), DownloadError> {
         || !artifact.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
         return Err(DownloadError::RefusedUrl);
-    }
-    Ok(())
-}
-
-fn download_to_part<F, C>(
-    artifact: &ManagedArtifact,
-    part: &Path,
-    progress: &mut F,
-    cancelled: &mut C,
-) -> Result<(), DownloadError>
-where
-    F: FnMut(DownloadProgress),
-    C: FnMut() -> bool,
-{
-    let response = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|_| DownloadError::Network)?
-        .get(artifact.source_url)
-        .send()
-        .map_err(|_| DownloadError::Network)?;
-    if !response.status().is_success()
-        || response
-            .content_length()
-            .is_some_and(|n| n > artifact.expected_size)
-    {
-        return Err(DownloadError::Network);
-    }
-    let mut source = response;
-    let mut output = File::create(part).map_err(|_| DownloadError::Io)?;
-    let mut digest = Sha256::new();
-    let mut downloaded = 0_u64;
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        if cancelled() {
-            return Err(DownloadError::Cancelled);
-        }
-        let count = source
-            .read(&mut buffer)
-            .map_err(|_| DownloadError::Network)?;
-        if count == 0 {
-            break;
-        }
-        downloaded = downloaded
-            .checked_add(count as u64)
-            .ok_or(DownloadError::TooLarge)?;
-        if downloaded > artifact.expected_size {
-            return Err(DownloadError::TooLarge);
-        }
-        output
-            .write_all(&buffer[..count])
-            .map_err(|_| DownloadError::Io)?;
-        digest.update(&buffer[..count]);
-        progress(DownloadProgress {
-            downloaded,
-            total: artifact.expected_size,
-        });
-    }
-    output.sync_all().map_err(|_| DownloadError::Io)?;
-    if downloaded != artifact.expected_size {
-        return Err(DownloadError::SizeMismatch);
-    }
-    let actual = format!("{:x}", digest.finalize());
-    if !actual.eq_ignore_ascii_case(artifact.sha256) {
-        return Err(DownloadError::HashMismatch);
     }
     Ok(())
 }
@@ -640,4 +746,200 @@ mod tests {
         );
         assert_eq!(result, Err(DownloadError::Destination));
     }
+
+    /// A small stand-in for the release archive, checked by the same code path.
+    fn fixture_spec<'a>(
+        allowed: &'a [&'static str],
+        keep: &'a [&'static str],
+    ) -> RuntimeArchiveSpec<'a> {
+        RuntimeArchiveSpec {
+            allowed,
+            keep,
+            max_files: 8,
+            max_unpacked_bytes: 1024 * 1024,
+            max_compression_ratio: 1000,
+            require_pe_x64: true,
+            server_name: "llama-server.exe",
+        }
+    }
+
+    #[test]
+    fn a_fixture_archive_is_validated_and_extracted_by_the_same_rules() {
+        use super::super::setup::fixtures;
+        let directory = tempdir().unwrap();
+        let allowed = ["llama-server.exe", "llama.dll"];
+        let keep = ["llama-server.exe", "llama.dll"];
+        let spec = fixture_spec(&allowed, &keep);
+        let server_bytes = fixtures::pe_x64();
+        let library_bytes = fixtures::bytes(1024, 3);
+        let archive = directory.path().join("runtime.zip");
+        fs::write(
+            &archive,
+            fixtures::zip_archive(&[
+                ("llama-server.exe", server_bytes.clone()),
+                ("llama.dll", library_bytes.clone()),
+            ]),
+        )
+        .unwrap();
+
+        let unpacked = validate_runtime_archive(&archive, &spec).unwrap();
+        assert_eq!(unpacked, server_bytes.len() as u64 + library_bytes.len() as u64);
+
+        let staging = directory.path().join("payload");
+        let server = extract_runtime_archive_with(&archive, &staging, &spec).unwrap();
+        assert!(server.is_file());
+        assert_eq!(fs::read(&server).unwrap(), server_bytes);
+        assert!(staging.join("llama.dll").is_file());
+    }
+
+    #[test]
+    fn an_archive_with_an_unexpected_entry_is_refused_before_anything_is_written() {
+        use super::super::setup::fixtures;
+        let directory = tempdir().unwrap();
+        let allowed = ["llama-server.exe"];
+        let keep = ["llama-server.exe"];
+        let spec = fixture_spec(&allowed, &keep);
+        let archive = directory.path().join("runtime.zip");
+        fs::write(
+            &archive,
+            fixtures::zip_archive(&[
+                ("llama-server.exe", fixtures::pe_x64()),
+                ("payload.exe", fixtures::pe_x64()),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(
+            validate_runtime_archive(&archive, &spec),
+            Err(RuntimeInstallError::ArchiveUnexpectedFile)
+        );
+        let staging = directory.path().join("payload");
+        assert_eq!(
+            extract_runtime_archive_with(&archive, &staging, &spec),
+            Err(RuntimeInstallError::ArchiveUnexpectedFile)
+        );
+        assert!(!staging.exists(), "nothing may be written for a refused archive");
+    }
+
+    #[test]
+    fn an_archive_whose_server_is_not_x86_64_is_refused() {
+        use super::super::setup::fixtures;
+        let directory = tempdir().unwrap();
+        let allowed = ["llama-server.exe"];
+        let keep = ["llama-server.exe"];
+        let spec = fixture_spec(&allowed, &keep);
+        let archive = directory.path().join("runtime.zip");
+        // A 32-bit image: the shape is valid but the machine is wrong.
+        fs::write(
+            &archive,
+            fixtures::zip_archive(&[("llama-server.exe", fixtures::pe_stub(0x014c))]),
+        )
+        .unwrap();
+        assert_eq!(
+            extract_runtime_archive_with(&archive, &directory.path().join("payload"), &spec),
+            Err(RuntimeInstallError::RuntimeArchitectureMismatch)
+        );
+    }
+
+    #[test]
+    fn an_archive_that_is_missing_a_required_file_is_refused() {
+        use super::super::setup::fixtures;
+        let directory = tempdir().unwrap();
+        let allowed = ["llama-server.exe", "llama.dll"];
+        let keep = ["llama-server.exe", "llama.dll"];
+        let spec = fixture_spec(&allowed, &keep);
+        let archive = directory.path().join("runtime.zip");
+        fs::write(
+            &archive,
+            fixtures::zip_archive(&[("llama-server.exe", fixtures::pe_x64())]),
+        )
+        .unwrap();
+        assert_eq!(
+            validate_runtime_archive(&archive, &spec),
+            Err(RuntimeInstallError::RuntimeMissing)
+        );
+    }
+
+    #[test]
+    fn the_pe_check_reads_the_machine_tag_where_the_format_puts_it() {
+        use super::super::setup::fixtures;
+        let directory = tempdir().unwrap();
+        let server = directory.path().join("llama-server.exe");
+        // The machine tag sits at `e_lfanew + 4`, right after the PE signature.
+        fs::write(&server, fixtures::pe_x64()).unwrap();
+        assert_eq!(validate_pe_x64(&server), Ok(()));
+
+        // A 32-bit image with the same layout is refused.
+        fs::write(&server, fixtures::pe_stub(0x014c)).unwrap();
+        assert_eq!(
+            validate_pe_x64(&server),
+            Err(RuntimeInstallError::RuntimeArchitectureMismatch)
+        );
+
+        // Something that is not a PE image at all is refused.
+        fs::write(&server, fixtures::not_a_pe()).unwrap();
+        assert_eq!(
+            validate_pe_x64(&server),
+            Err(RuntimeInstallError::RuntimeArchitectureMismatch)
+        );
+
+        // An `e_lfanew` that points past the end of the file is refused rather
+        // than read out of bounds.
+        let mut truncated = fixtures::pe_x64();
+        truncated[0x3c..0x40].copy_from_slice(&0xffff_u32.to_le_bytes());
+        fs::write(&server, truncated).unwrap();
+        assert_eq!(
+            validate_pe_x64(&server),
+            Err(RuntimeInstallError::RuntimeArchitectureMismatch)
+        );
+
+        // A file too short for even the DOS header is refused.
+        fs::write(&server, b"MZ").unwrap();
+        assert_eq!(
+            validate_pe_x64(&server),
+            Err(RuntimeInstallError::RuntimeArchitectureMismatch)
+        );
+    }
+
+    #[test]
+    fn a_receipt_is_what_makes_a_directory_removable_by_this_application() {        let directory = tempdir().unwrap();
+        let installed = directory.path().join("llama.cpp-b10964");
+        fs::create_dir_all(&installed).unwrap();
+        assert!(!has_installation_receipt(&installed, "llama.cpp"));
+
+        let facts = InstallationFacts {
+            kind: "llama.cpp".to_string(),
+            version: "b10964".to_string(),
+            artifact_name: "llama-b10964-bin-win-cpu-x64.zip".to_string(),
+            sha256: "a".repeat(64),
+            size_bytes: 1,
+            files: vec!["llama-server.exe".to_string()],
+        };
+        write_installation_receipt(&installed, &facts).unwrap();
+        assert!(has_installation_receipt(&installed, "llama.cpp"));
+        // A receipt for another kind does not authorize a removal.
+        assert!(!has_installation_receipt(&installed, "model"));
+        let receipt = read_installation_receipt(&installed).unwrap();
+        assert_eq!(receipt.version, "b10964");
+        assert_eq!(receipt.files, vec!["llama-server.exe".to_string()]);
+    }
+
+    #[test]
+    fn a_model_activation_after_a_verified_hash_still_checks_the_metadata() {
+        use super::super::setup::fixtures;
+        let directory = tempdir().unwrap();
+        let data_dir = directory.path().join("data");
+        let staging = data_dir.join("setup-temp").join("model").join("payload");
+        fs::create_dir_all(&staging).unwrap();
+        let name = managed_model_manifest().artifact.filename;
+        // A GGUF file, but not at the pinned size: refused without a full read.
+        fs::write(staging.join(name), fixtures::pinned_gguf(4096)).unwrap();
+        assert_eq!(
+            activate_managed_model_after_hash(&staging.join(name), &data_dir),
+            Err(ModelInstallError::SizeMismatch)
+        );
+        // Nothing was promoted, so no half-installed directory exists.
+        assert!(!managed_model_directory(&data_dir).exists());
+        assert!(staging.join(name).is_file());
+    }
 }
+
