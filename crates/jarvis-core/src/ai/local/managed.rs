@@ -271,6 +271,59 @@ pub enum ModelInstallError {
     Io,
 }
 
+/// Promotes a previously downloaded and strictly validated model without ever
+/// touching a user-selected GGUF. The source must be in app staging; the final
+/// name is fixed by the compiled manifest.
+pub fn activate_managed_model(
+    staging_model: &Path,
+    data_dir: &Path,
+) -> Result<PathBuf, ModelInstallError> {
+    let manifest = managed_model_manifest();
+    let final_dir = managed_model_directory(data_dir);
+    let final_model = final_dir.join(manifest.artifact.filename);
+    if final_model.is_file() {
+        return validate_managed_model(&final_model).map(|_| final_model);
+    }
+    validate_managed_model(staging_model)?;
+    let parent = final_dir.parent().ok_or(ModelInstallError::Io)?;
+    fs::create_dir_all(parent).map_err(|_| ModelInstallError::Io)?;
+    if final_dir.exists() {
+        return Err(ModelInstallError::Io);
+    }
+    let staging_parent = staging_model.parent().ok_or(ModelInstallError::Io)?;
+    if staging_model.file_name().and_then(|name| name.to_str()) != Some(manifest.artifact.filename)
+    {
+        return Err(ModelInstallError::GgufInvalid);
+    }
+    fs::rename(staging_parent, &final_dir).map_err(|_| ModelInstallError::Io)?;
+    if let Err(error) = validate_managed_model(&final_model) {
+        let _ = fs::remove_dir_all(&final_dir);
+        return Err(error);
+    }
+    let receipt = InstallationReceipt {
+        kind: "model".to_string(),
+        version: manifest.source_revision.to_string(),
+        artifact_name: manifest.artifact.filename.to_string(),
+        sha256: manifest.artifact.sha256.to_string(),
+        size_bytes: manifest.artifact.expected_size,
+        installed_at: chrono::Utc::now().to_rfc3339(),
+        files: vec![manifest.artifact.filename.to_string()],
+    };
+    crate::fsutil::write_json_atomic(&final_dir.join("installation-receipt.json"), &receipt)
+        .map_err(|_| ModelInstallError::Io)?;
+    Ok(final_model)
+}
+
+/// Completed artifact, `.part`, staging, and a 512 MiB safety margin.
+pub fn required_model_space_bytes() -> u64 {
+    managed_model_manifest()
+        .artifact
+        .expected_size
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(512 * 1024 * 1024))
+        .expect("pinned model size fits u64")
+}
+
 /// Checks a completed managed model without loading tensors into memory. This is
 /// intentionally separate from the interactive, permissive file picker: a
 /// managed activation has a stricter pinned identity.

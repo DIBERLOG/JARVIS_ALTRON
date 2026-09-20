@@ -41,10 +41,11 @@ pub use http::{
     DEFAULT_READ_TIMEOUT, DEFAULT_STALL_TIMEOUT, MAX_BODY_BYTES,
 };
 pub use managed::{
-    download_verified, extract_runtime_archive, managed_model_directory, managed_model_manifest,
-    managed_runtime_directory, managed_runtime_manifest, validate_managed_model, DownloadError,
-    DownloadProgress, ManagedArtifact, ManagedModelManifest, ManagedRuntimeManifest,
-    ModelInstallError, RuntimeInstallError,
+    activate_managed_model, download_verified, extract_runtime_archive, managed_model_directory,
+    managed_model_manifest, managed_runtime_directory, managed_runtime_manifest,
+    required_model_space_bytes, validate_managed_model, DownloadError, DownloadProgress,
+    ManagedArtifact, ManagedModelManifest, ManagedRuntimeManifest, ModelInstallError,
+    RuntimeInstallError,
 };
 pub use model::{
     display_name, read_gguf_info, validate_files, validate_model, CheckLevel, GgufInfo,
