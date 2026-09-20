@@ -9,6 +9,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Maximum accepted runtime archive size (128 MiB).
@@ -165,14 +166,67 @@ pub fn managed_model_manifest() -> ManagedModelManifest {
 
 /// `%LOCALAPPDATA%\\com.priler.jarvis\\runtime\\llama.cpp-<version>` on Windows.
 pub fn managed_runtime_directory(data_dir: &Path, version: &str) -> PathBuf {
-    data_dir
-        .join("runtime")
-        .join(format!("llama.cpp-{version}"))
+    data_dir.join("runtime").join("llama.cpp").join(version)
 }
 
 /// `%LOCALAPPDATA%\\com.priler.jarvis\\models` on Windows.
 pub fn managed_model_directory(data_dir: &Path) -> PathBuf {
-    data_dir.join("models")
+    data_dir.join("models").join("qwen3-8b-q4_k_m")
+}
+
+/// A path-free local record proving which compiled-in artifact was activated.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InstallationReceipt {
+    pub kind: String,
+    pub version: String,
+    pub artifact_name: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub installed_at: String,
+    pub files: Vec<String>,
+}
+
+/// Atomically promotes a validated staging runtime. A previous runtime remains
+/// untouched until the rename succeeds; a repeat run returns the existing
+/// verified server path rather than copying again.
+pub fn activate_runtime(staging: &Path, data_dir: &Path) -> Result<PathBuf, RuntimeInstallError> {
+    let manifest = managed_runtime_manifest();
+    let final_dir = managed_runtime_directory(data_dir, manifest.version);
+    let server_name = "llama-server.exe";
+    if final_dir.join(server_name).is_file() {
+        validate_pe_x64(&final_dir.join(server_name))?;
+        return Ok(final_dir.join(server_name));
+    }
+    let parent = final_dir.parent().ok_or(RuntimeInstallError::Io)?;
+    fs::create_dir_all(parent).map_err(|_| RuntimeInstallError::Io)?;
+    if !staging.join(server_name).is_file() {
+        return Err(RuntimeInstallError::RuntimeMissing);
+    }
+    if final_dir.exists() {
+        return Err(RuntimeInstallError::Io);
+    }
+    fs::rename(staging, &final_dir).map_err(|_| RuntimeInstallError::Io)?;
+    let server = final_dir.join(server_name);
+    if let Err(error) = validate_pe_x64(&server) {
+        let _ = fs::remove_dir_all(&final_dir);
+        return Err(error);
+    }
+    let receipt = InstallationReceipt {
+        kind: "llama.cpp".to_string(),
+        version: manifest.version.to_string(),
+        artifact_name: manifest.artifact.filename.to_string(),
+        sha256: manifest.artifact.sha256.to_string(),
+        size_bytes: manifest.artifact.expected_size,
+        installed_at: chrono::Utc::now().to_rfc3339(),
+        files: RUNTIME_INSTALLED_FILES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+    };
+    let receipt_path = final_dir.join("installation-receipt.json");
+    crate::fsutil::write_json_atomic(&receipt_path, &receipt)
+        .map_err(|_| RuntimeInstallError::Io)?;
+    Ok(server)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
