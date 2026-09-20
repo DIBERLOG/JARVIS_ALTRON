@@ -15,6 +15,90 @@ use sha2::{Digest, Sha256};
 pub const MAX_RUNTIME_BYTES: u64 = 128 * 1024 * 1024;
 /// Maximum accepted model size (12 GiB), intentionally above the pinned Q4 model.
 pub const MAX_MODEL_BYTES: u64 = 12 * 1024 * 1024 * 1024;
+/// A release archive must never contain an unbounded number of entries.
+pub const MAX_RUNTIME_ARCHIVE_FILES: usize = 64;
+/// The CPU archive is small; this cap stops decompression bombs before disk use.
+pub const MAX_RUNTIME_UNPACKED_BYTES: u64 = 96 * 1024 * 1024;
+const MAX_RUNTIME_COMPRESSION_RATIO: u64 = 100;
+
+const RUNTIME_ARCHIVE_FILES: &[&str] = &[
+    "ggml-base.dll",
+    "ggml-cpu-alderlake.dll",
+    "ggml-cpu-cannonlake.dll",
+    "ggml-cpu-cascadelake.dll",
+    "ggml-cpu-cooperlake.dll",
+    "ggml-cpu-haswell.dll",
+    "ggml-cpu-icelake.dll",
+    "ggml-cpu-ivybridge.dll",
+    "ggml-cpu-piledriver.dll",
+    "ggml-cpu-sandybridge.dll",
+    "ggml-cpu-sapphirerapids.dll",
+    "ggml-cpu-skylakex.dll",
+    "ggml-cpu-sse42.dll",
+    "ggml-cpu-x64.dll",
+    "ggml-cpu-zen4.dll",
+    "ggml-rpc-server.exe",
+    "ggml-rpc.dll",
+    "ggml.dll",
+    "libomp.dll",
+    "LICENSE-LLVM-OpenMP",
+    "llama-batched-bench-impl.dll",
+    "llama-batched-bench.exe",
+    "llama-bench-impl.dll",
+    "llama-bench.exe",
+    "llama-cli-impl.dll",
+    "llama-cli.exe",
+    "llama-common.dll",
+    "llama-completion-impl.dll",
+    "llama-completion.exe",
+    "llama-fit-params-impl.dll",
+    "llama-fit-params.exe",
+    "llama-gemma3-cli.exe",
+    "llama-gguf-split.exe",
+    "llama-imatrix.exe",
+    "llama-llava-cli.exe",
+    "llama-minicpmv-cli.exe",
+    "llama-mtmd-cli.exe",
+    "llama-mtmd-debug.exe",
+    "llama-perplexity-impl.dll",
+    "llama-perplexity.exe",
+    "llama-quantize-impl.dll",
+    "llama-quantize.exe",
+    "llama-qwen2vl-cli.exe",
+    "llama-results.exe",
+    "llama-server-impl.dll",
+    "llama-server.exe",
+    "llama-tokenize.exe",
+    "llama-tts.exe",
+    "llama.dll",
+    "llama.exe",
+    "mtmd.dll",
+];
+
+const RUNTIME_INSTALLED_FILES: &[&str] = &[
+    "ggml-base.dll",
+    "ggml-cpu-alderlake.dll",
+    "ggml-cpu-cannonlake.dll",
+    "ggml-cpu-cascadelake.dll",
+    "ggml-cpu-cooperlake.dll",
+    "ggml-cpu-haswell.dll",
+    "ggml-cpu-icelake.dll",
+    "ggml-cpu-ivybridge.dll",
+    "ggml-cpu-piledriver.dll",
+    "ggml-cpu-sandybridge.dll",
+    "ggml-cpu-sapphirerapids.dll",
+    "ggml-cpu-skylakex.dll",
+    "ggml-cpu-sse42.dll",
+    "ggml-cpu-x64.dll",
+    "ggml-cpu-zen4.dll",
+    "ggml.dll",
+    "libomp.dll",
+    "LICENSE-LLVM-OpenMP",
+    "llama-common.dll",
+    "llama-server-impl.dll",
+    "llama-server.exe",
+    "llama.dll",
+];
 
 /// An artifact compiled into the application manifest, never obtained from AI or
 /// user-provided text.
@@ -107,6 +191,111 @@ pub enum DownloadError {
     Cancelled,
     Network,
     Io,
+}
+
+/// Errors from offline archive validation and extraction. They are deliberately
+/// key-like: the UI translates them and no file path leaks into its DTO.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RuntimeInstallError {
+    ArchiveInvalid,
+    ArchivePathTraversal,
+    ArchiveTooLarge,
+    ArchiveUnexpectedFile,
+    RuntimeMissing,
+    RuntimeArchitectureMismatch,
+    Io,
+}
+
+/// Validates and extracts the server's minimal runtime set into an empty staging
+/// directory. It never starts an executable and never writes outside `staging`.
+pub fn extract_runtime_archive(
+    archive: &Path,
+    staging: &Path,
+) -> Result<PathBuf, RuntimeInstallError> {
+    let file = File::open(archive).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+    if zip.len() == 0 || zip.len() > MAX_RUNTIME_ARCHIVE_FILES {
+        return Err(RuntimeInstallError::ArchiveTooLarge);
+    }
+    fs::create_dir_all(staging).map_err(|_| RuntimeInstallError::Io)?;
+    let staging = staging
+        .canonicalize()
+        .map_err(|_| RuntimeInstallError::Io)?;
+    let mut total = 0_u64;
+    let mut server = None;
+    for index in 0..zip.len() {
+        let mut entry = zip
+            .by_index(index)
+            .map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+        let name = entry.name().to_string();
+        if !safe_archive_name(&name) {
+            return Err(RuntimeInstallError::ArchivePathTraversal);
+        }
+        if entry.is_dir() || entry.is_symlink() || !RUNTIME_ARCHIVE_FILES.contains(&name.as_str()) {
+            return Err(RuntimeInstallError::ArchiveUnexpectedFile);
+        }
+        let size = entry.size();
+        let packed = entry.compressed_size();
+        if size > MAX_RUNTIME_UNPACKED_BYTES
+            || (packed > 0 && size / packed > MAX_RUNTIME_COMPRESSION_RATIO)
+        {
+            return Err(RuntimeInstallError::ArchiveTooLarge);
+        }
+        total = total
+            .checked_add(size)
+            .ok_or(RuntimeInstallError::ArchiveTooLarge)?;
+        if total > MAX_RUNTIME_UNPACKED_BYTES {
+            return Err(RuntimeInstallError::ArchiveTooLarge);
+        }
+        if !RUNTIME_INSTALLED_FILES.contains(&name.as_str()) {
+            continue;
+        }
+        let target = staging.join(&name);
+        if !target.starts_with(&staging) {
+            return Err(RuntimeInstallError::ArchivePathTraversal);
+        }
+        let mut output = File::create(&target).map_err(|_| RuntimeInstallError::Io)?;
+        std::io::copy(&mut entry, &mut output).map_err(|_| RuntimeInstallError::ArchiveInvalid)?;
+        output.sync_all().map_err(|_| RuntimeInstallError::Io)?;
+        if name == "llama-server.exe" {
+            server = Some(target);
+        }
+    }
+    let server = server.ok_or(RuntimeInstallError::RuntimeMissing)?;
+    validate_pe_x64(&server)?;
+    for required in RUNTIME_INSTALLED_FILES {
+        if !staging.join(required).is_file() {
+            return Err(RuntimeInstallError::RuntimeMissing);
+        }
+    }
+    Ok(server)
+}
+
+fn safe_archive_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['/', '\\', ':'])
+        && !name.starts_with('.')
+        && name.len() <= 120
+}
+
+/// Checks only the DOS/PE headers and the x86-64 machine tag. This deliberately
+/// does not execute or load the binary.
+fn validate_pe_x64(path: &Path) -> Result<(), RuntimeInstallError> {
+    let bytes = fs::read(path).map_err(|_| RuntimeInstallError::Io)?;
+    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" {
+        return Err(RuntimeInstallError::RuntimeArchitectureMismatch);
+    }
+    let offset = u32::from_le_bytes(bytes[0x3c..0x40].try_into().unwrap()) as usize;
+    let machine = offset
+        .checked_add(6)
+        .filter(|value| *value <= bytes.len())
+        .ok_or(RuntimeInstallError::RuntimeArchitectureMismatch)?;
+    if bytes.get(offset..offset + 4) != Some(b"PE\0\0")
+        || bytes.get(machine..machine + 2) != Some(&0x8664_u16.to_le_bytes())
+    {
+        return Err(RuntimeInstallError::RuntimeArchitectureMismatch);
+    }
+    Ok(())
 }
 
 /// Downloads a compiled-in artifact. `cancelled` and `progress` are polled for
