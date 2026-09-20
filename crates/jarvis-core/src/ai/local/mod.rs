@@ -16,10 +16,10 @@ pub mod client;
 pub mod config;
 pub mod gateway;
 pub mod http;
+pub mod managed;
 pub mod model;
 pub mod process;
 pub mod resources;
-pub mod managed;
 
 pub use client::{
     ApiMessage, ChatCompletionRequest, ChatTemplateKwargs, ChunkOutcome, CompletionOptions,
@@ -40,6 +40,12 @@ pub use http::{
     loopback_address, BodyReader, LoopbackEndpoint, ResponseHead, DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_READ_TIMEOUT, DEFAULT_STALL_TIMEOUT, MAX_BODY_BYTES,
 };
+pub use managed::{
+    download_verified, extract_runtime_archive, managed_model_directory, managed_model_manifest,
+    managed_runtime_directory, managed_runtime_manifest, validate_managed_model, DownloadError,
+    DownloadProgress, ManagedArtifact, ManagedModelManifest, ManagedRuntimeManifest,
+    ModelInstallError, RuntimeInstallError,
+};
 pub use model::{
     display_name, read_gguf_info, validate_files, validate_model, CheckLevel, GgufInfo,
     LocalModelConfig as ModelFileInfo, ModelValidation, ValidationIssue,
@@ -52,9 +58,4 @@ pub use process::{
 pub use resources::{
     available_memory_bytes, estimate_resources, format_bytes, total_memory_bytes, ResourceEstimate,
     HEADROOM_WARNING_RATIO, KV_BYTES_PER_TOKEN_ESTIMATE, RUNTIME_OVERHEAD_BYTES,
-};
-pub use managed::{
-    download_verified, managed_model_manifest, managed_runtime_manifest, managed_model_directory,
-    managed_runtime_directory, DownloadError, DownloadProgress, ManagedArtifact,
-    ManagedModelManifest, ManagedRuntimeManifest,
 };

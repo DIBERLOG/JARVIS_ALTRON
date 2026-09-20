@@ -206,6 +206,60 @@ pub enum RuntimeInstallError {
     Io,
 }
 
+/// Validation result for the pinned GGUF before it may become active.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModelInstallError {
+    SizeMismatch,
+    HashMismatch,
+    GgufInvalid,
+    ArchitectureMismatch,
+    QuantizationMismatch,
+    Io,
+}
+
+/// Checks a completed managed model without loading tensors into memory. This is
+/// intentionally separate from the interactive, permissive file picker: a
+/// managed activation has a stricter pinned identity.
+pub fn validate_managed_model(path: &Path) -> Result<super::GgufInfo, ModelInstallError> {
+    let manifest = managed_model_manifest();
+    let metadata = path.metadata().map_err(|_| ModelInstallError::Io)?;
+    if !metadata.is_file() {
+        return Err(ModelInstallError::GgufInvalid);
+    }
+    if metadata.len() != manifest.artifact.expected_size {
+        return Err(ModelInstallError::SizeMismatch);
+    }
+    if sha256_file(path)? != manifest.artifact.sha256 {
+        return Err(ModelInstallError::HashMismatch);
+    }
+    let info = super::read_gguf_info(path).map_err(|_| ModelInstallError::GgufInvalid)?;
+    if !info
+        .architecture
+        .as_deref()
+        .is_some_and(|architecture| architecture.eq_ignore_ascii_case("qwen3"))
+    {
+        return Err(ModelInstallError::ArchitectureMismatch);
+    }
+    if info.quantisation.as_deref() != Some(manifest.quantization) {
+        return Err(ModelInstallError::QuantizationMismatch);
+    }
+    Ok(info)
+}
+
+fn sha256_file(path: &Path) -> Result<String, ModelInstallError> {
+    let mut file = File::open(path).map_err(|_| ModelInstallError::Io)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer).map_err(|_| ModelInstallError::Io)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
 /// Validates and extracts the server's minimal runtime set into an empty staging
 /// directory. It never starts an executable and never writes outside `staging`.
 pub fn extract_runtime_archive(
