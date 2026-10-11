@@ -3,7 +3,7 @@
     import { open } from '@tauri-apps/plugin-shell'
     import { mailInOutlook, setMailInOutlook } from '@/lib/outlook'
     import { outlook, mailUnreadOnly, outlookApi, editDraft, refreshMail, selectMail, prepareMail, sendMail, saveMailDraft, cancelMailSend, replyToMail, disconnectMail, setMailStatus, setMailCode, mailError, mailAction } from '@/lib/outlook'
-    let clientId = '', query = '', showSetup = false
+    let clientId = '', query = '', showSetup = false, localSupported = false
     let polling: ReturnType<typeof setTimeout> | undefined, disposed = false, loginGeneration = 0
     const run = (action: () => Promise<unknown>) => action().catch(mailError)
     $: visible = $outlook.messages.map((mail, index) => ({ mail, number: index + 1 })).filter(({ mail }) => (!$mailUnreadOnly || !mail.isRead) && `${mail.subject} ${mail.from?.emailAddress?.name ?? ''} ${mail.from?.emailAddress?.address ?? ''} ${mail.bodyPreview ?? ''}`.toLowerCase().includes(query.toLowerCase()))
@@ -38,7 +38,9 @@
     onMount(() => {
         clientId = localStorage.getItem('jarvis-outlook-client-id') ?? ''
         run(async () => {
-            const status = await outlookApi<{ connected: boolean; pending: boolean }>('status')
+            const status = await outlookApi<{ connected: boolean; pending: boolean; localSupported?: boolean }>('status')
+            localSupported = status.localSupported === true
+            if (!localSupported && $mailInOutlook) setMailInOutlook(false)
             setMailStatus(status)
             if (status.connected && !$outlook.messages.length) await refreshMail()
             else if (status.pending && $outlook.code) polling = setTimeout(() => poll(loginGeneration), 5000)
@@ -49,19 +51,19 @@
 </script>
 
 <section class="mail-center" aria-label="Почта Outlook">
-    <header><div><p class="eyebrow">JARVIS / OUTLOOK</p><h2>Письма. Без суеты.</h2><p class="muted">Классический Outlook / Kerio и Microsoft 365 — в одном разделе.</p></div><span class="connection" class:online={$outlook.connected}><i></i>{$outlook.connected ? 'Подключено' : 'Не подключено'}</span></header>
+    <header><div><p class="eyebrow">JARVIS / OUTLOOK</p><h2>Письма. Без суеты.</h2><p class="muted">{localSupported ? 'Классический Outlook / Kerio и Microsoft 365 — в одном разделе.' : 'Microsoft 365 / Outlook.com. Подключение Kerio доступно только в Windows.'}</p></div><span class="connection" class:online={$outlook.connected}><i></i>{$outlook.connected ? 'Подключено' : 'Не подключено'}</span></header>
     {#if $outlook.error}<div role="alert" class="banner error">{$outlook.error}</div>{/if}
     {#if $outlook.notice}<div role="status" class="banner">{$outlook.notice}</div>{/if}
-    <div class="panel mode-choice">
+    {#if localSupported}<div class="panel mode-choice">
         <h3>Где управлять почтой голосом?</h3>
         <div class="compose-actions"><button aria-pressed={!$mailInOutlook} class:primary={!$mailInOutlook} disabled={$outlook.busy} on:click={() => setMailInOutlook(false)}>В JARVIS</button><button aria-pressed={$mailInOutlook} class:primary={$mailInOutlook} disabled={$outlook.busy || ($outlook.connected && $outlook.provider !== 'local')} on:click={() => setMailInOutlook(true)}>В окне Outlook</button></div>
         <p class="muted">Внешний режим работает с классическим Outlook / Kerio. JARVIS должен оставаться запущенным для распознавания голоса. Почтовый раздел приложения остаётся доступен.</p>
         <details class="setup kerio-guide"><summary>Запасной способ настройки профиля Outlook</summary><ol><li>Нажмите Win+R, введите <code>control mlcfg32.cpl</code> и нажмите Enter. Откроется окно «Почта» классического Outlook.</li><li>Нажмите «Показать профили → Добавить». Назовите профиль, например JARVIS-Test. Выберите ручную настройку и Kerio Connect; Connector должен соответствовать разрядности Outlook.</li><li>В Kerio укажите сервер, адрес ящика и пароль. Во вкладке «Сведения о сервере» включите SSL и правильный HTTPS-порт. Только для нашей локальной лаборатории: сервер <code>127.0.0.1</code>, порт <code>14443</code>. Для рабочей почты используйте параметры администратора.</li><li>Нажмите «Обнаружить», проверьте адрес, сохраните настройки. Выберите нужный профиль при запуске классического Outlook, дождитесь синхронизации и нажмите в JARVIS «Подключить открытый Outlook».</li><li>Если команда не открыла окно: «Панель управления → Почта (Microsoft Outlook)». Другой вариант для установленного Office — <code>control "C:\Program Files\Microsoft Office\root\Office16\MLCFG32.CPL"</code>; у 32-битного Office путь может начинаться с Program Files (x86). Новый Outlook с Kerio Connector не работает.</li></ol></details>
         {#if $mailInOutlook}<p class="muted">«Открой почту» · «Обнови письма» · «Напиши письмо» · «Отправь письмо». Перед отправкой открывается отдельный черновик Outlook. Правки после проверки блокируют отправку; отмена оставляет черновик в Outlook.</p>{/if}
-    </div>
+    </div>{/if}
     {#if !$outlook.connected}
         <div class="provider-options">
-        <section class="panel connect local-provider" aria-labelledby="local-provider-title">
+        {#if localSupported}<section class="panel connect local-provider" aria-labelledby="local-provider-title">
             <div class="provider-heading"><div class="provider-icon" aria-hidden="true">✉</div><span class="provider-badge">Локальное подключение</span></div>
             <p class="eyebrow">НА ЭТОМ КОМПЬЮТЕРЕ</p>
             <h3 id="local-provider-title">Классический Outlook / Kerio</h3>
@@ -70,7 +72,7 @@
             <button class="primary" on:click={() => run(connectLocal)} disabled={$outlook.busy || !!$outlook.code}>Подключить открытый Outlook</button>
             <small class="provider-footnote">Для текущего теста оставьте Outlook открытым с ящиком angel@jarvis.test.</small>
             <details class="setup kerio-guide"><summary>Как подключить Kerio — пошагово</summary><ol><li>Установите классический Outlook и Kerio Outlook Connector той же разрядности. Новый Outlook для этого режима не подходит.</li><li>Откройте «Панель управления → Почта → Показать профили → Добавить». Создайте отдельный профиль, затем выберите ручную настройку и службу Kerio Connect.</li><li>Укажите сервер, полный адрес ящика и его пароль. Для рабочей почты параметры выдаёт ваш администратор — не используйте адрес нашей лаборатории.</li><li>В «Сведения о сервере» включите SSL и укажите HTTPS-порт сервера. Для нашего локального теста: <code>127.0.0.1</code>, порт <code>14443</code>, ящик <code>angel@jarvis.test</code>. Исключение проверки доверенного сертификата допустимо только для этой локальной лаборатории, не для корпоративного сервера.</li><li>Нажмите «Обнаружить», проверьте имя и адрес → ОК. Запустите классический Outlook с выбранным профилем и дождитесь синхронизации.</li><li>Оставьте один аккаунт в открытом профиле и нажмите «Подключить открытый Outlook» здесь. Выберите «В JARVIS» или «В окне Outlook». Пароль JARVIS не нужен.</li></ol><p>При смене профиля подключитесь заново. Если Outlook показывает запрос безопасности, проверьте его вручную; JARVIS не отключает защиту. Не отправляйте реальные письма, пока не проверите тестовый ящик.</p></details>
-        </section>
+        </section>{/if}
         <section class="panel connect cloud-provider" aria-labelledby="cloud-provider-title">
             <div class="provider-heading"><div class="provider-icon" aria-hidden="true">☁</div><span class="provider-badge experimental">Экспериментально</span></div>
             <p class="eyebrow">ЧЕРЕЗ MICROSOFT GRAPH</p>

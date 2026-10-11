@@ -8,10 +8,10 @@ const ts=require('typescript'),{compile,preprocess}=require('svelte/compiler')
 function load(filename,source,stubs){const mod=new Module(filename,module);mod.filename=filename;mod.paths=module.paths;mod.require=name=>stubs[name]||require(name);mod._compile(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);return mod.exports}
 async function main(){
     const svelte=await import('svelte'),store=await import('svelte/store'),calls=[],opened=[]
-    let connected=false
+    let connected=false,localSupported=true
     const invoke=async(command,args)=>{
         assert.equal(command,'outlook_request');calls.push(args)
-        if(args.action==='status')return {connected,pending:false,account:connected?{email:'me@example.com'}:{}}
+        if(args.action==='status')return {connected,pending:false,localSupported,account:connected?{email:'me@example.com'}:{}}
         if(args.action==='connect')return {code:'ABCD1234',interval:60}
         if(args.action==='connect_local'){connected=true;return {connected:true,provider:'local',account:{email:'angel@jarvis.test'}}}
         if(args.action==='inbox')return {messages:[],hasMore:false}
@@ -25,7 +25,7 @@ async function main(){
     const compiled=compile(processed.code,{filename,generate:'dom',css:'external'})
     const Component=load(filename,compiled.js.code,{svelte,'@/lib/outlook':mail,'@tauri-apps/plugin-shell':{open:async url=>opened.push(url)}}).default
     const user=userEvent.setup({document}),component=new Component({target:document.body})
-    assert.ok(screen.getByRole('region',{name:'Классический Outlook / Kerio'}))
+    assert.ok(await screen.findByRole('region',{name:'Классический Outlook / Kerio'}))
     assert.ok(screen.getByRole('region',{name:'Microsoft 365 / Outlook.com'}))
     assert.ok(screen.getByText('Экспериментально'))
     assert.ok(screen.getByText(/не проверено на реальном аккаунте/))
@@ -77,6 +77,14 @@ async function main(){
     await screen.findByText(/Outlook принял письмо к отправке/)
     assert.equal(calls.filter(c=>c.action==='send').length,2)
     local.$destroy()
+    connected=false;localSupported=false;mail.setMailStatus({connected:false});mail.setMailInOutlook(true)
+    const unix=new Component({target:document.body})
+    await screen.findByText(/Подключение Kerio доступно только в Windows/)
+    await waitFor(()=>assert.equal(store.get(mail.mailInOutlook),false))
+    assert.equal(screen.queryByRole('button',{name:'Подключить открытый Outlook'}),null)
+    assert.equal(screen.queryByRole('button',{name:'В окне Outlook'}),null)
+    assert.ok(screen.getByRole('region',{name:'Microsoft 365 / Outlook.com'}))
+    unix.$destroy()
     console.log('Outlook UI: registration, login code, system browser, safe plain-text reading, exact confirmation, edit cancellation and one send passed')
 }
 main().then(()=>process.exit(0)).catch(error=>{console.error(error);process.exit(1)})

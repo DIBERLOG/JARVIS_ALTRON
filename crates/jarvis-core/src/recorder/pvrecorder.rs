@@ -5,13 +5,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static RECORDER: OnceCell<PvRecorder> = OnceCell::new();
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 
+fn builder(frame_length: i32) -> PvRecorderBuilder {
+    let name = if cfg!(windows) { "libpv_recorder.dll" }
+        else if cfg!(target_os = "macos") { "libpv_recorder.dylib" } else { "libpv_recorder.so" };
+    let library = crate::APP_DIR.join(name);
+    let builder = PvRecorderBuilder::new(frame_length);
+    // Installed copies must not depend on the original Cargo OUT_DIR.
+    if library.is_file() { builder.library_path(&library) } else { builder }
+}
+
 pub fn init_microphone(device_index: i32, frame_length: u32) -> bool {
     if RECORDER.get().is_some() {
         return true; // already initialized
     }
     
     // initialize
-    let pv_recorder = PvRecorderBuilder::new(frame_length as i32)
+    let pv_recorder = builder(frame_length as i32)
         .device_index(device_index)
         // .frame_length(frame_length as i32)
         .init();
@@ -54,7 +63,7 @@ pub fn read_microphone(frame_buffer: &mut [i16]) {
 
 pub fn start_recording(device_index: i32, frame_length: u32) -> Result<(), ()> {
     // ensure microphone is initialized
-    init_microphone(device_index, frame_length);
+    if !init_microphone(device_index, frame_length) { return Err(()); }
 
     // start recording
     match RECORDER.get().unwrap().start() {
@@ -103,7 +112,7 @@ pub fn stop_recording() -> Result<(), ()> {
 }
 
 pub fn list_audio_devices() -> Vec<String> {
-    let audio_devices = PvRecorderBuilder::default().get_available_devices();
+    let audio_devices = builder(512).get_available_devices();
     match audio_devices {
         Ok(audio_devices) => audio_devices,
         Err(err) => {

@@ -1,0 +1,17 @@
+{
+  "bundle": {
+    "targets": ["deb", "appimage"],
+    "externalBin": ["../../target/release/jarvis-app"],
+    "resources": {
+      "../../target/release/libvosk.so": "libvosk.so",
+      "../../target/release/libpv_recorder.so": "libpv_recorder.so",
+      "../../LICENSE.txt": "LICENSE.txt",
+      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../../third_party/licenses": "third_party/licenses"
+    },
+    "linux": {
+      "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libasound2", "espeak-ng", "xdg-utils"] },
+      "appimage": { "bundleMediaFramework": true }
+    }
+  }
+}

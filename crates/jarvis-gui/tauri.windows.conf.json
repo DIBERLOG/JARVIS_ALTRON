@@ -2,6 +2,8 @@
   "bundle": {
     "targets": ["nsis"],
     "resources": {
+      "../../resources/tts/Speak.exe": "resources/tts/Speak.exe",
+      "../../resources/tts/Speak.ahk": "resources/tts/Speak.ahk",
       "../../target/release/jarvis-app.exe": "jarvis-app.exe",
       "../../target/release/DirectML.dll": "DirectML.dll",
       "../../target/release/msvcp140.dll": "msvcp140.dll",

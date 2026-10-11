@@ -60,7 +60,7 @@ fn client() -> Result<Client, String> {
 }
 fn public_status(s: &Session) -> Value {
     json!({"connected": s.local || !s.access.is_empty(), "account": s.account, "provider": if s.local {"local"} else {"graph"},
-        "pending": !s.device.is_empty(), "sessionOnly": !s.local})
+        "pending": !s.device.is_empty(), "sessionOnly": !s.local, "localSupported": cfg!(windows)})
 }
 fn field<'a>(v: &'a Value, name: &str) -> &'a str { v[name].as_str().unwrap_or("") }
 fn valid_client_id(value: &str) -> bool {
@@ -176,11 +176,11 @@ fn request(action: &str, data: Value) -> Result<Value, String> {
     // Serialisation also prevents logout/refresh races and duplicate confirmation consumption.
     let mut s = SESSION.lock();
     if !s.initialized {
-        if let Ok(path)=binding_path() {
+        if cfg!(windows) { if let Ok(path)=binding_path() {
             if let Ok(raw)=std::fs::read_to_string(path) {
                 if let Ok(value)=serde_json::from_str::<Value>(&raw) { restore_binding(&mut s,&value); }
             }
-        }
+        } }
         s.initialized=true;
     }
     if action == "status" { return Ok(public_status(&s)); }

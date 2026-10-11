@@ -89,13 +89,10 @@ pub fn register(lua: &Lua, jarvis: &Table, sandbox: SandboxLevel) -> mlua::Resul
         
         #[cfg(target_os = "macos")]
         {
-            let script = format!(
-                r#"display notification "{}" with title "{}""#,
-                message.replace("\"", "\\\""),
-                title.replace("\"", "\\\"")
-            );
+            // Data is passed as argv, never interpolated into AppleScript source.
+            let script = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run";
             let _ = Command::new("osascript")
-                .args(["-e", &script])
+                .args(["-e", script, &title, &message])
                 .spawn();
         }
         
@@ -120,15 +117,12 @@ pub fn register(lua: &Lua, jarvis: &Table, sandbox: SandboxLevel) -> mlua::Resul
         
         #[cfg(target_os = "linux")]
         {
-            let output = Command::new("xclip")
-                .args(["-selection", "clipboard", "-o"])
+            let (program, arguments) = crate::platform::linux_clipboard_command(false, std::env::var_os("WAYLAND_DISPLAY").is_some());
+            let output = Command::new(program)
+                .args(arguments)
                 .output()
-                .or_else(|_| {
-                    Command::new("xsel")
-                        .args(["--clipboard", "--output"])
-                        .output()
-                })
                 .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+            if !output.status.success() { return Err(mlua::Error::runtime("Не удалось прочитать буфер обмена: проверьте wl-clipboard (Wayland) или xclip/xsel (X11).")); }
             
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
         }
@@ -164,21 +158,20 @@ pub fn register(lua: &Lua, jarvis: &Table, sandbox: SandboxLevel) -> mlua::Resul
             #[cfg(target_os = "linux")]
             {
                 use std::io::Write;
-                let mut child = Command::new("xclip")
-                    .args(["-selection", "clipboard"])
+                let (program, arguments) = crate::platform::linux_clipboard_command(true, std::env::var_os("WAYLAND_DISPLAY").is_some());
+                let mut child = Command::new(program)
+                    .args(arguments)
                     .stdin(std::process::Stdio::piped())
                     .spawn()
-                    .or_else(|_| {
-                        Command::new("xsel")
-                            .args(["--clipboard", "--input"])
-                            .stdin(std::process::Stdio::piped())
-                            .spawn()
-                    })
                     .map_err(|e| mlua::Error::runtime(e.to_string()))?;
                 
                 if let Some(stdin) = child.stdin.as_mut() {
                     stdin.write_all(text.as_bytes())
                         .map_err(|e| mlua::Error::runtime(e.to_string()))?;
+                }
+                drop(child.stdin.take());
+                if !child.wait().map_err(|e| mlua::Error::runtime(e.to_string()))?.success() {
+                    return Err(mlua::Error::runtime("Не удалось записать буфер обмена: проверьте wl-clipboard (Wayland) или xclip/xsel (X11)."));
                 }
             }
             

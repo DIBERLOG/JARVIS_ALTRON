@@ -1,0 +1,71 @@
+name: Linux and macOS packages (experimental)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'reimplementation/**'
+      - 'frontend/**'
+      - 'tools/*desktop.sh'
+      - 'Cargo*'
+      - '.github/workflows/desktop-unix.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x64
+            vosk: '0.3.45'
+          - os: macos-15-intel
+            name: macos-intel
+            vosk: '0.3.42'
+          - os: macos-15
+            name: macos-apple-silicon
+            vosk: '0.3.42'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev librsvg2-dev libasound2-dev libgtk-3-dev libayatana-appindicator3-dev patchelf espeak-ng xdg-utils libnotify-bin
+      - name: Rust and Vosk (native architecture)
+        shell: bash
+        run: |
+          rustup update stable
+          rustup default stable
+          python -m pip download --no-deps --only-binary=:all: 'vosk==${{ matrix.vosk }}' -d target/vosk-wheel
+          wheel=$(find target/vosk-wheel -name '*.whl' -print -quit)
+          python -m zipfile -e "$wheel" target/vosk-native
+          echo "VOSK_LIBRARY_DIR=$GITHUB_WORKSPACE/target/vosk-native/vosk" >> "$GITHUB_ENV"
+      - name: Package
+        shell: bash
+        run: bash tools/package-desktop.sh
+      - name: Core resource smoke test (not microphone test)
+        shell: bash
+        run: |
+          export JARVIS_RESOURCE_ROOT="$GITHUB_WORKSPACE"
+          export LD_LIBRARY_PATH="$VOSK_LIBRARY_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export DYLD_FALLBACK_LIBRARY_PATH="$VOSK_LIBRARY_DIR${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+          target/release/jarvis-app --release-smoke-test
+          cargo test --locked -p jarvis-core platform::tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-1.0.0-${{ matrix.name }}-experimental
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/dmg/*.dmg
+          if-no-files-found: error

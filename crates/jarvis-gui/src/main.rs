@@ -21,7 +21,8 @@ pub struct AppState {
 fn main() {
     if std::env::args().any(|arg| arg == "--release-smoke-test") {
         let root = &*jarvis_core::APP_DIR;
-        let core = root.join(if cfg!(windows) { "jarvis-app.exe" } else { "jarvis-app" });
+        let core = std::env::current_exe().expect("Executable path unavailable")
+            .with_file_name(if cfg!(windows) { "jarvis-app.exe" } else { "jarvis-app" });
         assert!(core.is_file() && root.join("resources/commands").is_dir(), "Incomplete release package");
         return;
     }

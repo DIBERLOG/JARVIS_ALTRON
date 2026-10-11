@@ -39,8 +39,6 @@
     "resources": {
       "../../resources/commands": "resources/commands",
       "../../resources/sound": "resources/sound",
-      "../../resources/tts/Speak.exe": "resources/tts/Speak.exe",
-      "../../resources/tts/Speak.ahk": "resources/tts/Speak.ahk",
       "../../resources/tts/AudioOutput.py": "resources/tts/AudioOutput.py",
       "../../resources/tts/SileroSpeak.py": "resources/tts/SileroSpeak.py",
       "../../resources/tts/XttsSpeak.py": "resources/tts/XttsSpeak.py",

@@ -10,7 +10,7 @@ pub fn resource_root(executable: &Path, override_root: Option<PathBuf>) -> PathB
     if let Some(root) = override_root { return root; }
     let directory = executable.parent().unwrap_or(Path::new("."));
     let candidates = [directory.to_path_buf(), directory.join("../Resources"),
-        directory.join("../lib/jarvis"), directory.join("../share/jarvis")];
+        directory.join("../lib/jarvis-gui"), directory.join("../lib/jarvis"), directory.join("../share/jarvis")];
     candidates.into_iter().find(|root| root.join("resources").is_dir())
         .unwrap_or_else(|| directory.to_path_buf())
 }
@@ -26,17 +26,31 @@ pub fn unix_command(id: &str, arguments: &[String], mac: bool) -> Option<(String
     if let Some(url) = url {
         return Some((if mac { "open" } else { "xdg-open" }.into(), vec![url.into()]));
     }
-    let (application, linux) = match id {
-        "calculator_open" => ("Calculator", "gnome-calculator"),
-        "telegram_open" => ("Telegram", "telegram-desktop"),
-        "discord_open" => ("Discord", "discord"),
-        "vscode_open" => ("Visual Studio Code", "code"),
-        "game_mode" => ("Steam", "steam"),
+    let (application, linux): (&str, &[&str]) = match id {
+        "calculator_open" => ("Calculator", &["gnome-calculator", "kcalc", "galculator"]),
+        "telegram_open" => ("Telegram", &["telegram-desktop", "telegram"]),
+        "discord_open" => ("Discord", &["discord"]),
+        "vscode_open" => ("Visual Studio Code", &["code", "codium"]),
+        "game_mode" => ("Steam", &["steam"]),
         _ => return None,
     };
     let _ = arguments; // Windows executable arguments must never be reused on Unix.
     Some(if mac { ("open".into(), vec!["-a".into(), application.into()]) }
-        else { (linux.into(), vec![]) })
+        else { (linux.iter().find_map(|name| command_on_path(name)).map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| linux[0].into()), vec![]) })
+}
+
+/// Native clipboard tools: Wayland cannot use the X11 selection reliably.
+pub fn linux_clipboard_command(write: bool, wayland: bool) -> (String, Vec<String>) {
+    if wayland {
+        return (if write { "wl-copy" } else { "wl-paste" }.into(),
+            if write { vec![] } else { vec!["--no-newline".into()] });
+    }
+    if command_on_path("xclip").is_some() {
+        ("xclip".into(), vec!["-selection".into(), "clipboard".into(), if write { "-i" } else { "-o" }.into()])
+    } else {
+        ("xsel".into(), vec!["--clipboard".into(), if write { "--input" } else { "--output" }.into()])
+    }
 }
 
 pub fn system_speech(text: &str) -> Option<Command> {
@@ -63,7 +77,8 @@ mod tests {
     #[test]
     fn unix_launches_have_literal_arguments_and_no_windows_helpers() {
         assert_eq!(unix_command("vscode_open", &[], true), Some(("open".into(), vec!["-a".into(), "Visual Studio Code".into()])));
-        assert_eq!(unix_command("calculator_open", &[], false).unwrap().0, "gnome-calculator");
+        let calculator = unix_command("calculator_open", &[], false).unwrap().0;
+        assert!(["gnome-calculator", "kcalc", "galculator"].iter().any(|name| Path::new(&calculator).ends_with(name)));
         assert!(unix_command("computer_restart", &[], false).is_none());
         assert!(unix_command("browser_close", &[], true).is_none());
         assert_eq!(unix_command("open_youtube", &["& evil".into()], false).unwrap().1, ["https://www.youtube.com/"]);
@@ -75,5 +90,14 @@ mod tests {
         std::fs::create_dir_all(mac.join("Resources/resources")).unwrap();
         assert!(resource_root(&mac.join("MacOS/jarvis-gui"), None).ends_with("../Resources"));
         assert_eq!(resource_root(Path::new("/bin/jarvis"), Some(temp.path().into())), temp.path());
+        let linux = temp.path().join("AppDir/usr");
+        std::fs::create_dir_all(linux.join("lib/jarvis-gui/resources")).unwrap();
+        assert!(resource_root(&linux.join("bin/jarvis-gui"), None).ends_with("../lib/jarvis-gui"));
+        assert!(resource_root(&linux.join("bin/jarvis-app"), None).ends_with("../lib/jarvis-gui"));
+    }
+    #[test]
+    fn wayland_clipboard_uses_native_tools() {
+        assert_eq!(linux_clipboard_command(false, true), ("wl-paste".into(), vec!["--no-newline".into()]));
+        assert_eq!(linux_clipboard_command(true, true), ("wl-copy".into(), vec![]));
     }
 }

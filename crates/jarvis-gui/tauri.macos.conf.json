@@ -1,0 +1,17 @@
+{
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "externalBin": ["../../target/release/jarvis-app"],
+    "resources": {
+      "../../target/release/libpv_recorder.dylib": "libpv_recorder.dylib",
+      "../../LICENSE.txt": "LICENSE.txt",
+      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../../third_party/licenses": "third_party/licenses"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "frameworks": ["../../target/release/libvosk.dylib"],
+      "infoPlist": "Info.plist"
+    }
+  }
+}
