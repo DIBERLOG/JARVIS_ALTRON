@@ -1,6 +1,12 @@
 name: Linux and macOS packages (experimental)
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platforms to build
+        type: choice
+        default: all
+        options: [all, macos]
   pull_request:
     paths:
       - 'crates/**'
@@ -16,16 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-22.04
-            name: linux-x64
-            vosk: '0.3.45'
-          - os: macos-15-intel
-            name: macos-intel
-            vosk: '0.3.42'
-          - os: macos-15
-            name: macos-apple-silicon
-            vosk: '0.3.42'
+        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]' || '[{"os":"ubuntu-22.04","name":"linux-x64","vosk":"0.3.45"},{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
