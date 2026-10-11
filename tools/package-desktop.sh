@@ -38,7 +38,7 @@ case "$(uname -s)" in
 esac
 [[ -f "$VOSK_LIBRARY_DIR/$native" ]] || { echo "Missing $native for $host" >&2; exit 1; }
 # ort's bundled archive excludes Intel Macs; use Microsoft's matching native runtime.
-extra_config=()
+extra_config='{}'
 if [[ "$host" == x86_64-apple-darwin ]]; then
   runtime=onnxruntime-osx-x86_64-1.23.2
   mkdir -p target/onnxruntime target/release
@@ -50,7 +50,7 @@ if [[ "$host" == x86_64-apple-darwin ]]; then
   install_name_tool -id '@rpath/libonnxruntime.1.23.2.dylib' "$ORT_LIB_LOCATION/libonnxruntime.1.23.2.dylib"
   export DYLD_FALLBACK_LIBRARY_PATH="$ORT_LIB_LOCATION:$DYLD_FALLBACK_LIBRARY_PATH"
   cp -L "$ORT_LIB_LOCATION/libonnxruntime.1.23.2.dylib" target/release/libonnxruntime.1.23.2.dylib
-  extra_config=(--config '{"bundle":{"resources":{"../../target/onnxruntime/onnxruntime-osx-x86_64-1.23.2/LICENSE":"third_party/licenses/ONNX-Runtime-LICENSE.txt","../../target/onnxruntime/onnxruntime-osx-x86_64-1.23.2/ThirdPartyNotices.txt":"third_party/licenses/ONNX-Runtime-ThirdPartyNotices.txt"},"macOS":{"frameworks":["../../target/release/libvosk.dylib","../../target/release/libonnxruntime.1.23.2.dylib"]}}}')
+  extra_config='{"bundle":{"resources":{"../../target/onnxruntime/onnxruntime-osx-x86_64-1.23.2/LICENSE":"third_party/licenses/ONNX-Runtime-LICENSE.txt","../../target/onnxruntime/onnxruntime-osx-x86_64-1.23.2/ThirdPartyNotices.txt":"third_party/licenses/ONNX-Runtime-ThirdPartyNotices.txt"},"macOS":{"frameworks":["../../target/release/libvosk.dylib","../../target/release/libonnxruntime.1.23.2.dylib"]}}}'
 fi
 npm --prefix frontend ci
 cargo build --locked --release -p jarvis-app
@@ -73,5 +73,5 @@ if [[ "$native" == libvosk.dylib ]]; then
   install_name_tool -id '@rpath/libvosk.dylib' target/release/libvosk.dylib
 fi
 cd crates/jarvis-gui
-../../frontend/node_modules/.bin/tauri build --bundles "$bundles" "${extra_config[@]}"
+../../frontend/node_modules/.bin/tauri build --bundles "$bundles" --config "$extra_config"
 echo "Packages: $repo/target/release/bundle"
