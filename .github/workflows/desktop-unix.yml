@@ -27,6 +27,15 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: native-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/release/build
+          key: native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'tools/package-desktop.sh') }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -96,3 +105,12 @@ jobs:
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/dmg/*.dmg
           if-no-files-found: error
+      - uses: actions/cache/save@v4
+        if: always() && steps.native-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/release/deps
+            target/release/build
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}

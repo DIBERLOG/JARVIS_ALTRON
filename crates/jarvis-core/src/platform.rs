@@ -87,10 +87,12 @@ mod tests {
     fn bundled_and_explicit_resources_are_resolved() {
         let temp = tempfile::tempdir().unwrap();
         let mac = temp.path().join("JARVIS.app/Contents");
+        std::fs::create_dir_all(mac.join("MacOS")).unwrap();
         std::fs::create_dir_all(mac.join("Resources/resources")).unwrap();
         assert!(resource_root(&mac.join("MacOS/jarvis-gui"), None).ends_with("../Resources"));
         assert_eq!(resource_root(Path::new("/bin/jarvis"), Some(temp.path().into())), temp.path());
         let linux = temp.path().join("AppDir/usr");
+        std::fs::create_dir_all(linux.join("bin")).unwrap();
         std::fs::create_dir_all(linux.join("lib/jarvis-altron/resources")).unwrap();
         assert!(resource_root(&linux.join("bin/jarvis-gui"), None).ends_with("../lib/jarvis-altron"));
         assert!(resource_root(&linux.join("bin/jarvis-app"), None).ends_with("../lib/jarvis-altron"));
