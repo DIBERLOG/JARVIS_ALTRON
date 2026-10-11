@@ -1,0 +1,30 @@
+{
+  "bundle": {
+    "targets": ["nsis"],
+    "resources": {
+      "../../target/release/jarvis-app.exe": "jarvis-app.exe",
+      "../../target/release/DirectML.dll": "DirectML.dll",
+      "../../target/release/msvcp140.dll": "msvcp140.dll",
+      "../../target/release/msvcp140_1.dll": "msvcp140_1.dll",
+      "../../target/release/vcruntime140.dll": "vcruntime140.dll",
+      "../../target/release/vcruntime140_1.dll": "vcruntime140_1.dll",
+      "../../lib/windows/amd64/libvosk.dll": "libvosk.dll",
+      "../../lib/windows/amd64/libpv_recorder.dll": "libpv_recorder.dll",
+      "../../lib/windows/amd64/libpv_porcupine.dll": "libpv_porcupine.dll",
+      "../../lib/windows/amd64/libgcc_s_seh-1.dll": "libgcc_s_seh-1.dll",
+      "../../lib/windows/amd64/libstdc++-6.dll": "libstdc++-6.dll",
+      "../../lib/windows/amd64/libwinpthread-1.dll": "libwinpthread-1.dll",
+      "../../LICENSE.txt": "LICENSE.txt",
+      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../../third_party/licenses": "third_party/licenses"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Russian", "English"],
+        "displayLanguageSelector": true
+      }
+    }
+  }
+}

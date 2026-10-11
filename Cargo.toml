@@ -9,7 +9,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.9.0"
+version = "1.0.0"
 authors = ["Егор Ангелов (DIBERLOG) — автор доработок", "Abraham Tugalov — автор исходного проекта"]
 license-file = "LICENSE.txt"
 repository = "https://github.com/DIBERLOG/JARVIS_ALTRON_CLEAN"

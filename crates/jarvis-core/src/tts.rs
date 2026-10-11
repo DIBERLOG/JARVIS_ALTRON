@@ -312,6 +312,7 @@ fn speaker_command(text: &str) -> Option<Command> {
         return Some(command);
     }
 
+    if !cfg!(windows) { return crate::platform::system_speech(text); }
     let speaker = APP_DIR.join("resources").join("tts").join("Speak.exe");
     if !speaker.exists() {
         return None;
@@ -342,12 +343,20 @@ pub fn mode_status() -> (String, bool) {
     } else {
         silero_speaker_command(&tts_dir, "check").is_some()
     };
+    if !available {
+        let system_ready = if cfg!(windows) { tts_dir.join("Speak.exe").is_file() }
+            else { crate::platform::system_speech("check").is_some() };
+        return ("system".into(), system_ready);
+    }
     (mode, available)
 }
 
 fn training_python() -> Option<PathBuf> {
+    if let Some(python) = std::env::var_os("JARVIS_TTS_PYTHON").map(PathBuf::from).filter(|path| path.is_file()) {
+        return Some(python);
+    }
     let workspace = APP_DIR.parent()?.parent()?;
-    let python = workspace.join("tools").join("voice_training").join(".venv").join("Scripts").join("python.exe");
+    let python = workspace.join("tools/voice_training/.venv").join(if cfg!(windows) { "Scripts/python.exe" } else { "bin/python" });
     python.is_file().then_some(python)
 }
 
@@ -378,6 +387,7 @@ fn xtts_speaker_command(tts_dir: &std::path::Path, text: &str) -> Option<Command
 }
 
 fn s2_speaker_command(tts_dir: &std::path::Path, text: &str) -> Option<Command> {
+    if !cfg!(windows) { return None; }
     let python = training_python()?;
     let script = tts_dir.join("S2Speak.py");
     let workspace = APP_DIR.parent()?.parent()?;

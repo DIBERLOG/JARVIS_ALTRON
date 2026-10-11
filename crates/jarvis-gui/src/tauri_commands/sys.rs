@@ -6,6 +6,17 @@ use std::time::Duration;
 use serde::Serialize;
 use crate::AppState;
 
+static OWNED_CORE: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
+pub fn stop_owned_jarvis_app() {
+    if let Ok(mut owned) = OWNED_CORE.lock() {
+        if let Some(mut child) = owned.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn get_jarvis_terminal_log() -> Result<String,String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -172,6 +183,7 @@ pub fn get_peak_ram_usage() -> String {
 
 #[tauri::command]
 pub fn run_jarvis_app() -> Result<(), String> {
+    let mut owned = OWNED_CORE.lock().map_err(|_| "Voice process ownership lock failed")?;
     let exe_dir = std::env::current_exe()
         .map_err(|e| format!("Failed to get exe path: {}", e))?
         .parent()
@@ -193,9 +205,16 @@ pub fn run_jarvis_app() -> Result<(), String> {
         return Ok(());
     }
     
-    std::process::Command::new(&jarvis_app_path)
-        .spawn()
+    let mut command = std::process::Command::new(&jarvis_app_path);
+    command.current_dir(&exe_dir);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let child = command.spawn()
         .map_err(|e| format!("Failed to start jarvis-app: {}", e))?;
+    *owned = Some(child);
     
     Ok(())
 }

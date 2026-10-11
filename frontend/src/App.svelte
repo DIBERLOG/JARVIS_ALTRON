@@ -8,6 +8,7 @@
     import JarvisNotification from "./components/JarvisNotification.svelte"
     import CenterReminderWatcher from "./components/CenterReminderWatcher.svelte"
     import CenterTimerWatcher from "./components/CenterTimerWatcher.svelte"
+    import ScheduleWebsiteDialog from './components/ScheduleWebsiteDialog.svelte'
     import { initListeningShortcut } from "./lib/listeningShortcut"
     let shortcutCleanup: (() => void) | undefined
     let destroyed = false
@@ -55,3 +56,4 @@
 <JarvisNotification />
 <CenterReminderWatcher />
 <CenterTimerWatcher />
+<ScheduleWebsiteDialog />

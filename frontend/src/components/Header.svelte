@@ -68,7 +68,7 @@
             </a>
             <div class="logo-text">
                 <span class="logo-title"><a href="/" id="jarvis-logo">&nbsp;</a></span>
-                <span class="logo-version"><small>v</small>{appVersion} <span class="v-badge" title="Пререлиз">Pre-release</span></span>
+                <span class="logo-version"><small>v</small>{appVersion} <span class="v-badge" title="Релиз">Release</span></span>
             </div>
         </div>
     </div>
@@ -86,6 +86,7 @@
         <button class="header-btn" on:click={() => $goto('/chat')}>
             <span class="btn-text">ЧАТ</span>
         </button>
+        <button class="header-btn agents-nav" on:click={() => $goto('/agents')} title="Тестовые офисные помощники">АГЕНТЫ · LAB</button>
         
         <button class="header-btn" on:click={() => $goto('/settings')}>
             <span class="btn-text">{t('header-settings')}</span>
@@ -115,6 +116,11 @@
 </header>
 
 <style lang="scss">
+    .header-left { flex-shrink: 0; }
+    .logo-version { white-space: nowrap; }
+    .v-badge { white-space: nowrap; }
+    .header-right { flex-wrap: wrap; justify-content: flex-end; }
+    .agents-nav { color: #91e8df; border-color: #356466; }
     .mic-toggle {display:flex;align-items:center;gap:.4rem;padding:.4rem .52rem;border:1px solid rgba(82,254,254,.45);border-radius:6px;background:rgba(22,74,78,.28);color:#c8ffff;font-size:.65rem;font-weight:700;letter-spacing:.04em;white-space:nowrap;cursor:pointer;transition:background .2s,border-color .2s}
     .mic-toggle:hover:not(:disabled) {background:rgba(27,105,110,.48)}
     .mic-toggle.muted {border-color:#e48787;background:rgba(116,37,43,.35);color:#ffd8d8}

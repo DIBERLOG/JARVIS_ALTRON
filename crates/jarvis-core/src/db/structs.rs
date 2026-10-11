@@ -40,6 +40,12 @@ pub struct Settings {
     pub local_chat_model: String,
     #[serde(default = "default_deepseek_chat_model")]
     pub deepseek_chat_model: String,
+    #[serde(default = "default_openai_chat_model")]
+    pub openai_chat_model: String,
+    #[serde(default)]
+    pub chat_history: String,
+    #[serde(default)]
+    pub schedule_website: String,
     #[serde(default = "default_chat_speak_responses")]
     pub chat_speak_responses: bool,
     #[serde(default = "default_tts_mode")]
@@ -69,6 +75,7 @@ fn default_language() -> String { crate::i18n::detect_system_language().to_strin
 fn default_chat_provider() -> String { "local".to_string() }
 fn default_local_chat_model() -> String { "qwen3:8b".to_string() }
 fn default_deepseek_chat_model() -> String { "deepseek-flash".to_string() }
+fn default_openai_chat_model() -> String { "gpt-4.1-mini".to_string() }
 fn default_chat_speak_responses() -> bool { true }
 fn default_tts_mode() -> String { "xtts".to_string() }
 fn default_audio_output_mode() -> String { "direct".to_string() }
@@ -97,6 +104,9 @@ impl Settings {
             "chat_provider"             => Some(self.chat_provider.clone()),
             "local_chat_model"          => Some(self.local_chat_model.clone()),
             "deepseek_chat_model"       => Some(self.deepseek_chat_model.clone()),
+            "openai_chat_model"         => Some(self.openai_chat_model.clone()),
+            "chat_history_v1"           => Some(self.chat_history.clone()),
+            "schedule_website"          => Some(self.schedule_website.clone()),
             "chat_speak_responses"      => Some(self.chat_speak_responses.to_string()),
             "tts_mode"                  => Some(self.tts_mode.clone()),
             "audio_output_mode"         => Some(self.audio_output_mode.clone()),
@@ -169,11 +179,32 @@ impl Settings {
                 self.language = val.to_string();
             }
             "chat_provider" => {
-                if val != "local" && val != "deepseek" { return Err("chat provider must be 'local' or 'deepseek'".into()); }
+                if !matches!(val, "local" | "deepseek" | "openai") { return Err("unsupported chat provider".into()); }
                 self.chat_provider = val.to_string();
             }
             "local_chat_model" => self.local_chat_model = val.to_string(),
             "deepseek_chat_model" => self.deepseek_chat_model = val.to_string(),
+            "openai_chat_model" => {
+                if val.trim().is_empty() || val.len() > 200 { return Err("Укажите модель OpenAI".into()); }
+                self.openai_chat_model = val.trim().to_string();
+            },
+            "schedule_website" => {
+                let raw=val.trim();
+                if !raw.is_empty() {
+                    if raw.len()>4096 { return Err("Ссылка слишком длинная".into()); }
+                    let url=url::Url::parse(raw).map_err(|_| "Введите полную ссылку: https://example.com")?;
+                    if !matches!(url.scheme(),"http"|"https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() {
+                        return Err("Разрешены только ссылки http/https без логина и пароля в адресе".into());
+                    }
+                }
+                self.schedule_website=raw.into();
+            },
+            "chat_history_v1" => {
+                if val.len() > 20_000_000 { return Err("История чатов превышает 20 МБ".into()); }
+                let history: serde_json::Value = serde_json::from_str(val).map_err(|_| "Некорректная история чатов")?;
+                if !history.is_array() { return Err("История чатов должна быть списком".into()); }
+                self.chat_history = val.to_string();
+            },
             "chat_speak_responses" => self.chat_speak_responses = match val { "true" => true, "false" => false, _ => return Err("expected true or false".into()) },
             "tts_mode" => { if !matches!(val, "silero" | "xtts" | "s2") { return Err("tts mode must be silero, xtts or s2".into()) }; self.tts_mode = val.to_string(); }
             "monitor_self" => self.monitor_self = match val { "true" => true, "false" => false, _ => return Err("expected true or false".into()) },
@@ -228,6 +259,9 @@ impl Settings {
             "chat_provider",
             "local_chat_model",
             "deepseek_chat_model",
+            "openai_chat_model",
+            "chat_history_v1",
+            "schedule_website",
             "chat_speak_responses",
             "tts_mode",
             "audio_output_mode",
@@ -270,6 +304,9 @@ impl Default for Settings {
             chat_provider: default_chat_provider(),
             local_chat_model: default_local_chat_model(),
             deepseek_chat_model: default_deepseek_chat_model(),
+            openai_chat_model: default_openai_chat_model(),
+            chat_history: String::new(),
+            schedule_website: String::new(),
             chat_speak_responses: default_chat_speak_responses(),
             tts_mode: default_tts_mode(),
             audio_output_mode: default_audio_output_mode(),
@@ -299,6 +336,31 @@ pub struct ApiKeys {
 
 #[cfg(test)]
 mod tts_mode_tests {
+    #[test]
+    fn schedule_website_accepts_only_web_links_and_can_be_cleared() {
+        let mut settings=Settings::default();
+        assert_eq!(settings.get("schedule_website").as_deref(),Some(""));
+        settings.set("schedule_website","https://example.com/calendar?a=1&b=2").unwrap();
+        for bad in ["javascript:alert(1)","file:///C:/test","https://user:password@example.com","not a link"] {
+            assert!(settings.set("schedule_website",bad).is_err());
+        }
+        assert_eq!(settings.schedule_website,"https://example.com/calendar?a=1&b=2");
+        settings.set("schedule_website","").unwrap();
+        assert!(settings.schedule_website.is_empty());
+    }
+    #[test]
+    fn openai_settings_and_history_migrate_without_losing_existing_data() {
+        let mut value=serde_json::to_value(Settings::default()).unwrap();
+        for key in ["openai_chat_model","chat_history"] { value.as_object_mut().unwrap().remove(key); }
+        let mut settings:Settings=serde_json::from_value(value).unwrap();
+        assert_eq!(settings.openai_chat_model,"gpt-4.1-mini");
+        assert_eq!(settings.chat_history,"");
+        settings.set("chat_provider","openai").unwrap();
+        settings.set("chat_history_v1","[]").unwrap();
+        assert!(settings.set("chat_history_v1","{}").is_err());
+        assert!(settings.set("chat_provider","unknown").is_err());
+        assert!(settings.set("openai_chat_model","").is_err());
+    }
     use super::Settings;
 
     #[test]

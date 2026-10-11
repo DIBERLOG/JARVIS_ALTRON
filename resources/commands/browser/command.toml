@@ -53,10 +53,8 @@ phrases.ru = ["открой чат гпт", "открой chatgpt", "запус�
 
 [[commands]]
 id = "open_schedule"
-type = "ahk"
-description = "Открыть учебное расписание"
-exe_path = "ahk/Run website.exe"
-exe_args = ["https://kmpo.eljur.ru/journal-app/u.84286/week.0?user=Diberlog&domain=kmpo"]
+type = "center"
+description = "Открыть свой сайт расписания; ссылку можно задать в настройках или окне команды"
 sounds.ru = ["ok1", "ok2", "ok3"]
 phrases.ru = ["открой расписание", "покажи расписание", "расписание"]
 

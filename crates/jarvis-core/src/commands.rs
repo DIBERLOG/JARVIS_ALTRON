@@ -26,7 +26,7 @@ pub fn parse_commands() -> Result<Vec<JCommandsList>, String> {
     for warning in loaded.warnings {
         warn!("ALTRON command catalog: {warning}");
     }
-    let packs: Vec<_> = loaded
+    let mut packs: Vec<_> = loaded
         .packs
         .into_iter()
         .map(|pack| JCommandsList {
@@ -34,8 +34,29 @@ pub fn parse_commands() -> Result<Vec<JCommandsList>, String> {
             commands: pack.definitions,
         })
         .collect();
+    adapt_catalog(&mut packs);
     debug!("ALTRON kernel: loaded {} command packs", packs.len());
     Ok(packs)
+}
+
+fn adapt_catalog(packs: &mut Vec<JCommandsList>) {
+    if cfg!(windows) { return; }
+    for pack in packs.iter_mut() {
+        pack.commands.retain_mut(|command| {
+            if let Some((program, arguments)) = crate::platform::unix_command(&command.id, &command.exe_args, cfg!(target_os = "macos")) {
+                command.cmd_type = "cli".into();
+                command.cli_cmd = program;
+                command.cli_args = arguments;
+                return true;
+            }
+            let supported = !matches!(command.cmd_type.as_str(), "ahk" | "restart")
+                && !matches!(command.cli_cmd.to_ascii_lowercase().as_str(), "calc" | "taskkill" | "cmd" | "powershell.exe" | "powershell" | "shutdown")
+                && !command.cli_cmd.to_ascii_lowercase().ends_with(".exe");
+            if !supported { debug!("Command {} is Windows-only; hidden on this platform", command.id); }
+            supported
+        });
+    }
+    packs.retain(|pack| !pack.commands.is_empty());
 }
 
 /// Retain the existing model-cache fingerprint during the migration.

@@ -65,6 +65,15 @@ export async function saveMailDraft() {
         update({ notice: 'Черновик сохранён в Outlook. Письмо не отправлено.' })
     })
 }
+export async function openMailDraft() {
+    if (!get(outlook).connected || get(outlook).provider !== 'local') {
+        throw new Error('Для открытия окна письма подключите классический Outlook. Черновик сохранён в JARVIS.')
+    }
+    await mailAction(() => outlookApi('open_classic'))
+    await prepareMail(true)
+    await cancelMailSend()
+    update({notice:'Черновик открыт в классическом Outlook. Письмо не отправлено; проверьте его в открытом окне.'})
+}
 export async function cancelMailSend() {
     update({ ticket: '', notice: 'Отправка отменена. Текст письма оставлен для редактирования.' })
     await outlookApi('cancel_send')

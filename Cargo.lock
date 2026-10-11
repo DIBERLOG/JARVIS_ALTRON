@@ -3146,7 +3146,7 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jarvis-app"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "glib 0.21.5",
  "gtk",
@@ -3164,7 +3164,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-cli"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "env_logger",
  "jarvis-core",
@@ -3175,7 +3175,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-core"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "altron-command-engine",
  "chrono",
@@ -3221,7 +3221,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-gui"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "hound",
@@ -3246,6 +3246,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-shell",
  "vosk",
+ "zip",
 ]
 
 [[package]]
@@ -8844,6 +8845,7 @@ dependencies = [
  "crc32fast",
  "crossbeam-utils",
  "displaydoc",
+ "flate2",
  "indexmap 2.13.0",
  "num_enum",
  "thiserror 1.0.69",

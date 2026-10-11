@@ -30,6 +30,13 @@ fn microphone_muted() -> bool {
 }
 
 fn main() -> Result<(), String> {
+    if std::env::args().any(|arg| arg == "--release-smoke-test") {
+        if !APP_DIR.join("resources/commands").is_dir() || models::vosk_models::scan_vosk_models().is_empty() {
+            return Err("Release resources or Vosk models are missing".into());
+        }
+        println!("JARVIS core {}: packaged resources OK", config::APP_VERSION.unwrap_or("unknown"));
+        return Ok(());
+    }
     // initialize directories
     config::init_dirs()?;
 

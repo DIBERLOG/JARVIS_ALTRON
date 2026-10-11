@@ -41,6 +41,12 @@ pub use voices::*;
 
 mod chat;
 pub use chat::*;
+mod agent_files;
+pub use agent_files::*;
+mod agent_export;
+pub use agent_export::*;
+mod agent_chains;
+pub use agent_chains::*;
 mod news;
 pub use news::*;
 mod weather;

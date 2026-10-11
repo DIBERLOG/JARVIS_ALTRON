@@ -12,6 +12,8 @@
     import Footer from "@/components/Footer.svelte"
     import ListeningShortcut from "@/components/ListeningShortcut.svelte"
     import CenterDataTransfer from '@/components/CenterDataTransfer.svelte'
+    import ChatProviderSettings from '@/components/ChatProviderSettings.svelte'
+    import ScheduleWebsite from '@/components/ScheduleWebsite.svelte'
 
     import {
         Notification,
@@ -91,7 +93,6 @@
     let audioOutputMode = "direct"
     let monitorSelf = false
     let apiKeyPicovoice = ""
-    let apiKeyOpenai = ""
 
     // subscribe to stores
     assistantVoice.subscribe(value => {
@@ -125,7 +126,6 @@
                 { key: "gain_normalizer", val: gainNormalizerEnabled.toString() },
                 { key: "voice_dialogue_personality", val: voiceDialoguePersonality },
                 { key: "api_key__picovoice", val: apiKeyPicovoice },
-                { key: "api_key__openai", val: apiKeyOpenai },
                 { key: "tts_mode", val: ttsMode },
                 { key: "audio_output_mode", val: audioOutputMode },
                 { key: "monitor_self", val: String(monitorSelf) }
@@ -198,7 +198,7 @@
             // load settings from db
             const [mic, wakeWord, intentReco, slotEngine, glinerModel, voskModel,
                    noiseSuppression, vad, gainNormalizer, dialoguePersonality, savedTtsMode, savedMonitorSelf,
-                   pico, openai] = await Promise.all([
+                   pico] = await Promise.all([
                 invoke<string>("db_read", { key: "selected_microphone" }),
                 invoke<string>("db_read", { key: "selected_wake_word_engine" }),
                 invoke<string>("db_read", { key: "intent_backend" }),
@@ -213,8 +213,7 @@
                 invoke<string>("db_read", { key: "tts_mode" }),
                 invoke<string>("db_read", { key: "monitor_self" }),
 
-                invoke<string>("db_read", { key: "api_key__picovoice" }),
-                invoke<string>("db_read", { key: "api_key__openai" })
+                invoke<string>("db_read", { key: "api_key__picovoice" })
             ])
 
             selectedMicrophone = mic
@@ -231,7 +230,6 @@
             monitorSelf = savedMonitorSelf === "true"
             audioOutputMode = await invoke<string>("db_read", { key: "audio_output_mode" }) === "voicemod" ? "voicemod" : "direct"
             apiKeyPicovoice = pico
-            apiKeyOpenai = openai
         } catch (err) {
             console.error("failed to load settings:", err)
         }
@@ -240,6 +238,7 @@
 
 <Space h="xl" />
 
+<header class="settings-heading"><p>КОНТРОЛЬНЫЙ ЦЕНТР</p><h1>Настройки</h1><span>Слушание, голос, модели и перенос данных — каждый в своём разделе.</span></header>
 <Notification
     title={t('settings-beta-title')}
     icon={QuestionMarkCircled}
@@ -278,8 +277,8 @@
     <Space h="xl" />
 {/if}
 
-<Tabs class="form" color="#8AC832" position="left">
-    <Tabs.Tab label={t('settings-general')} icon={Gear}>
+<Tabs class="form" color="#52fefe" position="left">
+    <Tabs.Tab label="Слушание и диалог" icon={Gear}>
         <Space h="sm" />
         <section class="global-listening" class:muted={$microphoneMuted} aria-label="Глобальное прослушивание микрофона">
             <div><p class="module-label">МИКРОФОН JARVIS</p><h3>{$microphoneMuted ? "Прослушивание на паузе" : "JARVIS слушает"}</h3><p>Выключает распознавание слова «Джарвис» и голосовых команд. Текстовый чат продолжает работать.</p></div>
@@ -302,6 +301,8 @@
             </div>
         </section>
         <Space h="xl" />
+    </Tabs.Tab>
+    <Tabs.Tab label="Голос и звук" icon={Mix}>
         <section class="tts-mode" aria-labelledby="tts-mode-title">
             <p class="module-label">ОЗВУЧКА ОТВЕТОВ</p>
             <h3 id="tts-mode-title">Как будет говорить ассистент</h3>
@@ -367,7 +368,7 @@
         </div>
     </Tabs.Tab>
 
-    <Tabs.Tab label={t('settings-devices')} icon={Mix}>
+    <Tabs.Tab label="Микрофон" icon={Mix}>
         <Space h="sm" />
         <NativeSelect
             data={availableMicrophones}
@@ -378,7 +379,7 @@
         />
     </Tabs.Tab>
 
-    <Tabs.Tab label={t('settings-neural-networks')} icon={Cube}>
+    <Tabs.Tab label="Распознавание речи" icon={Cube}>
         <Space h="sm" />
         <NativeSelect
             data={[
@@ -532,26 +533,22 @@
 
         <Space h="xl" />
 
-        <InputWrapper label={t('settings-openai-key')}>
-            <Text size="sm" color="gray">
-                {t('settings-openai-not-supported')}
-            </Text>
-            <Space h="sm" />
-            <Input
-                icon={Code}
-                placeholder={t('settings-openai-key')}
-                variant="filled"
-                autocomplete="off"
-                bind:value={apiKeyOpenai}
-                disabled
-            />
-        </InputWrapper>
+    </Tabs.Tab>
+    <Tabs.Tab label="Модели и ответы" icon={Cube}>
+        <ChatProviderSettings />
+    </Tabs.Tab>
+    <Tabs.Tab label="Данные и резервные копии" icon={Gear}>
+        <CenterDataTransfer />
+        <p class="settings-hint">История бесед экспортируется отдельно: «Чат → Экспорт текущего чата / Экспорт всех чатов».</p>
+    </Tabs.Tab>
+    <Tabs.Tab label="Сайты и команды" icon={Gear}>
+        <ScheduleWebsite />
     </Tabs.Tab>
 </Tabs>
-<CenterDataTransfer />
 
 <Space h="xl" />
 
+<p class="settings-hint">Кнопка ниже сохраняет слушание, голос и распознавание. В разделе «Модели и ответы» и при переносе данных используются отдельные кнопки.</p>
 <Button
     color="lime"
     radius="md"
@@ -582,6 +579,7 @@
 <Footer showOriginal={true} />
 
 <style lang="scss">
+.settings-heading{font-family:'Manrope Variable',sans-serif;margin-bottom:1.4rem;color:#eaf8fa}.settings-heading p{font-size:.7rem;letter-spacing:.16em;color:#52fefe}.settings-heading h1{margin:.3rem 0;font-size:1.8rem}.settings-heading span,.settings-hint{color:#96b5bc;line-height:1.6;font-size:.85rem}
 .dialogue-personality {
     --persona-line: rgba(82, 254, 254, .38);
     --persona-glow: rgba(82, 254, 254, .12);

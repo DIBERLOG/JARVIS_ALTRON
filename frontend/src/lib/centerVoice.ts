@@ -55,6 +55,7 @@ async function save(data: CenterData) { await saveCenterData(data); centerRevisi
 export async function handleCenterVoice(raw: string) {
     const text = clean(raw)
     if (/^(отмена|отмени|отменить|не надо|не нужно|нет|не сохраняй|передумал)$/.test(text)) {pending = null; resetMailVoice(); reply('Действие отменено, сэр.','action_cancelled'); return}
+    if(!pending && /^(открой расписание|покажи расписание|расписание)$/.test(text)) {window.dispatchEvent(new CustomEvent('jarvis-schedule-open'));reply('Открываю ваш сайт или окно настройки расписания, сэр.');return}
     if (!pending && await handleMailVoice(raw, { navigate: navigateCenter, reply, number: spokenNumber })) return
     if (pending) {
         const step = pending

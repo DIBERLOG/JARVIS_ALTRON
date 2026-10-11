@@ -94,7 +94,7 @@ pub async fn center_get_weather(city: Option<String>, days: Option<usize>) -> Re
     let city = city.filter(|value| !value.trim().is_empty()).unwrap_or_else(jarvis_core::weather_city::get);
     let city = city.trim();
     if city.chars().count() > 100 { return Err("Название города слишком длинное".into()); }
-    let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(4)).timeout(Duration::from_secs(8)).build()
+    let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(12)).timeout(Duration::from_secs(25)).build()
         .map_err(|_| "Не удалось подключиться к погодному сервису. Попробуйте позже.".to_string())?;
     let mut geo_url = reqwest::Url::parse("https://geocoding-api.open-meteo.com/v1/search").map_err(|e| e.to_string())?;
     geo_url.query_pairs_mut().extend_pairs([("name", city), ("count", "1"), ("language", "ru"), ("format", "json")]);

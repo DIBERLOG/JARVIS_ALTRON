@@ -207,7 +207,7 @@
                     <div class="command-number" aria-hidden="true">{view === "tiles" ? categoryFor(command).icon : String(index + 1).padStart(2, "0")}</div>
                     <div class="command-main">
                         <div class="command-meta">
-                            <h2>{command.id === 'outlook_compose' ? 'Написать письмо' : command.id.replaceAll("_", " ")}</h2>
+                            <h2>{command.id === 'outlook_compose' ? 'Написать письмо' : command.id === 'open_schedule' ? 'Открыть расписание' : command.id.replaceAll("_", " ")}</h2>
                             <span class="command-type">{categoryFor(command).label}</span>
                         </div>
                         {#if command.description}
@@ -236,6 +236,7 @@
                                 <small>Адрес test@jarvis.test работает только в нашей локальной лаборатории. Для обычного письма укажите настоящий адрес. После неизвестного результата отправки проверьте «Отправленные» перед повтором.</small>
                             </details>
                         {/if}
+                        {#if command.id === 'open_schedule'}<button type="button" on:click={()=>window.dispatchEvent(new CustomEvent('jarvis-schedule-open',{detail:{configure:true}}))}>Настроить ссылку на расписание</button>{/if}
                     </div>
                 </article>
             {/each}

@@ -532,6 +532,7 @@ pub fn center_reply(text: String, reply_id: String, follow_up: bool) {
     if !timer_warning { CHAIN_LISTENING.store(follow_up, Ordering::SeqCst); }
 }
 fn center_phrase(text: &str) -> bool {
+    if ["открой расписание", "покажи расписание", "расписание"].contains(&text) { return true; }
     if text.starts_with("напомни") || (text.contains("напоминан") && ["измен", "редакт", "перенес"].iter().any(|word|text.contains(word))) { return true; }
     if ["почт", "письм", "outlook", "аутлук"].iter().any(|word| text.contains(word))
         && ["откр", "покаж", "обнов", "проверь", "прочит", "напиш", "напис", "созда", "состав", "подготов", "отправ", "ответ", "сохран", "продолж", "непрочитан"].iter().any(|word| text.contains(word)) { return true; }

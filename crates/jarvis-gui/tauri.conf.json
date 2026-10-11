@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "jarvis-app",
-  "version": "0.9.0",
+  "productName": "JARVIS ALTRON",
+  "version": "1.0.0",
   "identifier": "com.priler.jarvis",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "../../frontend" },
     "devUrl": "http://localhost:1420",
     "frontendDist": "../../frontend/dist/client"
   },
@@ -20,7 +20,7 @@
         "resizable": false,
         "visible": false,
         "title": "Jarvis Voice Assistant",
-        "width": 860,
+        "width": 1040,
         "height": 800,
         "theme": "Dark"
       }
@@ -39,7 +39,12 @@
     "resources": {
       "../../resources/commands": "resources/commands",
       "../../resources/sound": "resources/sound",
-      "../../resources/tts": "resources/tts",
+      "../../resources/tts/Speak.exe": "resources/tts/Speak.exe",
+      "../../resources/tts/Speak.ahk": "resources/tts/Speak.ahk",
+      "../../resources/tts/AudioOutput.py": "resources/tts/AudioOutput.py",
+      "../../resources/tts/SileroSpeak.py": "resources/tts/SileroSpeak.py",
+      "../../resources/tts/XttsSpeak.py": "resources/tts/XttsSpeak.py",
+      "../../resources/tts/S2Speak.py": "resources/tts/S2Speak.py",
       "../../resources/rustpotter": "resources/rustpotter",
       "../../resources/vosk": "resources/vosk",
       "../../resources/keywords": "resources/keywords"

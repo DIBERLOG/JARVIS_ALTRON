@@ -150,6 +150,14 @@ async function main(){
     await suggested.handleMailVoice('Джарвис, да этот адрес',nativeBridge)
     assert.equal(store.get(suggested.outlook).draft.to,'second@jarvis.test')
     assert.match(spoken.at(-1).text,/тема/)
+    failure=null;response={ticket:'DRAFT-ONLY'}
+    mail.outlook.set({...store.get(mail.outlook),connected:true,provider:'local',busy:false,ticket:'',draft:{to:'test@jarvis.test',subject:'Draft',body:'Text'}})
+    const draftStart=calls.length
+    await mail.openMailDraft()
+    assert.deepEqual(calls.slice(draftStart).map(c=>c.action),['open_classic','prepare_send','cancel_send'])
+    assert.equal(calls[draftStart+1].data.native,true)
+    assert.equal(store.get(mail.outlook).ticket,'','Opening draft must leave no send permission')
+    assert.equal(store.get(mail.outlook).draft.body,'Text')
     console.log('Outlook: application and native modes, dictation, confirmation, edit cancellation and no automatic resend passed')
 }
 main().catch(error=>{console.error(error);process.exit(1)})

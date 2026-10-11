@@ -74,6 +74,7 @@ fn ask_with_history_options(text: &str, history: &[(String, String)], spoken: bo
         .or_else(|| DB.get().map(|db| db.read().clone()))
         .ok_or("Настройки чата не готовы")?;
     let provider=s.chat_provider; let local=s.local_chat_model; let remote=s.deepseek_chat_model; let key=s.api_keys.deepseek; let persona=s.voice_dialogue_personality;
+    let openai_model=s.openai_chat_model; let openai_key=s.api_keys.openai;
     let mut system_prompt = format!("{}\n{}", persona_prompt(&persona), web_evidence_prompt());
     system_prompt.push_str("\nДля голосового разговора обычно отвечай в 2–3 коротких предложениях. Если пользователь просит подробно, объясняй подробнее. При приложенных результатах поиска отвечай по ним, не утверждай, что доступ к интернету отсутствует. При ошибке поиска честно сообщи, что именно этот поиск не удался.");
     let live_context = if needs_live_info(text) {
@@ -93,6 +94,11 @@ fn ask_with_history_options(text: &str, history: &[(String, String)], spoken: bo
     }
     messages.push(Message{role:"user",content:&user_text});
     let client=reqwest::blocking::Client::builder().timeout(Duration::from_secs(90)).build().map_err(|e|e.to_string())?;
+    if provider == "openai" {
+        let content = ask_openai(&client, &openai_key, &openai_model, serde_json::to_value(&messages).map_err(|e|e.to_string())?)?;
+        if spoken && speech_generation == crate::tts::generation() { crate::tts::speak(&content); }
+        return Ok(content);
+    }
     if provider != "deepseek" {
         let response = client.post("http://127.0.0.1:11434/api/chat")
             .json(&json!({"model":local,"messages":messages,"stream":true,"think":false,
@@ -108,6 +114,47 @@ fn ask_with_history_options(text: &str, history: &[(String, String)], spoken: bo
             .send().map_err(|e|e.to_string())?;
         return read_chat_stream(response, true, |sentence| { if spoken && speech_generation == crate::tts::generation() { crate::tts::speak(sentence); } });
     }
+}
+
+#[cfg(feature = "reqwest")]
+pub fn ask_openai(client: &reqwest::blocking::Client, key: &str, model: &str, input: serde_json::Value) -> Result<String, String> {
+    if key.trim().is_empty() { return Err("Добавьте API-ключ OpenAI в настройках → Модели и ответы".into()); }
+    let response = client.post("https://api.openai.com/v1/responses")
+        .bearer_auth(key.trim()).json(&serde_json::json!({"model":model,"input":input,"store":false,"max_output_tokens":2000}))
+        .send().map_err(|_| "Не удалось подключиться к OpenAI. Проверьте интернет и доступ к API.".to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            401 => "OpenAI: неверный или отозванный API-ключ".into(),
+            403 => "OpenAI: доступ к API или модели запрещён для этого аккаунта".into(),
+            429 => "OpenAI: лимит запросов или средств API исчерпан".into(),
+            400 | 404 => "OpenAI: проверьте название модели и её доступность в вашем API-аккаунте".into(),
+            _ => format!("OpenAI: ошибка сервиса ({status})"),
+        });
+    }
+    let value: serde_json::Value = response.json().map_err(|_| "OpenAI вернул некорректный ответ")?;
+    openai_response_text(&value)
+}
+
+pub fn openai_response_text(value: &serde_json::Value) -> Result<String, String> {
+    if value["status"].as_str() != Some("completed") { return Err("OpenAI не завершил ответ. Попробуйте сократить запрос.".into()); }
+    let mut parts = Vec::new();
+    if let Some(output) = value["output"].as_array() {
+        for item in output {
+            if item["type"].as_str() != Some("message") { continue; }
+            if let Some(content) = item["content"].as_array() {
+                for part in content {
+                    if part["type"].as_str() == Some("output_text") {
+                        if let Some(text) = part["text"].as_str() { parts.push(text); }
+                    } else if part["type"].as_str() == Some("refusal") {
+                        if let Some(text) = part["refusal"].as_str() { parts.push(text); }
+                    }
+                }
+            }
+        }
+    }
+    let text = parts.join("\n");
+    if text.trim().is_empty() { Err("OpenAI вернул пустой текстовый ответ".into()) } else { Ok(text) }
 }
 
 #[cfg(feature = "reqwest")]
@@ -344,6 +391,13 @@ fn voice_feed_items(source: &str, xml: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn openai_reply_reads_only_visible_text_and_rejects_incomplete() {
+        let value=serde_json::json!({"status":"completed","output":[{"type":"reasoning","content":[{"type":"output_text","text":"hidden"}]},{"type":"message","content":[{"type":"output_text","text":"Ответ"},{"type":"refusal","refusal":"Отказ"}]}]});
+        assert_eq!(super::openai_response_text(&value).unwrap(),"Ответ\nОтказ");
+        assert!(super::openai_response_text(&serde_json::json!({"status":"incomplete","output":[]})).is_err());
+        assert!(super::openai_response_text(&serde_json::json!({"status":"completed","output":[]})).is_err());
+    }
     use super::{is_news_request, needs_live_info, persona_prompt, web_evidence_prompt};
     #[test]
     fn sentences_wait_for_a_boundary_and_preserve_utf8() {

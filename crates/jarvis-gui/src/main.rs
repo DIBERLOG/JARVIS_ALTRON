@@ -19,6 +19,12 @@ pub struct AppState {
 }
 
 fn main() {
+    if std::env::args().any(|arg| arg == "--release-smoke-test") {
+        let root = &*jarvis_core::APP_DIR;
+        let core = root.join(if cfg!(windows) { "jarvis-app.exe" } else { "jarvis-app" });
+        assert!(core.is_file() && root.join("resources/commands").is_dir(), "Incomplete release package");
+        return;
+    }
     config::init_dirs().expect("Failed to init dirs");
     
     // basic logging setup (simpler for GUI)
@@ -49,6 +55,9 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             use tauri::Manager;
+            if let Err(error) = tauri_commands::run_jarvis_app() {
+                eprintln!("Не удалось автоматически запустить голосовое ядро: {error}");
+            }
             if let Some(window) = app.get_webview_window("main") {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(15));
@@ -139,6 +148,10 @@ fn main() {
             // chat
             tauri_commands::chat_get_config,
             tauri_commands::chat_send,
+            tauri_commands::agent_run,
+            tauri_commands::agent_read_attachment,
+            tauri_commands::agent_export_docx,
+            tauri_commands::agent_chain_step,
             tauri_commands::chat_search_web,
             tauri_commands::chat_get_news,
             tauri_commands::center_get_news,
@@ -148,6 +161,11 @@ fn main() {
             tauri_commands::chat_is_speaking,
             tauri_commands::chat_stop_speech,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                tauri_commands::stop_owned_jarvis_app();
+            }
+        });
 }

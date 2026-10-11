@@ -4,11 +4,35 @@
     import { open } from "@tauri-apps/plugin-shell"
     import LoadingSpinner from "@/components/LoadingSpinner.svelte"
     import {recordRequest} from '@/lib/requestHistory'
-    type Message = { role: string, content: string }
+    import ChatProviderSettings from '@/components/ChatProviderSettings.svelte'
+    import {loadChatHistory,saveChatHistory,chatExport,type ChatSession,type ChatMessage} from '@/lib/chatHistory'
+    import {save as saveFile} from '@tauri-apps/plugin-dialog'
+    import {writeTextFile} from '@tauri-apps/plugin-fs'
+    type Message = ChatMessage
     type NewsItem = { source: string, title: string, url: string, published_at: string }
-    type Config = { provider: string, local_model: string, deepseek_model: string, deepseek_configured: boolean, speak_responses: boolean, personality: string }
-    let config: Config = { provider: "local", local_model: "qwen3:8b", deepseek_model: "deepseek-flash", deepseek_configured: false, speak_responses: true, personality: "jarvis" }
-    let key = "", prompt = "", loading = false, error = "", webSearch = false
+    let config = { provider: "local", local_model: "qwen3:8b", deepseek_model: "deepseek-flash", deepseek_configured: false, openai_model:'gpt-4.1-mini',openai_configured:false,speak_responses: true, personality: "jarvis" }
+    let prompt = "", loading = false, error = "", webSearch = false
+    let chats:ChatSession[]=[],activeId='',historyReady=false,historyError='',exporting=false,exportNotice='',chatSearch=''
+    $: filteredChats=chats.filter(c=>c.title.toLowerCase().includes(chatSearch.toLowerCase())).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))
+    function newChat(){if(loading)return;activeId='';messages=[];prompt='';error=''}
+    function selectChat(chat:ChatSession){if(loading)return;activeId=chat.id;messages=[...chat.messages];prompt='';error=''}
+    async function persist(){
+        if(!historyReady)return
+        if(!activeId)activeId=crypto.randomUUID()
+        const existing=chats.find(c=>c.id===activeId)
+        const entry:ChatSession={id:activeId,title:existing?.title||messages.find(m=>m.role==='user')?.content.slice(0,80)||'Новый чат',updatedAt:new Date().toISOString(),messages:[...messages]}
+        chats=[entry,...chats.filter(c=>c.id!==activeId)]
+        try{await saveChatHistory(chats);historyError=''}catch(e){historyError=String(e)}
+    }
+    async function exportChats(all:boolean){
+        if(exporting||!historyReady)return
+        exporting=true;exportNotice=''
+        try{
+            const selected=all?chats:chats.filter(c=>c.id===activeId)
+            const file=await saveFile({defaultPath:`jarvis-chats-${new Date().toISOString().slice(0,10)}.json`,filters:[{name:'Чаты JARVIS',extensions:['json']}]})
+            if(file){await writeTextFile(file,chatExport(selected));exportNotice='Чаты экспортированы. Файл содержит переписку — храните его безопасно.'}
+        }catch(e){historyError=String(e)}finally{exporting=false}
+    }
     let speaking = false, stoppingSpeech = false
     let messages: Message[] = []
     let news: NewsItem[] = [], newsLoading = false, newsError = "", newsUpdated = ""
@@ -30,9 +54,10 @@
     function sourceUrl(line: string) {
         return line.startsWith("Источник: ") ? line.slice(10).trim() : line.includes(" — https://") ? line.slice(line.indexOf("https://")).trim() : ""
     }
-    $: visible = messages.filter(m => m.role !== "system")
+    $: visible = messages
     onMount(() => {
-        invoke<Config>("chat_get_config").then(value => config = value).catch(e => error = String(e))
+        invoke<typeof config>("chat_get_config").then(value => config = value).catch(e => error = String(e))
+        loadChatHistory().then(value=>{chats=value;historyReady=true;const latest=[...chats].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))[0];if(latest)selectChat(latest)}).catch(e=>historyError=`История не загружена: ${String(e)}. Отправка отключена, чтобы не затереть данные.`)
         loadNews()
         const refreshSpeech = () => invoke<boolean>("chat_is_speaking")
             .then(value => speaking = value).catch(() => speaking = false)
@@ -49,23 +74,15 @@
         } catch (e) { error = `Не удалось остановить озвучку: ${String(e)}` }
         finally { stoppingSpeech = false }
     }
-    async function save() {
-        await Promise.all([
-            invoke("db_write", { key: "chat_provider", val: config.provider }),
-            invoke("db_write", { key: "local_chat_model", val: config.local_model }),
-            invoke("db_write", { key: "deepseek_chat_model", val: config.deepseek_model }),
-            invoke("db_write", { key: "chat_speak_responses", val: String(config.speak_responses) }),
-            invoke("db_write", { key: "assistant_personality", val: config.personality }),
-            key ? invoke("db_write", { key: "api_key__deepseek", val: key }) : Promise.resolve(true)
-        ])
-        if (key) { config.deepseek_configured = true; key = "" }
-    }
     async function send() {
-        const text = prompt.trim(); if (!text || loading) return
+        const text = prompt.trim(); if (!text || loading || !historyReady) return
+        if(text.length>12000){error='Сообщение слишком длинное: максимум 12 000 символов';return}
         recordRequest(text,'chat')
         error = ""; prompt = ""; messages = [...messages, { role: "user", content: text }]; loading = true
         try {
-            const reply = await invoke<{content:string}>("chat_send", { clientMessages: messages, useWebSearch: webSearch }); messages = [...messages, { role: "assistant", content: reply.content }]
+            await persist()
+            const reply = await invoke<{content:string}>("chat_send", { clientMessages: messages.slice(-20), useWebSearch: webSearch }); messages = [...messages, { role: "assistant", content: reply.content }]
+            await persist()
             speaking = await invoke<boolean>("chat_is_speaking")
         }
         catch (e) { error = String(e) } finally { loading = false }
@@ -73,26 +90,33 @@
 </script>
 
 <section class="chat-shell">
-    <header><p>НЕЙРОННЫЙ МОДУЛЬ</p><h1>Чат с Jarvis</h1><span>По умолчанию — локальная модель. Облачный DeepSeek включается только с твоим ключом.</span></header>
+    <header><p>НЕЙРОННЫЙ МОДУЛЬ</p><h1>Чат с Jarvis</h1><span>Ollama локально · DeepSeek · OpenAI. История сохраняется на этом компьютере.</span></header>
+    <div class="chat-workspace">
+    <aside class="chat-history" aria-label="История чатов">
+        <p class="history-kicker">ВАШИ БЕСЕДЫ</p><button type="button" disabled={loading||!historyReady} on:click={newChat}>＋ Новый чат</button>
+        <label>Поиск чатов<input bind:value={chatSearch} placeholder="Найти беседу…"/></label>
+        <nav aria-label="Сохранённые чаты">{#each filteredChats as chat}<button type="button" class:chosen={activeId===chat.id} aria-current={activeId===chat.id?'true':undefined} disabled={loading} on:click={()=>selectChat(chat)}><strong>{chat.title}</strong><small>{new Date(chat.updatedAt).toLocaleDateString('ru-RU')} · {chat.messages.length} сообщений</small></button>{/each}</nav>
+        {#if historyReady&&!chats.length}<small>Здесь появятся новые беседы.</small>{/if}
+        <div class="history-export"><button type="button" on:click={()=>exportChats(false)} disabled={exporting||loading||!activeId}>↓ Экспорт текущего чата</button><button type="button" on:click={()=>exportChats(true)} disabled={exporting||loading||!chats.length}>↓ Экспорт всех чатов</button><small>JSON-файл без API-ключей. Личные сведения из сообщений остаются в переписке.</small></div>
+    </aside>
+    <div class="chat-main">
+    {#if historyError}<p class="error" role="alert">{historyError}</p>{/if}{#if exportNotice}<p role="status">{exportNotice}</p>{/if}
     <section class="news-panel" aria-label="Лента новостей" aria-busy={newsLoading}>
         <div class="news-heading"><div><p class="news-kicker"><span class="live-dot"></span> WEB INTEL · ЖИВАЯ ЛЕНТА</p><h2>Актуальные новости</h2><small>{newsUpdated ? `Обновлено в ${newsUpdated}` : "Интерфакс · Лента.ру · BBC News · DW"}</small></div><button class="news-refresh" type="button" on:click={loadNews} disabled={newsLoading}>{#if newsLoading}<LoadingSpinner /><span>Обновление…</span>{:else}↻ Обновить{/if}</button></div>
         {#if newsError}<p class="news-error" role="alert">{newsError}</p>{/if}
         {#if news.length}<div class="news-grid">{#each news as item}<button class="news-card" type="button" on:click={() => openNews(item.url)} title="Открыть оригинал: {item.source}"><span class="news-meta"><b>{item.source}</b><time datetime={item.published_at}>{newsTime(item.published_at)}</time></span><strong>{item.title}</strong><span class="news-link">Читать источник ↗</span></button>{/each}</div>{:else if newsLoading}<div class="news-loading" role="status"><LoadingSpinner size={30}/><div><strong>Загружаю свежие новости</strong><span>Проверяю четыре источника…</span></div></div>{:else if !newsError}<p class="news-empty">Свежих публикаций пока нет.</p>{/if}
     </section>
-    <div class="settings" class:altron={config.personality === 'altron'}>
-        <div class="persona-switch" aria-label="Личность ассистента"><button class:active={config.personality === 'jarvis'} on:click={() => config.personality = 'jarvis'}><b>JARVIS</b><span>точный, спокойный</span></button><button class:active={config.personality === 'altron'} on:click={() => config.personality = 'altron'}><b>ALTRON</b><span>холодный, прямой</span></button></div>
-        <label>Источник <select bind:value={config.provider}><option value="local">Локально — Ollama</option><option value="deepseek">DeepSeek API</option></select></label>
-        {#if config.provider === "local"}<label>Модель <input bind:value={config.local_model} /></label><small>На компьютере уже есть <b>qwen3:8b</b> (≈5.2 ГБ), поэтому она выбрана по умолчанию. Ollama работает локально и не требует API-ключа.</small>{:else}<label>Модель DeepSeek <input bind:value={config.deepseek_model} /></label><label>API-ключ <input type="password" bind:value={key} placeholder={config.deepseek_configured ? "Ключ сохранён — введи новый для замены" : "sk-..."} /></label>{/if}
-        <label class="voice-toggle"><input type="checkbox" bind:checked={config.speak_responses} /><span class="voice-check" aria-hidden="true"></span><span class="voice-copy"><b>ГОЛОСОВОЙ ОТВЕТ</b><small>Озвучивать ответы ассистента</small></span></label><button on:click={save}>Сохранить настройки</button>
-    </div>
+    <details class="model-settings"><summary>Модель и настройки ответов · {config.provider==='openai'?'OpenAI':config.provider==='deepseek'?'DeepSeek':'Ollama'}</summary><ChatProviderSettings bind:config /></details>
     <div class="dialog">
         {#if speaking}<div class="speech-controls"><button class="stop-speech" type="button" on:click={stopSpeech} disabled={stoppingSpeech} aria-label="Остановить озвучку ответа"><span aria-hidden="true">■</span> Остановить звук</button></div>{/if}
         {#each visible as message}<article class:me={message.role === "user"}><b>{message.role === "user" ? "ТЫ" : "JARVIS"}</b>{#each message.content.split('\n') as line}{#if message.role === "assistant" && sourceUrl(line)}<button class="source-link" type="button" on:click={() => openNews(sourceUrl(line))}>{line}</button>{:else}<p>{line || '\u00a0'}</p>{/if}{/each}</article>{/each}{#if loading}<article><b>JARVIS</b><p>Думаю…</p></article>{/if}{#if error}<p class="error">{error}</p>{/if}
     </div>
-    <form on:submit|preventDefault={send}><textarea bind:value={prompt} placeholder="Напиши вопрос ассистенту…" disabled={loading}></textarea><label class="web-search"><input type="checkbox" bind:checked={webSearch} /><span class="pulse"></span><span><b>WEB INTEL</b><small>Свежие новости и актуальные вопросы ищутся автоматически; включи для любого запроса</small></span></label><button disabled={loading}>Отправить</button></form>
+    <form on:submit|preventDefault={send}><textarea aria-label="Сообщение ассистенту" maxlength="12000" bind:value={prompt} placeholder="Напиши вопрос ассистенту…" disabled={loading||!historyReady}></textarea><label class="web-search"><input type="checkbox" bind:checked={webSearch} /><span class="pulse"></span><span><b>WEB INTEL</b><small>Свежие новости и актуальные вопросы ищутся автоматически; включи для любого запроса</small></span></label><small>В ответах учитываются последние 20 сообщений выбранной беседы. Полная переписка остаётся в истории.</small><button disabled={loading||!historyReady}>Отправить</button></form>
+    </div></div>
 </section>
 
 <style lang="scss">
+.chat-shell{max-width:1250px!important;font-family:'Manrope Variable',sans-serif}.chat-workspace{display:grid;grid-template-columns:250px minmax(0,1fr);gap:1.2rem;margin-top:1.4rem}.chat-main{min-width:0}.chat-history{--history-accent:#52fefe;align-self:start;position:sticky;top:1rem;display:grid;gap:.9rem;padding:1rem;background:#0a191d;border:1px solid #25474e;border-radius:12px}.history-kicker{font-size:.66rem;letter-spacing:.14em;color:var(--history-accent);margin:0}.chat-history>button{width:100%}.chat-history label{display:grid;gap:.4rem;font-size:.75rem;color:#96b5bc}.chat-history input{width:100%;box-sizing:border-box}.chat-history nav{display:grid;gap:.4rem;max-height:440px;overflow:auto}.chat-history nav button{width:100%;background:#102126;border:1px solid transparent;color:#eaf8fa;text-align:left;font:inherit;padding:.65rem}.chat-history nav button.chosen{border-color:var(--history-accent);background:#15353b}.chat-history nav strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem}.chat-history nav small{display:block;margin-top:.3rem;font-size:.65rem}.history-export{border-top:1px solid #25474e;padding-top:.8rem;display:grid;gap:.5rem}.history-export button{font-size:.72rem;background:#17353b;color:#b6e7e8;width:100%}.history-export small{font-size:.67rem;line-height:1.5}.model-settings{margin-top:1rem}.model-settings summary{padding:.85rem 1rem;border:1px solid #28474e;border-radius:9px;background:#102126;cursor:pointer}.model-settings[open] summary{margin-bottom:.7rem}button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:800px){.chat-workspace{grid-template-columns:1fr}.chat-history{position:static}.chat-history nav{max-height:180px}}
 .chat-shell{max-width:940px;margin:2.5rem auto;color:#eaf8fa;padding:0 1.4rem}.chat-shell header p{color:#52fefe;letter-spacing:.16em;font-size:.75rem}.chat-shell h1{margin:.25rem 0}.chat-shell header span,small{color:#90a7ad}.settings,.dialog,form{background:#0d1417;border:1px solid #1c353a;border-radius:10px;padding:1rem;margin-top:1rem}.settings{display:grid;gap:.7rem}.settings label{display:grid;gap:.3rem;color:#b9d2d8}.persona-switch{display:grid;grid-template-columns:1fr 1fr;gap:.55rem}.persona-switch button{width:100%;text-align:left;background:#102126;border:1px solid #27454c;color:#b8d4d9}.persona-switch button span{display:block;font-size:.72rem;font-weight:400;opacity:.7;margin-top:.2rem}.persona-switch button.active{background:linear-gradient(135deg,#0a6e78,#132c37);border-color:#52fefe;color:#fff}.persona-switch button:last-child.active{background:linear-gradient(135deg,#7b2318,#2a1113);border-color:#ff735a}input,select,textarea{background:#071012;border:1px solid #315057;border-radius:6px;color:#ecffff;padding:.65rem;font:inherit}button{background:#16a8ae;color:#041011;border:0;border-radius:6px;padding:.65rem 1rem;font-weight:700;cursor:pointer;width:max-content}.dialog{min-height:260px;max-height:430px;overflow:auto}article{padding:.65rem .8rem;margin:.6rem 0;background:#101d20;border-left:3px solid #52fefe;border-radius:4px}article.me{border-left-color:#9b63ff}article p{white-space:pre-wrap;margin:.3rem 0 0}form{display:grid;gap:.7rem}textarea{min-height:90px;resize:vertical}.web-search{display:flex!important;align-items:center;gap:.65rem;padding:.65rem .8rem;border:1px solid #27535a;border-radius:7px;background:linear-gradient(90deg,#0b2025,#0d1417);cursor:pointer}.web-search input{accent-color:#52fefe}.web-search b{color:#52fefe;letter-spacing:.1em;font-size:.73rem}.web-search small{display:block}.pulse{height:.5rem;width:.5rem;border-radius:99px;background:#52fefe;box-shadow:0 0 12px #52fefe}.error{color:#ff8e8e}code{color:#52fefe}
 
 .settings .voice-toggle{display:flex;align-items:center;gap:.75rem;padding:.7rem .85rem;border:1px solid #27535a;border-radius:7px;background:linear-gradient(90deg,#0b2025,#0d1417);cursor:pointer}

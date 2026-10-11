@@ -15,6 +15,7 @@ pub mod config;
 pub mod db;
 pub mod i18n;
 pub mod notifications;
+pub mod platform;
 pub mod weather_city;
 pub mod news_filter;
 
@@ -57,10 +58,8 @@ pub mod lua;
 // shared statics
 // pub static APP_DIR: Lazy<PathBuf> = Lazy::new(|| std::env::current_dir().unwrap());
 pub static APP_DIR: Lazy<PathBuf> = Lazy::new(|| {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::env::current_dir().unwrap())
+    let executable = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("jarvis"));
+    platform::resource_root(&executable, std::env::var_os("JARVIS_RESOURCE_ROOT").map(PathBuf::from))
 });
 pub static SOUND_DIR: Lazy<PathBuf> = Lazy::new(|| APP_DIR.clone().join(config::SOUND_PATH));
 pub static APP_DIRS: OnceCell<AppDirs> = OnceCell::new();

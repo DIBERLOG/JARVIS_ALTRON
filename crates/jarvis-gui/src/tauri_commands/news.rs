@@ -10,6 +10,46 @@ const FEEDS: [(&str, &str); 4] = [
     ("DW", "https://rss.dw.com/xml/rss-ru-all"),
 ];
 
+fn request_feed(client: &reqwest::blocking::Client, url: &str) -> Result<String, reqwest::Error> {
+    for attempt in 0..2 {
+        match client.get(url).send().and_then(|r| r.error_for_status()).and_then(|r| r.text()) {
+            Ok(xml) => return Ok(xml),
+            Err(error) => {
+                let retryable = error.is_timeout() || error.is_connect() || error.is_body()
+                    || error.status().is_some_and(|status| status.is_server_error());
+                let error = error.without_url();
+                log::warn!("News request attempt {} failed: {}", attempt + 1, error);
+                // Repeat only transient failures, not rejected requests or rate limits.
+                if !retryable || attempt == 1 {
+                    return Err(error);
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+    }
+    unreachable!()
+}
+
+#[cfg(test)]
+#[test]
+fn feed_request_recovers_from_temporary_server_failure() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/rss", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for status in ["503 Service Unavailable", "200 OK"] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).unwrap();
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Length: 6\r\nConnection: close\r\n\r\n<rss/>").unwrap();
+        }
+    });
+    let client = reqwest::blocking::Client::builder().no_proxy().timeout(Duration::from_secs(3)).build().unwrap();
+    assert_eq!(request_feed(&client, &url).unwrap(), "<rss/>");
+    server.join().unwrap();
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct NewsItem {
     pub source: String,
@@ -135,14 +175,14 @@ fn fetch_region_topic(topic: &str, region: &str, source: &str) -> Result<Vec<New
     let query = if domain.is_empty() {base.to_string()} else {format!("({base}) site:{domain}")};
     let url = reqwest::Url::parse_with_params("https://news.google.com/rss/search", &[("q", query.as_str()), ("hl", hl), ("gl", gl), ("ceid", ceid)])
         .map_err(|_| "Не удалось подготовить запрос новостей")?;
-    let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(12)).build()
+    let client = reqwest::blocking::Client::builder().connect_timeout(Duration::from_secs(12)).timeout(Duration::from_secs(25)).build()
         .map_err(|_| "Не удалось подключиться к новостям")?;
     let direct_bbc = region == "gb" && source == "bbc" && topic != "tourism";
     let url = if direct_bbc {
         let feed = match topic {"ai"|"tech"|"security"|"gamedev"=>"https://feeds.bbci.co.uk/news/technology/rss.xml", "sport"=>"https://feeds.bbci.co.uk/sport/rss.xml", "politics"=>"https://feeds.bbci.co.uk/news/politics/rss.xml", "economy"=>"https://feeds.bbci.co.uk/news/business/rss.xml", "science"|"space"=>"https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "cinema"|"games"=>"https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", _=>"https://feeds.bbci.co.uk/news/rss.xml"};
         reqwest::Url::parse(feed).map_err(|_| "Не удалось подготовить ленту")?
     } else {url};
-    let xml = client.get(url).send().and_then(|r| r.error_for_status()).and_then(|r| r.text())
+    let xml = request_feed(&client, url.as_str())
         .map_err(|_| "Источник новостей сейчас недоступен. Проверьте интернет и повторите попытку.".to_string())?;
     let mut items = parse_feed_limit(if direct_bbc {"BBC News"} else {"Google Новости"}, &xml, 30)
         .map_err(|_| "Не удалось прочитать ленту. Повторите попытку позже.".to_string())?;
@@ -155,11 +195,11 @@ fn fetch_region_topic(topic: &str, region: &str, source: &str) -> Result<Vec<New
 
 pub(super) fn fetch_news() -> Result<Vec<NewsItem>, String> {
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(8)).build().map_err(|e| e.to_string())?;
+        .connect_timeout(Duration::from_secs(12)).timeout(Duration::from_secs(25)).build().map_err(|e| e.to_string())?;
     let mut feeds = Vec::new();
     let mut errors = Vec::new();
     for (source, url) in FEEDS {
-        match client.get(url).send().and_then(|r| r.error_for_status()).and_then(|r| r.text()) {
+        match request_feed(&client, url) {
             Ok(xml) => match parse_feed(source, &xml) {
                 Ok(feed) if feed.is_empty() => errors.push(format!("{source}: нет публикаций с датой")),
                 Ok(feed) => feeds.push(feed.into_iter().take(3).collect::<Vec<_>>()),
