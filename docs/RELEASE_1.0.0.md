@@ -1,6 +1,6 @@
 # JARVIS ALTRON 1.0.0 · Release
 
-Первый Windows-выпуск с установщиком. Для Windows 10/11 x64 скачайте файл `JARVIS ALTRON_1.0.0_x64-setup.exe` из Assets и установите приложение для текущего пользователя. Если WebView2 отсутствует, нужен интернет для его установки.
+Первый Windows-выпуск с установщиком. Для Windows 10/11 x64 скачайте файл `JARVIS.ALTRON_1.0.0_x64-setup.exe` из Assets и установите приложение для текущего пользователя. Если WebView2 отсутствует, нужен интернет для его установки.
 
 ## Главное
 
@@ -20,4 +20,4 @@ Linux/macOS и сокращённый Android Mobile LAB включены тол
 
 Пакет не подписан цифровым сертификатом. Проверьте официальный источник и SHA-256 по `SHA256SUMS.txt`; не отключайте защиту Windows. Перед обновлением сохраните данные и закройте оба процесса. Проверка на машине разработчика не заменяет установку на чистом ПК и ручной тест микрофона/почты.
 
-[Инструкция установки](https://github.com/DIBERLOG/JARVIS_ALTRON_CLEAN/blob/master/docs/INSTALL.md). Ошибки: [workspace34t@gmail.com](mailto:workspace34t@gmail.com). Не прикладывайте ключи, пароли и личные документы.
+[Инструкция установки](https://github.com/DIBERLOG/JARVIS_ALTRON/blob/master/docs/INSTALL.md). Ошибки: [workspace34t@gmail.com](mailto:workspace34t@gmail.com). Не прикладывайте ключи, пароли и личные документы.
