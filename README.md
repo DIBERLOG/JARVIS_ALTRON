@@ -385,10 +385,13 @@ cargo test -p jarvis-gui
 | Система | Версия / статус | Архитектура | Пакет |
 | --- | --- | --- | --- |
 | 🖥️ Windows | **1.0.0 · Release** | x64 | Установщик `.exe` — опубликован |
-| 🐧 Linux | **1.0.0 · Experimental** | x64 | `.deb` / AppImage — нативная сборка и проверка |
-| 🍎 macOS · Intel | **1.0.0 · Experimental** | x86_64 | `.app` / `.dmg` — нативная сборка и проверка |
-| 🍎 macOS · Apple Silicon | **1.0.0 · Experimental** | arm64 · M-серия | Отдельные `.app` / `.dmg` — нативная сборка и проверка |
+| 🐧 Linux | **1.0.0 · Experimental** | x64 | `.deb` / AppImage — сборка, установка `.deb` и проверки CI пройдены |
+| 🍎 macOS · Intel | **1.0.0 · Experimental** | x86_64 | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
+| 🍎 macOS · Apple Silicon | **1.0.0 · Experimental** | arm64 · M-серия | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
 | 📱 Android | **1.0.0 · Mobile LAB** | Отдельный мобильный проект | Исходники; проверенного APK пока нет |
+
+> [!NOTE]
+> Экспериментальные пакеты доступны как **ZIP-артефакты GitHub Actions**, отдельно от Windows Releases. Распакуйте ZIP и выберите `.deb`, AppImage или `.dmg`. GitHub может запросить вход; артефакты хранятся ограниченное время. Успешная сборка не подтверждает работу микрофона и всех функций на реальном устройстве.
 
 ### 🖥️ Windows — готовый релиз
 
@@ -400,17 +403,26 @@ cargo test -p jarvis-gui
 
 [![Linux Experimental](https://img.shields.io/badge/Linux-1.0.0_Experimental-e7ad49?style=for-the-badge&logo=linux&logoColor=white)](docs/CROSS_PLATFORM.md#установочные-пакеты-linux-и-macos)
 
-**База пакетов: Ubuntu 24.04 x64.** Для Debian-подобных совместимых систем готовится `.deb`, для других совместимых дистрибутивов — AppImage. Требуется glibc не ниже 2.39; старые дистрибутивы пока не поддерживаются этим рецептом.
+**Скачать:** [Linux x64 — `.deb` и AppImage в одном ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38175798460/artifacts/11715748897). [Журнал сборки и установки](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38175798460).
+
+**База пакетов: Ubuntu 24.04 x64.** Для Debian-подобных совместимых систем собран `.deb`, для других совместимых дистрибутивов — AppImage. Требуется glibc не ниже 2.39; Ubuntu 22.04, Debian 12 и другие старые дистрибутивы не поддерживаются этим рецептом.
 
 Браузер и сайты открываются через системные средства; озвучка использует espeak-ng, калькулятор выбирается из GNOME/KDE/galculator. Буфер обмена Lua учитывает X11 и Wayland. Голосовое ядро, Vosk и звуки упаковываются вместе с интерфейсом.
 
-**Установка после получения успешной сборки:** открыть `.deb` в менеджере приложений либо дать AppImage право запуска и открыть его. Не запускайте приложение от root. [Полная инструкция Linux](docs/CROSS_PLATFORM.md#для-пользователей).
+**Установка:** открыть `.deb` в менеджере приложений либо дать AppImage право запуска и открыть его. Не запускайте приложение от root. [Полная инструкция Linux](docs/CROSS_PLATFORM.md#для-пользователей).
 
 ### 🍎 macOS — Intel и Apple Silicon
 
 [![macOS Experimental](https://img.shields.io/badge/macOS-1.0.0_Experimental-e7ad49?style=for-the-badge&logo=apple&logoColor=white)](docs/CROSS_PLATFORM.md#установочные-пакеты-linux-и-macos)
 
 **Две отдельные сборки:** Intel (`x86_64`) и Apple Silicon (`arm64`, M-серия). Не выбирайте пакет по одному лишь номеру версии — архитектура должна соответствовать вашему Mac. В рецепте указан минимум macOS 13; работу на разных версиях macOS ещё нужно подтвердить.
+
+| Ваш Mac | Экспериментальный пакет |
+| --- | --- |
+| Intel · x86_64 | [Скачать DMG в ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593/artifacts/11716410932) |
+| Apple Silicon · M-серия · arm64 | [Скачать DMG в ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593/artifacts/11715148906) |
+
+Серверные проверки macOS выполняются на macOS 15 и проверяют сборку, ресурсы и загрузку исполняемых файлов внутри `.app`, не микрофон и не работу интерфейса с оборудованием. [Журнал нативных проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593).
 
 Приложения запускаются через `open`, резервная озвучка — встроенным `say`; ядро и библиотеки входят в `.app`. Для установки откройте `.dmg` и перенесите приложение в Applications. Разрешите микрофон в настройках конфиденциальности.
 
