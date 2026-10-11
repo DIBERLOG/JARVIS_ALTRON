@@ -43,13 +43,14 @@ if [[ "$host" == x86_64-apple-darwin ]]; then
   runtime=onnxruntime-osx-x86_64-1.23.2
   mkdir -p target/onnxruntime target/release
   curl --fail --location --retry 3 "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/$runtime.tgz" -o "target/onnxruntime/$runtime.tgz"
+  echo "d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6  target/onnxruntime/$runtime.tgz" | shasum -a 256 -c -
   tar -xzf "target/onnxruntime/$runtime.tgz" -C target/onnxruntime
   export ORT_LIB_LOCATION="$repo/target/onnxruntime/$runtime/lib"
   export ORT_PREFER_DYNAMIC_LINK=1
   install_name_tool -id '@rpath/libonnxruntime.1.23.2.dylib' "$ORT_LIB_LOCATION/libonnxruntime.1.23.2.dylib"
   export DYLD_FALLBACK_LIBRARY_PATH="$ORT_LIB_LOCATION:$DYLD_FALLBACK_LIBRARY_PATH"
   cp -L "$ORT_LIB_LOCATION/libonnxruntime.1.23.2.dylib" target/release/libonnxruntime.1.23.2.dylib
-  extra_config=(--config '{"bundle":{"macOS":{"frameworks":["../../target/release/libvosk.dylib","../../target/release/libonnxruntime.1.23.2.dylib"]}}}')
+  extra_config=(--config '{"bundle":{"resources":{"../../target/onnxruntime/onnxruntime-osx-x86_64-1.23.2/LICENSE":"third_party/licenses/ONNX-Runtime-LICENSE.txt","../../target/onnxruntime/onnxruntime-osx-x86_64-1.23.2/ThirdPartyNotices.txt":"third_party/licenses/ONNX-Runtime-ThirdPartyNotices.txt"},"macOS":{"frameworks":["../../target/release/libvosk.dylib","../../target/release/libonnxruntime.1.23.2.dylib"]}}}')
 fi
 npm --prefix frontend ci
 cargo build --locked --release -p jarvis-app

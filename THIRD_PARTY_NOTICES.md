@@ -40,6 +40,8 @@ Windows-пакет включает Microsoft Visual C++ Runtime из катал
 
 ## Доработки JARVIS ALTRON
 
+Экспериментальный пакет macOS Intel включает официальный ONNX Runtime 1.23.2 Microsoft. Его собственная лицензия и ThirdPartyNotices включаются в `Contents/Resources/third_party/licenses` при упаковке; условия JARVIS на этот компонент не распространяются. Источник: [Microsoft ONNX Runtime](https://github.com/microsoft/onnxruntime/releases/tag/v1.23.2).
+
 Автор оригинальных доработок: **Егор Ангелов (DIBERLOG)**.
 Условия авторской JARVIS ALTRON Community License 1.0 и границы
 предоставляемых прав: [LICENSE.txt](LICENSE.txt).
