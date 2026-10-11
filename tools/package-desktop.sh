@@ -23,6 +23,14 @@ case "$(uname -s)" in
     ;;
   Darwin)
     native=libvosk.dylib; bundles=app,dmg
+    # The universal2 Python wheel ships a Mach-O dylib named libvosk.so.
+    if [[ ! -f "$VOSK_LIBRARY_DIR/$native" && -f "$VOSK_LIBRARY_DIR/libvosk.so" ]]; then
+      file "$VOSK_LIBRARY_DIR/libvosk.so" | grep -q 'Mach-O' || { echo 'Vosk library is not a macOS Mach-O binary.' >&2; exit 1; }
+      mkdir -p target/vosk-link
+      cp "$VOSK_LIBRARY_DIR/libvosk.so" "target/vosk-link/$native"
+      export VOSK_LIBRARY_DIR="$repo/target/vosk-link"
+      install_name_tool -id '@rpath/libvosk.dylib' "$VOSK_LIBRARY_DIR/$native"
+    fi
     export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,@executable_path/../Frameworks"
     export DYLD_FALLBACK_LIBRARY_PATH="$VOSK_LIBRARY_DIR${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
     ;;
