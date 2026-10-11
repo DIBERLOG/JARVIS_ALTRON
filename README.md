@@ -9,13 +9,13 @@
 Настольный помощник для повседневных дел и офисных задач.<br>
 Локальные инструменты, подключаемые модели и контроль пользователя.
 
-[![Версия 1.0.0 — Release](https://img.shields.io/badge/1.0.0-RELEASE-35d4cf?style=for-the-badge)](https://github.com/DIBERLOG/JARVIS_ALTRON_CLEAN/releases/tag/v1.0.0)
+[![Версия 1.0.0 — Release](https://img.shields.io/badge/1.0.0-RELEASE-35d4cf?style=for-the-badge)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0)
 [![Основная платформа — Windows](https://img.shields.io/badge/PLATFORM-WINDOWS-35d4cf?style=for-the-badge)](#platforms)
 [![Rust](https://img.shields.io/badge/Rust-181b20?style=for-the-badge&logo=rust&logoColor=white)](Cargo.toml)
 [![Tauri](https://img.shields.io/badge/Tauri-181b20?style=for-the-badge&logo=tauri&logoColor=35d4cf)](crates/jarvis-gui/tauri.conf.json)
 [![Svelte](https://img.shields.io/badge/Svelte-181b20?style=for-the-badge&logo=svelte&logoColor=ff6b46)](frontend/package.json)
 
-**[Скачать Windows-релиз](https://github.com/DIBERLOG/JARVIS_ALTRON_CLEAN/releases/tag/v1.0.0) · [Установка](docs/INSTALL.md) · [Документация](#documentation) · [Лицензия](LICENSE.txt)**
+**[Скачать Windows-релиз](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0) · [Linux / macOS](#platforms) · [Установка](docs/INSTALL.md) · [Документация](#documentation) · [Лицензия](LICENSE.txt)**
 
 [![Сообщить об ошибке по почте](https://img.shields.io/badge/FEEDBACK-workspace34t%40gmail.com-218c99?style=flat-square&logo=gmail&logoColor=white)](mailto:workspace34t@gmail.com)
 
@@ -26,7 +26,7 @@
 > [!WARNING]
 > **Release 1.0.0:** экспериментальные разделы «Агенты · LAB», Microsoft 365 и перенос на другие ОС могут работать некорректно. Сообщайте об ошибках на [workspace34t@gmail.com](mailto:workspace34t@gmail.com). Не прикладывайте ключи и личные данные.
 
-В [релизе v1.0.0](https://github.com/DIBERLOG/JARVIS_ALTRON_CLEAN/releases/tag/v1.0.0) предназначен Windows x64 установщик; Linux/macOS и Android пока доступны только как экспериментальные исходники. Старый пререлиз v0.9.0 остаётся без установщика и не содержит последующих доработок автоматически.
+В [релизе v1.0.0](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0) опубликован Windows x64 установщик. Статус экспериментальных сборок Linux/macOS и мобильного проекта указан [отдельно для каждой платформы](#platforms). Старый пререлиз v0.9.0 остаётся без установщика и не содержит последующих доработок автоматически.
 
 <details>
 <summary><strong>🧭 Навигация по README</strong></summary>
@@ -269,8 +269,8 @@ Ollama нужна для локальных модельных функций. P
 В PowerShell:
 
 ```powershell
-git clone https://github.com/DIBERLOG/JARVIS_ALTRON_CLEAN.git
-cd JARVIS_ALTRON_CLEAN
+git clone https://github.com/DIBERLOG/JARVIS_ALTRON.git
+cd JARVIS_ALTRON
 cd frontend
 npm ci
 npm run build
