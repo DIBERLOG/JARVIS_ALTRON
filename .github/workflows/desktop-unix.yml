@@ -35,7 +35,9 @@ jobs:
             ~/.cargo/git
             target/release/deps
             target/release/build
-          key: native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'tools/package-desktop.sh') }}
+            target/release/.fingerprint
+          key: native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'tools/package-desktop.sh') }}
+          restore-keys: native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'tools/package-desktop.sh') }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -116,4 +118,5 @@ jobs:
             ~/.cargo/git
             target/release/deps
             target/release/build
+            target/release/.fingerprint
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
