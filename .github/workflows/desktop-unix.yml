@@ -73,6 +73,11 @@ jobs:
             dpkg-deb -x "$package" "$payload"
             "$payload/usr/bin/jarvis-app" --release-smoke-test
             "$payload/usr/bin/jarvis-gui" --release-smoke-test
+            image="$GITHUB_WORKSPACE/$(find target/release/bundle/appimage -name '*.AppImage' -print -quit)"
+            appimage_payload=$(mktemp -d)
+            (cd "$appimage_payload" && "$image" --appimage-extract >/dev/null)
+            "$appimage_payload/squashfs-root/usr/bin/jarvis-app" --release-smoke-test
+            "$appimage_payload/squashfs-root/usr/bin/jarvis-gui" --release-smoke-test
           else
             app=$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)
             "$app/Contents/MacOS/jarvis-app" --release-smoke-test
