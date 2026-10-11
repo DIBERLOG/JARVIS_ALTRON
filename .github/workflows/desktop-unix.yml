@@ -6,7 +6,7 @@ on:
         description: Platforms to build
         type: choice
         default: all
-        options: [all, macos]
+        options: [all, macos, linux]
   pull_request:
     paths:
       - 'crates/**'
@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]' || '[{"os":"ubuntu-24.04","name":"linux-x64","vosk":"0.3.45"},{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]' || inputs.platform == 'linux' && '[{"os":"ubuntu-24.04","name":"linux-x64","vosk":"0.3.45"}]' || '[{"os":"ubuntu-24.04","name":"linux-x64","vosk":"0.3.45"},{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -58,6 +58,21 @@ jobs:
           export DYLD_FALLBACK_LIBRARY_PATH="$VOSK_LIBRARY_DIR${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
           target/release/jarvis-app --release-smoke-test
           cargo test --locked -p jarvis-core platform::tests
+      - name: Packaged paths and native loader smoke test
+        shell: bash
+        run: |
+          unset JARVIS_RESOURCE_ROOT LD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            package=$(find target/release/bundle/deb -name '*.deb' -print -quit)
+            payload=$(mktemp -d)
+            dpkg-deb -x "$package" "$payload"
+            "$payload/usr/bin/jarvis-app" --release-smoke-test
+            "$payload/usr/bin/jarvis-gui" --release-smoke-test
+          else
+            app=$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)
+            "$app/Contents/MacOS/jarvis-app" --release-smoke-test
+            "$app/Contents/MacOS/jarvis-gui" --release-smoke-test
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: jarvis-1.0.0-${{ matrix.name }}-experimental

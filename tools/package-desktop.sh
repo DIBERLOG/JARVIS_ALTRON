@@ -18,7 +18,7 @@ host="$(rustc -vV | sed -n 's/^host: //p')"
 case "$(uname -s)" in
   Linux)
     native=libvosk.so; bundles=deb,appimage
-    export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/jarvis-gui"
+    export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/jarvis-altron"
     export LD_LIBRARY_PATH="$VOSK_LIBRARY_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     ;;
   Darwin)

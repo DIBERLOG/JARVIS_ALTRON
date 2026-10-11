@@ -1,4 +1,5 @@
 {
+  "productName": "jarvis-altron",
   "bundle": {
     "targets": ["deb", "appimage"],
     "externalBin": ["../../target/release/jarvis-app"],

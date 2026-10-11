@@ -10,7 +10,7 @@ pub fn resource_root(executable: &Path, override_root: Option<PathBuf>) -> PathB
     if let Some(root) = override_root { return root; }
     let directory = executable.parent().unwrap_or(Path::new("."));
     let candidates = [directory.to_path_buf(), directory.join("../Resources"),
-        directory.join("../lib/jarvis-gui"), directory.join("../lib/jarvis"), directory.join("../share/jarvis")];
+        directory.join("../lib/jarvis-altron"), directory.join("../lib/jarvis-gui"), directory.join("../lib/jarvis"), directory.join("../share/jarvis")];
     candidates.into_iter().find(|root| root.join("resources").is_dir())
         .unwrap_or_else(|| directory.to_path_buf())
 }
@@ -91,9 +91,9 @@ mod tests {
         assert!(resource_root(&mac.join("MacOS/jarvis-gui"), None).ends_with("../Resources"));
         assert_eq!(resource_root(Path::new("/bin/jarvis"), Some(temp.path().into())), temp.path());
         let linux = temp.path().join("AppDir/usr");
-        std::fs::create_dir_all(linux.join("lib/jarvis-gui/resources")).unwrap();
-        assert!(resource_root(&linux.join("bin/jarvis-gui"), None).ends_with("../lib/jarvis-gui"));
-        assert!(resource_root(&linux.join("bin/jarvis-app"), None).ends_with("../lib/jarvis-gui"));
+        std::fs::create_dir_all(linux.join("lib/jarvis-altron/resources")).unwrap();
+        assert!(resource_root(&linux.join("bin/jarvis-gui"), None).ends_with("../lib/jarvis-altron"));
+        assert!(resource_root(&linux.join("bin/jarvis-app"), None).ends_with("../lib/jarvis-altron"));
     }
     #[test]
     fn wayland_clipboard_uses_native_tools() {
