@@ -10,21 +10,25 @@ use std::io::BufReader;
 use std::path::PathBuf;
 
 // use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, Sink};
 
 // static STREAM: OnceCell<OutputStream> = OnceCell::new();
-static STREAM_HANDLE: OnceCell<OutputStream> = OnceCell::new();
 static SINK: OnceCell<Sink> = OnceCell::new();
+static INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn stop() { if let Some(sink) = SINK.get() { sink.clear(); } }
 pub fn is_playing() -> bool { SINK.get().is_some_and(|sink| !sink.empty()) }
 
 pub fn init() -> Result<(), ()> {
-    if STREAM_HANDLE.get().is_some() {
+    let _guard = INIT_LOCK.lock().map_err(|_| ())?;
+    if SINK.get().is_some() {
         return Ok(());
     } // already initialized
 
     // get output stream handle to the default physical sound device
+    let (ready, result) = std::sync::mpsc::sync_channel(1);
+    // CPAL's macOS OutputStream is !Send: create and retain it on its owner thread.
+    std::thread::Builder::new().name("jarvis-rodio".into()).spawn(move || {
     match rodio::OutputStreamBuilder::open_default_stream() {
         Ok(stream_handle) => {
             // create sink
@@ -33,19 +37,20 @@ pub fn init() -> Result<(), ()> {
 
             // store
             // STREAM.set(_stream).unwrap();
-            let _ = STREAM_HANDLE.set(stream_handle);
-            let _ = SINK.set(sink);
-
-            // success
-            Ok(())
+            if ready.send(Ok(sink)).is_ok() {
+                loop { std::thread::park(); }
+            }
         }
         Err(msg) => {
             error!("Failed to initialize audio stream.\nError details: {}", msg);
 
             // failed
-            Err(())
+            let _ = ready.send(Err(()));
         }
     }
+    }).map_err(|error| { error!("Cannot start audio owner thread: {error}"); })?;
+    let sink = result.recv().map_err(|_| ())??;
+    SINK.set(sink).map_err(|_| ())
 }
 
 pub fn play_sound(filename: &PathBuf, sleep: bool) {

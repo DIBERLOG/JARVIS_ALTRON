@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]' || '[{"os":"ubuntu-22.04","name":"linux-x64","vosk":"0.3.45"},{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]') }}
+        include: ${{ fromJSON(inputs.platform == 'macos' && '[{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]' || '[{"os":"ubuntu-24.04","name":"linux-x64","vosk":"0.3.45"},{"os":"macos-15-intel","name":"macos-intel","vosk":"0.3.42"},{"os":"macos-15","name":"macos-apple-silicon","vosk":"0.3.42"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
