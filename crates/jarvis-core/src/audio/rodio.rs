@@ -1,18 +1,10 @@
-/*
-    Abandoned temporary.
-    Problems with blocking behaviour.
-    Possible fixes are running rodio in a separate thread or smthng.
-*/
-
 use once_cell::sync::OnceCell;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-// use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use rodio::{Decoder, Sink};
 
-// static STREAM: OnceCell<OutputStream> = OnceCell::new();
 static SINK: OnceCell<Sink> = OnceCell::new();
 static INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -35,8 +27,6 @@ pub fn init() -> Result<(), ()> {
             let sink = Sink::connect_new(&stream_handle.mixer());
             info!("Sink initialized.");
 
-            // store
-            // STREAM.set(_stream).unwrap();
             if ready.send(Ok(sink)).is_ok() {
                 loop { std::thread::park(); }
             }
