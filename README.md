@@ -424,7 +424,7 @@ cargo test -p jarvis-gui
 
 [![Linux Experimental](https://img.shields.io/badge/Linux-1.0.0_Experimental-e7ad49?style=for-the-badge&logo=linux&logoColor=white)](docs/CROSS_PLATFORM.md#установочные-пакеты-linux-и-macos)
 
-**Скачать:** [Linux x64 — `.deb` и AppImage в одном ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38175798460/artifacts/11715748897). [Журнал сборки и установки](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38175798460).
+**Скачать:** [Linux x64 — `.deb` и AppImage в одном ZIP, с обменом по Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679/artifacts/11741414511). [Журнал сборки и проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679).
 
 **База пакетов: Ubuntu 24.04 x64.** Для Debian-подобных совместимых систем собран `.deb`, для других совместимых дистрибутивов — AppImage. Требуется glibc не ниже 2.39; Ubuntu 22.04, Debian 12 и другие старые дистрибутивы не поддерживаются этим рецептом.
 
@@ -441,7 +441,9 @@ cargo test -p jarvis-gui
 | Ваш Mac | Экспериментальный пакет |
 | --- | --- |
 | Intel · x86_64 | [Скачать DMG в ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593/artifacts/11716410932) |
-| Apple Silicon · M-серия · arm64 | [Скачать DMG в ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593/artifacts/11715148906) |
+| Apple Silicon · M-серия · arm64 | [Скачать DMG в ZIP, с обменом по Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679/artifacts/11742660250) |
+
+Пакет Intel по ссылке выше — предыдущая сборка, без нового обмена с телефоном. [Новая Intel-сборка с Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679) появится в артефактах после успешного завершения соответствующего задания.
 
 Серверные проверки macOS выполняются на macOS 15 и проверяют сборку, ресурсы и загрузку исполняемых файлов внутри `.app`, не микрофон и не работу интерфейса с оборудованием. [Журнал нативных проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593).
 
