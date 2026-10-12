@@ -30,6 +30,20 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose mobile/android/dist/JARVIS-Mobile-1.0.0-lab.apk
           cd mobile/android/dist
           sha256sum JARVIS-Mobile-1.0.0-lab.apk > SHA256SUMS.txt
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android instrumented tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          working-directory: mobile/android
+          script: gradle --no-daemon connectedDebugAndroidTest
       - uses: actions/upload-artifact@v4
         with:
           name: jarvis-android-1.0.0-mobile-lab
@@ -40,3 +54,8 @@ jobs:
         with:
           name: android-lint-reports
           path: mobile/android/app/build/reports/lint-results-debug.*
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-instrumented-test-reports
+          path: mobile/android/app/build/reports/androidTests/connected/**
