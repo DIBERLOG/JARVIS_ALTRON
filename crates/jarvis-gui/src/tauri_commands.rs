@@ -55,3 +55,5 @@ mod vault;
 pub use vault::*;
 mod outlook;
 pub use outlook::*;
+mod lan_sync;
+pub use lan_sync::*;

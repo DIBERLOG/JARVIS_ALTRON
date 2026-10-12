@@ -12,6 +12,7 @@
     import Footer from "@/components/Footer.svelte"
     import ListeningShortcut from "@/components/ListeningShortcut.svelte"
     import CenterDataTransfer from '@/components/CenterDataTransfer.svelte'
+    import LanSync from '@/components/LanSync.svelte'
     import ChatProviderSettings from '@/components/ChatProviderSettings.svelte'
     import ScheduleWebsite from '@/components/ScheduleWebsite.svelte'
 
@@ -539,6 +540,7 @@
     </Tabs.Tab>
     <Tabs.Tab label="Данные и резервные копии" icon={Gear}>
         <CenterDataTransfer />
+        <LanSync />
         <p class="settings-hint">История бесед экспортируется отдельно: «Чат → Экспорт текущего чата / Экспорт всех чатов».</p>
     </Tabs.Tab>
     <Tabs.Tab label="Сайты и команды" icon={Gear}>

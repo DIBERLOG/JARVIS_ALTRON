@@ -2,175 +2,96 @@ package com.diberlog.jarvis.mobile;
 
 import android.app.*;
 import android.content.*;
-import android.os.Bundle;
-import android.graphics.Color;
-import android.speech.RecognizerIntent;
+import android.graphics.*;
+import android.os.*;
+import android.speech.*;
 import android.speech.tts.TextToSpeech;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
+import androidx.fragment.app.FragmentActivity;
+import com.google.zxing.integration.android.*;
 import org.json.*;
+import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
+import javax.crypto.SecretKey;
 
-/** Intentionally separate from the desktop engine: no shell, COM or background microphone. */
-public final class MainActivity extends Activity {
-    private LinearLayout page;
-    private EditText input, note;
-    private TextView conversation;
-    private Button send;
-    private String provider = "OpenAI", model = "gpt-4.1-mini", key = "", lastAnswer = "", draft = "";
-    private JSONArray messages = new JSONArray();
-    private JSONArray tasks = new JSONArray();
-    private SharedPreferences preferences;
-    private TextToSpeech speaker;
-    private boolean speechReady, busy;
-    private int tab;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private static final int VOICE = 1;
-
-    @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
-        preferences = getSharedPreferences("jarvis-mobile", MODE_PRIVATE);
-        provider = preferences.getString("provider", "OpenAI");
-        model = preferences.getString("model", "gpt-4.1-mini");
-        try { messages = new JSONArray(preferences.getString("messages", "[]")); tasks = new JSONArray(preferences.getString("tasks", "[]")); }
-        catch (JSONException e) { toast("История повреждена. Сохранённые данные не будут заменены до явного изменения."); }
-        if (state != null) { draft = state.getString("draft", ""); tab = state.getInt("tab", 0); }
-        speaker = new TextToSpeech(this, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                int language = speaker.setLanguage(new Locale("ru", "RU"));
-                speechReady = language != TextToSpeech.LANG_MISSING_DATA && language != TextToSpeech.LANG_NOT_SUPPORTED;
-            }
-        });
-        show(tab);
+public final class MainActivity extends FragmentActivity {
+    static final String[] SECTIONS={"Центр","Чат","Новости","Заметки","Задачи","Таймер","Напоминания","Дни рождения","Погода","Привычки","Тренировки","Пароли","Синхронизация","Настройки"};
+    static final int TEAL=Color.rgb(74,225,213),BG=Color.rgb(8,24,29),PANEL=Color.rgb(15,39,45),WHITE=Color.rgb(224,247,248),MUTED=Color.rgb(153,186,193);
+    LinearLayout page;EditText input;TextView conversation,timerLabel;Button send;
+    android.content.SharedPreferences prefs;TextToSpeech speaker;boolean speechReady,busy;String apiKey="",chatId="",lastAnswer="",draft="";int tab;
+    volatile SecretKey vaultKey;volatile JSONArray vaultCards;volatile JSONObject vaultFile;String exportVault="";boolean foreground;AlertDialog secretDialog;
+    final ExecutorService worker=Executors.newSingleThreadExecutor();final Handler handler=new Handler(Looper.getMainLooper());Typeface face;
+    interface Job{void run()throws Exception;}
+    @Override public void onCreate(Bundle state){super.onCreate(state);prefs=MobileStore.prefs(this);try{face=Typeface.createFromAsset(getAssets(),"Manrope.ttf");}catch(Exception ignored){face=Typeface.DEFAULT;}if(state!=null){tab=state.getInt("tab",0);draft=state.getString("draft","");chatId=state.getString("chatId","");}
+        speaker=new TextToSpeech(this,s->{if(s==TextToSpeech.SUCCESS&&speaker!=null){int l=speaker.setLanguage(new Locale("ru","RU"));speechReady=l!=TextToSpeech.LANG_MISSING_DATA&&l!=TextToSpeech.LANG_NOT_SUPPORTED;}});
+        ReminderReceiver.schedule(this);SyncWorker.configure(this);show(tab);handler.post(tick);
     }
-
-    private void show(int selected) {
-        if (input != null) draft = input.getText().toString();
-        input = null; note = null; conversation = null; send = null; tab = selected;
-        LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(24, 24, 24, 24); root.setBackgroundColor(Color.rgb(8, 26, 31));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            view.setPadding(24 + insets.getSystemWindowInsetLeft(), 24 + insets.getSystemWindowInsetTop(),
-                24 + insets.getSystemWindowInsetRight(), 24 + insets.getSystemWindowInsetBottom());
-            return insets;
-        });
-        TextView header = label("JARVIS · MOBILE LAB", 24); root.addView(header);
-        LinearLayout tabs = new LinearLayout(this);
-        String[] names = {"Чат", "Заметка", "Задачи", "Настройки"};
-        for (int i = 0; i < names.length; i++) { final int next = i; Button b = button(names[i], () -> show(next)); tabs.addView(b, new LinearLayout.LayoutParams(0, -2, 1)); }
-        root.addView(tabs);
-        ScrollView scroll = new ScrollView(this); page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL); scroll.addView(page);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1)); setContentView(root);
-        if (selected == 0) chat(); else if (selected == 1) note(); else if (selected == 2) tasks(); else settings();
+    int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
+    TextView label(String s,int size){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(WHITE);t.setTypeface(face);t.setPadding(0,dp(8),0,dp(8));t.setTextIsSelectable(true);return t;}
+    void text(String s){page.addView(label(s,14));}
+    EditText field(String hint,String value,boolean secret){TextView l=label(hint,12);l.setTextColor(MUTED);page.addView(l);EditText e=new EditText(this);e.setTypeface(face);e.setTextColor(WHITE);e.setHintTextColor(MUTED);e.setText(value);e.setHint(hint);e.setContentDescription(hint);e.setMinHeight(dp(48));e.setInputType(secret?InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD:InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);if(secret)e.setSaveEnabled(false);page.addView(e);return e;}
+    Button button(String title,Runnable job){Button b=new Button(this);b.setText(title);b.setTypeface(face);b.setTextColor(BG);b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(TEAL));b.setMinHeight(dp(48));b.setAllCaps(false);b.setOnClickListener(v->job.run());return b;}
+    void action(String title,Runnable job){Button b=button(title,job);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(6),0,dp(6));page.addView(b,p);}
+    void error(String message){if(!isFinishing()&&!isDestroyed())new AlertDialog.Builder(this).setTitle("JARVIS").setMessage(message).setPositiveButton("Понятно",null).show();}
+    void confirm(String message,Runnable yes){new AlertDialog.Builder(this).setMessage(message).setPositiveButton("Да",(d,w)->yes.run()).setNegativeButton("Отмена",null).show();}
+    void job(Job job,Runnable done){if(busy){error("Дождитесь текущей операции.");return;}busy=true;worker.execute(()->{try{job.run();runOnUiThread(()->{busy=false;if(!isDestroyed()&&!isFinishing())done.run();});}catch(Exception e){runOnUiThread(()->{busy=false;error(e instanceof javax.crypto.AEADBadTagException?"Неверный мастер-пароль или повреждённый сейф.":e.getMessage()==null?"Операция не выполнена. Данные сохранены.":e.getMessage());});}});}
+    void show(int selected){if(tab==1&&input!=null)draft=input.getText().toString();input=null;conversation=null;send=null;timerLabel=null;if(tab==11&&selected!=11)lockVault();tab=selected;
+        if(tab==11)getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setPadding(dp(18),dp(16),dp(18),dp(16));root.setBackgroundColor(BG);root.setOnApplyWindowInsetsListener((v,i)->{v.setPadding(dp(18)+i.getSystemWindowInsetLeft(),dp(16)+i.getSystemWindowInsetTop(),dp(18)+i.getSystemWindowInsetRight(),dp(16)+i.getSystemWindowInsetBottom());return i;});
+        LinearLayout brand=new LinearLayout(this);brand.setGravity(Gravity.CENTER_VERTICAL);ImageView logo=new ImageView(this);logo.setImageResource(com.diberlog.jarvis.mobile.R.drawable.jarvis_logo);logo.setContentDescription("JARVIS");brand.addView(logo,new LinearLayout.LayoutParams(dp(42),dp(42)));TextView title=label("  JARVIS / MOBILE",22);brand.addView(title);root.addView(brand);TextView lab=label("1.0.0 · LAB  /  ВАШ ЛИЧНЫЙ ЦЕНТР",11);lab.setTextColor(TEAL);root.addView(lab);
+        Spinner sections=new Spinner(this);ArrayAdapter<String> adapter=new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,SECTIONS){@Override public View getView(int p,View old,ViewGroup parent){TextView t=(TextView)super.getView(p,old,parent);t.setTextColor(WHITE);t.setTypeface(face);t.setPadding(dp(10),dp(12),dp(10),dp(12));return t;}};adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);sections.setAdapter(adapter);sections.setSelection(selected);sections.setContentDescription("Раздел приложения");root.addView(sections);sections.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){public void onNothingSelected(AdapterView<?> p){}public void onItemSelected(AdapterView<?> p,View v,int n,long id){if(n!=tab)show(n);}});
+        ScrollView scroll=new ScrollView(this);page=new LinearLayout(this);page.setOrientation(1);page.setPadding(dp(12),dp(8),dp(12),dp(20));page.setBackgroundColor(PANEL);scroll.addView(page);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
+        try{switch(tab){case 0:center();break;case 1:chat();break;case 2:news();break;case 3:notes();break;case 4:tasks();break;case 5:timer();break;case 6:reminders();break;case 7:birthdays();break;case 8:weather();break;case 9:habits();break;case 10:training();break;case 11:vault();break;case 12:sync();break;default:settings();}}catch(Exception e){error("Не удалось открыть раздел: "+e.getMessage()+". Исходные данные не заменены.");}
     }
-
-    private TextView label(String text, int size) {
-        TextView view = new TextView(this); view.setText(text); view.setTextSize(size); view.setTextColor(Color.rgb(220, 249, 250));
-        view.setPadding(0, 12, 0, 12); view.setTextIsSelectable(true); return view;
+    void center()throws Exception {JSONObject d=MobileStore.center(this);text("Все важное — рядом. Данные Центра доступны без интернета; новости, погода и облачный чат требуют сети.");for(int t:new int[]{3,6,7,9,10,11,1,12}){final int n=t;action(SECTIONS[t]+" →",()->show(n));}text("Заметок: "+d.getJSONArray("notes").length()+" · Напоминаний: "+d.getJSONArray("reminders").length());text("Нет фонового прослушивания, почты и агентов LAB. Сначала тестируйте на вымышленных данных.");}
+    JSONObject activeChat()throws Exception{JSONArray chats=MobileStore.chats(this);for(int i=0;i<chats.length();i++)if(chats.getJSONObject(i).getString("id").equals(chatId))return chats.getJSONObject(i);JSONObject chat=new JSONObject().put("id",MobileStore.id()).put("title","Новый чат").put("updatedAt",MobileStore.now()).put("messages",new JSONArray());chatId=chat.getString("id");chats.put(chat);MobileStore.saveChats(this,chats);return chat;}
+    void saveChat(JSONObject chat)throws Exception{synchronized(MobileStore.class){JSONArray chats=MobileStore.chats(this);for(int i=0;i<chats.length();i++)if(chats.getJSONObject(i).getString("id").equals(chat.getString("id"))){chats.put(i,chat);MobileStore.saveChats(this,chats);return;}chats.put(chat);MobileStore.saveChats(this,chats);}}
+    String transcript(JSONArray messages){StringBuilder t=new StringBuilder();for(int i=0;i<messages.length();i++){JSONObject m=messages.optJSONObject(i);if(m!=null)t.append("assistant".equals(m.optString("role"))?"JARVIS: ":"Вы: ").append(m.optString("content")).append("\n\n");}return t.toString();}
+    void chat()throws Exception{String provider=prefs.getString("provider","OpenAI");text("Провайдер: "+provider+" · "+prefs.getString("model","gpt-4.1-mini")+". Только текст выбранной беседы отправляется модели. Возможны расходы.");JSONArray chats=MobileStore.chats(this);for(int i=0;i<chats.length();i++){JSONObject c=chats.getJSONObject(i);action("Беседа: "+c.optString("title"),()->{chatId=c.optString("id");show(1);});}action("Новая беседа",()->{chatId="";draft="";show(1);});JSONObject current=activeChat();conversation=label(transcript(current.getJSONArray("messages")),15);page.addView(conversation);input=field("Запрос",draft,false);action("Продиктовать запрос",this::dictate);send=button(busy?"Ожидание ответа…":"Отправить запрос",this::ask);send.setEnabled(!busy);page.addView(send);action("Озвучить последний ответ",()->{if(speechReady&&!lastAnswer.isEmpty())speaker.speak(lastAnswer,TextToSpeech.QUEUE_FLUSH,null,"jarvis");else error("Ответ или русский системный голос недоступен.");});action("Поделиться беседой",()->{try{share(transcript(activeChat().getJSONArray("messages")));}catch(Exception e){error(e.getMessage());}});action("Удалить эту беседу",()->confirm("Удалить беседу? При включённой синхронизации чатов удаление передастся компьютеру.",()->{if(busy){error("Дождитесь ответа.");return;}try{JSONArray all=MobileStore.chats(this),keep=new JSONArray();for(int i=0;i<all.length();i++)if(!all.getJSONObject(i).getString("id").equals(chatId))keep.put(all.getJSONObject(i));MobileStore.saveChats(this,keep);chatId="";show(1);}catch(Exception e){error(e.getMessage());}}));}
+    void ask(){if(busy||input==null)return;String text=input.getText().toString().trim();if(text.isEmpty()||text.length()>4000){error("Введите запрос до 4000 символов.");return;}if(apiKey.isEmpty()){error("В настройках выберите провайдера, модель и введите свой API-ключ.");return;}try{JSONObject c=activeChat();JSONArray messages=c.getJSONArray("messages");messages.put(new JSONObject().put("role","user").put("content",text));c.put("title",c.optString("title").equals("Новый чат")?text.substring(0,Math.min(80,text.length())):c.getString("title")).put("updatedAt",MobileStore.now());saveChat(c);JSONArray context=new JSONArray();for(int i=Math.max(0,messages.length()-20);i<messages.length();i++)context.put(messages.getJSONObject(i));String key=apiKey,model=prefs.getString("model","gpt-4.1-mini");boolean openai="OpenAI".equals(prefs.getString("provider","OpenAI"));draft="";input.setText("");conversation.setText(transcript(messages));send.setEnabled(false);send.setText("Ожидание ответа…");
+        job(()->{String answer=ChatClient.ask(openai,key,model,context);messages.put(new JSONObject().put("role","assistant").put("content",answer));c.put("updatedAt",MobileStore.now());saveChat(c);lastAnswer=answer;},()->show(tab));
+    }catch(Exception e){error(e.getMessage());}}
+    void notes()throws Exception{EditText title=field("Заголовок заметки","",false),body=field("Текст заметки","",false);body.setMinLines(4);input=body;action("Продиктовать",this::dictate);action("Сохранить новую заметку",()->{try{if(title.length()==0||body.length()>12000)throw new Exception("Укажите заголовок; текст до 12 000 символов.");JSONObject d=MobileStore.center(this);d.getJSONArray("notes").put(new JSONObject().put("id",MobileStore.id()).put("title",title.getText().toString()).put("text",body.getText().toString()).put("format","plain").put("updatedAt",MobileStore.now()));MobileStore.save(this,d);draft="";show(3);}catch(Exception e){error(e.getMessage());}});JSONArray ns=MobileStore.center(this).getJSONArray("notes");for(int i=0;i<ns.length();i++){JSONObject n=ns.getJSONObject(i);text(n.optString("title"));text(n.optString("text"));action("Изменить: "+n.optString("title"),()->editNote(n));action("Поделиться: "+n.optString("title"),()->share(n.optString("text")));remove("notes",n,3);}}
+    void editNote(JSONObject n){EditText value=new EditText(this);value.setText(n.optString("text"));new AlertDialog.Builder(this).setTitle(n.optString("title")).setView(value).setPositiveButton("Сохранить",(x,y)->{try{JSONObject d=MobileStore.center(this);JSONArray list=d.getJSONArray("notes");for(int i=0;i<list.length();i++)if(list.getJSONObject(i).optString("id").equals(n.optString("id")))list.getJSONObject(i).put("text",value.getText().toString()).put("format","plain").put("html","").put("updatedAt",MobileStore.now());MobileStore.save(this,d);show(3);}catch(Exception e){error(e.getMessage());}}).setNegativeButton("Отмена",null).show();}
+    void remove(String collection,JSONObject item,int section){action("Удалить: "+item.optString("title",item.optString("name","запись")),()->confirm("Удалить запись? Удаление также синхронизируется с компьютером.",()->{try{JSONObject d=MobileStore.center(this);JSONArray old=d.getJSONArray(collection),keep=new JSONArray();for(int i=0;i<old.length();i++)if(!old.getJSONObject(i).optString("id").equals(item.optString("id")))keep.put(old.getJSONObject(i));d.put(collection,keep);MobileStore.save(this,d);show(section);}catch(Exception e){error(e.getMessage());}}));}
+    void tasks()throws Exception{EditText title=field("Новая задача","",false);action("Добавить задачу",()->{try{String t=title.getText().toString().trim();if(t.isEmpty()||t.length()>500)throw new Exception("Задача: от 1 до 500 символов");JSONArray a=new JSONArray(prefs.getString("tasks","[]"));a.put(new JSONObject().put("text",t).put("done",false));prefs.edit().putString("tasks",a.toString()).apply();show(4);}catch(Exception e){error(e.getMessage());}});JSONArray tasks=new JSONArray(prefs.getString("tasks","[]"));for(int i=0;i<tasks.length();i++){JSONObject t=tasks.getJSONObject(i);CheckBox b=new CheckBox(this);b.setText(t.optString("text"));b.setTextColor(WHITE);b.setChecked(t.optBoolean("done"));b.setOnCheckedChangeListener((v,done)->{try{t.put("done",done);prefs.edit().putString("tasks",tasks.toString()).apply();}catch(Exception e){error(e.getMessage());}});page.addView(b);}text("Быстрый список задач хранится на телефоне. Для синхронизации с ПК используйте напоминания с датой.");}
+    void timer(){text("Таймер работает на этом устройстве и не переносится на компьютер. Без разрешения на точные сигналы Android может задержать уведомление.");timerLabel=label("",32);page.addView(timerLabel);EditText minutes=field("Минуты","5",false);minutes.setInputType(InputType.TYPE_CLASS_NUMBER);action("Запустить таймер",()->{try{int n=Integer.parseInt(minutes.getText().toString());if(n<1||n>1440)throw new Exception("Введите от 1 до 1440 минут");long end=System.currentTimeMillis()+n*60000L;prefs.edit().putLong("timerEnd",end).apply();ReminderReceiver.alarm(this,"timer","Таймер завершён",end);show(5);}catch(Exception e){error(e.getMessage());}});action("Остановить таймер",()->{prefs.edit().putLong("timerEnd",0).apply();ReminderReceiver.cancel(this,"timer");show(5);});action("Разрешения уведомлений",this::notificationPermissions);}
+    final Runnable tick=new Runnable(){public void run(){if(timerLabel!=null){long remain=Math.max(0,(prefs.getLong("timerEnd",0)-System.currentTimeMillis()+999)/1000);timerLabel.setText(String.format(Locale.ROOT,"%02d:%02d",remain/60,remain%60));}handler.postDelayed(this,1000);}};
+    void reminders()throws Exception{EditText title=field("Напоминание","",false),date=field("Дата и время · ГГГГ-ММ-ДД ЧЧ:ММ",LocalDateTime.now().plusHours(1).withSecond(0).withNano(0).toString().replace('T',' '),false);action("Добавить напоминание",()->{try{String t=title.getText().toString().trim();if(t.isEmpty())throw new Exception("Введите текст напоминания");String at=LocalDateTime.parse(date.getText().toString().replace(' ','T')).atZone(ZoneId.systemDefault()).toInstant().toString();JSONObject d=MobileStore.center(this);d.getJSONArray("reminders").put(new JSONObject().put("id",MobileStore.id()).put("title",t).put("dueAt",at).put("done",false).put("createdAt",MobileStore.now()));MobileStore.save(this,d);show(6);}catch(Exception e){error("Проверьте текст и дату. Пример: 2026-10-15 14:00");}});JSONArray list=MobileStore.center(this).getJSONArray("reminders");for(int i=0;i<list.length();i++){JSONObject r=list.getJSONObject(i);CheckBox b=new CheckBox(this);b.setText(r.optString("title")+"\n"+r.optString("dueAt"));b.setTextColor(WHITE);b.setChecked(r.optBoolean("done"));b.setOnCheckedChangeListener((v,checked)->{try{JSONObject d=MobileStore.center(this);JSONArray a=d.getJSONArray("reminders");for(int n=0;n<a.length();n++)if(a.getJSONObject(n).optString("id").equals(r.optString("id")))a.getJSONObject(n).put("done",checked);MobileStore.save(this,d);}catch(Exception e){error(e.getMessage());}});page.addView(b);remove("reminders",r,6);}action("Разрешения уведомлений",this::notificationPermissions);text("При отсутствии разрешений или ограничениях батареи уведомления могут задерживаться. Оба устройства могут уведомить о синхронизированном напоминании.");}
+    void birthdays()throws Exception{EditText name=field("Имя","",false),date=field("Первая дата · ГГГГ-ММ-ДД",LocalDate.now().toString(),false);action("Добавить день рождения",()->{try{LocalDate at=LocalDate.parse(date.getText().toString());if(name.length()==0)throw new Exception();JSONObject d=MobileStore.center(this);d.getJSONArray("birthdays").put(new JSONObject().put("id",MobileStore.id()).put("name",name.getText().toString()).put("month",at.getMonthValue()).put("day",at.getDayOfMonth()).put("year",at.getYear()));MobileStore.save(this,d);show(7);}catch(Exception e){error("Укажите имя и дату в формате ГГГГ-ММ-ДД.");}});JSONArray a=MobileStore.center(this).getJSONArray("birthdays");for(int i=0;i<a.length();i++){JSONObject b=a.getJSONObject(i);text(b.optString("name")+" · "+b.optInt("day")+"."+b.optInt("month")+" · начиная с "+b.optInt("year",LocalDate.now().getYear()));remove("birthdays",b,7);}text("Уведомление планируется на 09:00 по времени телефона. Для 29 февраля в невисокосном году используется 1 марта.");}
+    void habits()throws Exception{EditText title=field("Название привычки","",false),goal=field("Цель на день","1",false);action("Добавить привычку",()->{try{int n=Integer.parseInt(goal.getText().toString());if(title.length()==0||n<1||n>10000)throw new Exception();JSONObject d=MobileStore.center(this);d.getJSONArray("habits").put(new JSONObject().put("id",MobileStore.id()).put("title",title.getText().toString()).put("caption","").put("icon","◇").put("unit","раз").put("target",n).put("createdOn",LocalDate.now().toString()).put("entries",new JSONObject()));MobileStore.save(this,d);show(9);}catch(Exception e){error("Укажите название и цель от 1 до 10 000.");}});JSONArray a=MobileStore.center(this).getJSONArray("habits");String today=LocalDate.now().toString();for(int i=0;i<a.length();i++){JSONObject h=a.getJSONObject(i);if(h.has("archivedOn"))continue;int count=h.optJSONObject("entries")==null?0:h.getJSONObject("entries").optInt(today,0);text(h.optString("title")+" · сегодня "+count+" / "+h.optInt("target",1));action("+1: "+h.optString("title"),()->{try{JSONObject d=MobileStore.center(this);JSONArray list=d.getJSONArray("habits");for(int n=0;n<list.length();n++){JSONObject item=list.getJSONObject(n);if(item.optString("id").equals(h.optString("id"))){JSONObject entries=item.optJSONObject("entries");if(entries==null){entries=new JSONObject();item.put("entries",entries);}entries.put(today,entries.optInt(today,0)+1);}}MobileStore.save(this,d);show(9);}catch(Exception e){error(e.getMessage());}});remove("habits",h,9);}}
+    void training()throws Exception{EditText name=field("Упражнение","",false),weight=field("Вес, кг","0",false),reps=field("Повторения","10",false),note=field("Примечание","",false);action("Записать выполненный подход",()->{try{double w=Double.parseDouble(weight.getText().toString().replace(',','.'));int r=Integer.parseInt(reps.getText().toString());if(name.length()==0||!Double.isFinite(w)||w<0||w>1000||r<1||r>1000)throw new Exception("Проверьте название, вес и повторения");JSONObject d=MobileStore.center(this),t=d.optJSONObject("training");if(t==null){t=new JSONObject().put("exercises",new JSONArray()).put("plans",new JSONArray()).put("sessions",new JSONArray());d.put("training",t);}String exercise=MobileStore.id(),at=MobileStore.now();JSONObject e=new JSONObject().put("id",exercise).put("name",name.getText().toString()).put("muscle","Другое").put("equipment","Не указано");t.getJSONArray("exercises").put(e);JSONObject item=new JSONObject(e.toString()).put("exerciseId",exercise).put("sets",1).put("minReps",r).put("maxReps",r).put("rest",60);JSONObject set=new JSONObject().put("id",MobileStore.id()).put("exerciseId",exercise).put("weight",w).put("reps",r).put("rpe",JSONObject.NULL).put("warmup",false).put("at",at);t.getJSONArray("sessions").put(new JSONObject().put("id",MobileStore.id()).put("planId","mobile-log").put("name",name.getText().toString()).put("startedAt",at).put("finishedAt",at).put("status","completed").put("elapsed",0).put("resumedAt",JSONObject.NULL).put("items",new JSONArray().put(item)).put("sets",new JSONArray().put(set)).put("warmup",new JSONArray().put(false).put(false).put(false)).put("note",note.getText().toString()));MobileStore.save(this,d);show(10);}catch(Exception e){error(e.getMessage());}});JSONObject t=MobileStore.center(this).optJSONObject("training");if(t!=null){JSONArray sessions=t.getJSONArray("sessions");for(int i=sessions.length()-1;i>=Math.max(0,sessions.length()-30);i--){JSONObject s=sessions.getJSONObject(i);text(s.optString("name")+" · "+s.optString("startedAt")+" · "+s.optString("status"));JSONArray sets=s.optJSONArray("sets");if(sets!=null)for(int n=0;n<sets.length();n++){JSONObject set=sets.getJSONObject(n);text(set.optDouble("weight")+" кг × "+set.optInt("reps"));}}}text("Мобильный дневник выполненных подходов; не медицинские рекомендации и не автоматическое назначение нагрузки. Сложные программы редактируются на ПК.");}
+    void news(){text("Новости из RSS. Выберите источник; открытие статьи передаёт вас внешнему сайту.");EditText url=field("HTTPS RSS-лента",prefs.getString("newsUrl","https://feeds.bbci.co.uk/news/world/rss.xml"),false);action("Обновить новости",()->job(()->{String u=url.getText().toString().trim();String result=PublicData.news(u);prefs.edit().putString("newsUrl",u).putString("newsCache",result).apply();},()->show(2)));try{JSONArray items=new JSONArray(prefs.getString("newsCache","[]"));for(int i=0;i<items.length();i++){JSONObject item=items.getJSONObject(i);action(item.optString("title"),()->openWebsite(item.optString("url")));}}catch(Exception e){error(e.getMessage());}text("Источник: "+prefs.getString("newsUrl","BBC World RSS")+". Кэш доступен без сети; русский RSS можно указать вручную.");}
+    void weather(){EditText city=field("Город",prefs.getString("weatherCity","Москва"),false);action("Получить прогноз на 7 дней",()->job(()->{String c=city.getText().toString().trim();String forecast=PublicData.weather(c);prefs.edit().putString("weatherCity",c).putString("weatherCache",forecast).putString("weatherTime",MobileStore.now()).apply();},()->show(8)));text(prefs.getString("weatherCache","Прогноз ещё не загружен."));text("Источник: Open-Meteo · обновлено "+prefs.getString("weatherTime","—")+". Город хранится на телефоне отдельно от данных синхронизации.");}
+    void lockVault(){vaultKey=null;vaultCards=null;vaultFile=null;}
+    void vault()throws Exception{vaultFile=PrivateStorage.vault(this);text("Отдельный зашифрованный сейф. Не передаётся моделям или обычному экспорту. Без мастер-пароля восстановление не гарантируется; сначала используйте тестовые записи.");if(vaultKey==null){EditText pass=field(vaultFile==null?"Новый мастер-пароль":"Мастер-пароль","",true);action(vaultFile==null?"Создать сейф":"Разблокировать",()->{char[] password=pass.getText().toString().toCharArray();pass.setText("");job(()->{try{JSONObject f=PrivateStorage.vault(this);if(f==null){f=VaultCrypto.create(password);PrivateStorage.vault(this,f);}SecretKey k=VaultCrypto.unlock(f,password);vaultCards=VaultCrypto.cards(f,k);vaultKey=k;vaultFile=f;}finally{Arrays.fill(password,'\0');}},()->show(11));});if(vaultFile!=null&&!prefs.getString("vaultBiometric","").isEmpty())action("Разблокировать отпечатком",()->BiometricVault.authenticate(this,vaultFile,null,new BiometricVault.Result(){public void done(SecretKey key){try{vaultKey=key;vaultCards=VaultCrypto.cards(vaultFile,key);show(11);}catch(Exception e){error("Сейф не разблокирован.");}}public void error(String s){MainActivity.this.error(s);}}));encryptedBackup();return;}
+        EditText title=field("Название записи","",false),login=field("Логин","",false),password=field("Пароль записи","",true),site=field("Сайт","",false);action("Добавить пароль",()->job(()->{if(title.length()==0||password.length()==0)throw new Exception("Введите название и пароль");vaultCards.put(new JSONObject().put("id",MobileStore.id()).put("title",title.getText().toString()).put("login",login.getText().toString()).put("password",password.getText().toString()).put("site",site.getText().toString()).put("html","").put("updatedAt",MobileStore.now()));vaultFile=VaultCrypto.update(vaultFile,vaultKey,vaultCards);PrivateStorage.vault(this,vaultFile);},()->show(11)));
+        for(int i=0;i<vaultCards.length();i++){JSONObject card=vaultCards.getJSONObject(i);text(card.optString("title")+" · "+card.optString("login"));action("Показать пароль: "+card.optString("title"),()->new AlertDialog.Builder(this).setTitle(card.optString("title")).setMessage(card.optString("password")).setPositiveButton("Закрыть",null).show());final String id=card.getString("id");action("Удалить пароль: "+card.optString("title"),()->confirm("Удалить запись из сейфа? Изменение передастся при синхронизации.",()->job(()->{JSONArray keep=new JSONArray();for(int n=0;n<vaultCards.length();n++)if(!vaultCards.getJSONObject(n).getString("id").equals(id))keep.put(vaultCards.getJSONObject(n));vaultFile=VaultCrypto.update(vaultFile,vaultKey,keep);PrivateStorage.vault(this,vaultFile);vaultCards=keep;},()->show(11))));}
+        action("Разрешить разблокировку отпечатком",()->BiometricVault.authenticate(this,vaultFile,vaultKey,new BiometricVault.Result(){public void done(SecretKey k){Toast.makeText(MainActivity.this,"Биометрия включена",Toast.LENGTH_LONG).show();}public void error(String s){MainActivity.this.error(s);}}));
+        if(!prefs.getString("vaultConflict","").isEmpty()){text("Есть другая версия сейфа с компьютера. При конфликте одной записи обе записи будут сохранены с пометкой.");EditText master=field("Общий мастер-пароль для объединения","",true);action("Объединить зашифрованные версии",()->{char[] pass=master.getText().toString().toCharArray();master.setText("");job(()->{try{JSONObject remote=new JSONObject(prefs.getString("vaultConflict","{}"));SecretKey remoteKey=VaultCrypto.unlock(remote,pass);JSONArray remoteCards=VaultCrypto.cards(remote,remoteKey),baseCards=new JSONArray();String b=prefs.getString("syncBaseVault","null");if(!b.equals("null")){JSONObject bf=new JSONObject(b);baseCards=VaultCrypto.cards(bf,VaultCrypto.unlock(bf,pass));}JSONArray merged=MobileStore.mergeRecords(baseCards,remoteCards,vaultCards,true);JSONObject f=VaultCrypto.update(remote,remoteKey,merged);PrivateStorage.vault(this,f);prefs.edit().putString("syncBaseVault",remote.toString()).remove("vaultConflict").remove("vaultBiometric").commit();vaultKey=remoteKey;vaultFile=f;vaultCards=merged;SyncClient.sync(this);}finally{Arrays.fill(pass,'\0');}},()->show(11));});}
+        encryptedBackup();action("Заблокировать сейф",()->{lockVault();show(11);});}
+    void encryptedBackup(){action("Экспорт зашифрованной резервной копии",()->{try{JSONObject f=PrivateStorage.vault(this);if(f==null){error("Сейф ещё не создан.");return;}exportVault=f.toString();Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"jarvis-vault-encrypted.json");startActivityForResult(i,3);}catch(Exception e){error(e.getMessage());}});action("Восстановить зашифрованный сейф",()->confirm("Выбрать зашифрованную резервную копию? Текущий сейф будет сохранён отдельно. После выбора нужно знать мастер-пароль выбранного сейфа.",()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE),4)));}
+    void sync()throws Exception{text("Одна Wi-Fi сеть с компьютером. На ПК: Настройки → Данные и резервные копии → Синхронизация с телефоном → Включить обмен.");action("Сканировать QR-код компьютера",()->new IntentIntegrator(this).setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt("QR-код в настройках JARVIS на ПК").setBeepEnabled(false).setOrientationLocked(false).initiateScan());EditText code=field("Вставить строку сопряжения вместо камеры","",true);action("Подключиться по вставленному коду",()->job(()->SyncClient.begin(this,code.getText().toString(),Build.MANUFACTURER+" "+Build.MODEL),()->show(12)));
+        JSONObject p=PrivateStorage.pairing(this);if(p!=null&&p.has("pendingId")){text("Сравните код на компьютере: "+p.optString("code"));action("Проверить подтверждение компьютера",()->job(()->{if(!SyncClient.finish(this))throw new Exception("Подтверждение ещё не получено. Нажмите разрешение на ПК.");},()->show(12)));}
+        if(p!=null&&p.has("token")){text("Компьютер: "+p.optString("host")+":"+p.optInt("port"));action("Синхронизировать сейчас",()->job(()->SyncClient.sync(this),()->{lockVault();show(12);}));action("Отключить этот компьютер",()->confirm("Отключить синхронизацию? Уже полученные данные останутся на телефоне. Для отзыва доступа отключите телефон также на ПК.",()->job(()->{PrivateStorage.pairing(this,null);prefs.edit().putBoolean("autoSync",false).apply();SyncWorker.configure(this);},()->show(12))));}
+        check("Синхронизировать историю чатов",prefs.getBoolean("syncChats",false),v->prefs.edit().putBoolean("syncChats",v).apply());check("Синхронизировать зашифрованный сейф",prefs.getBoolean("syncVault",false),v->{if(v)confirm("Разрешить обмен зашифрованным сейфом? Включите разрешение и на ПК. Мастер-пароль не передаётся.",()->{prefs.edit().putBoolean("syncVault",true).apply();show(12);});else prefs.edit().putBoolean("syncVault",false).apply();});check("Автообмен по Wi-Fi",prefs.getBoolean("autoSync",false),v->{prefs.edit().putBoolean("autoSync",v).apply();SyncWorker.configure(this);});text("Автообмен планируется Android примерно раз в 15 минут, может откладываться системой. Компьютер и его служба обмена должны быть включены. Без сети изменения сохраняются локально.");text("Последняя синхронизация: "+prefs.getString("lastSync","ещё не выполнена"));text(prefs.getString("lastSyncError",""));JSONArray conflicts=new JSONArray(prefs.getString("syncConflicts","[]"));text("Конфликтов Центра/чатов: "+conflicts.length()+". Обе версии сохранены; выберите нужную в настройках ПК. Конфликт сейфа объединяется в разделе «Пароли».");}
+    interface CheckChanged{void set(boolean value);}
+    void check(String label,boolean selected,CheckChanged change){CheckBox b=new CheckBox(this);b.setText(label);b.setTextColor(WHITE);b.setTypeface(face);b.setChecked(selected);b.setOnCheckedChangeListener((v,c)->change.set(c));page.addView(b);}
+    void settings(){text("Выберите DeepSeek или OpenAI и модель своего аккаунта. API-ключ хранится только в памяти сеанса, не синхронизируется и не записывается в APK.");Spinner providers=new Spinner(this);providers.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"OpenAI","DeepSeek"}));providers.setSelection("OpenAI".equals(prefs.getString("provider","OpenAI"))?0:1);page.addView(providers);EditText model=field("Название модели",prefs.getString("model","gpt-4.1-mini"),false),key=field("API-ключ на текущий сеанс","",true);action("Сохранить провайдера и модель",()->{String provider=providers.getSelectedItem().toString(),m=model.getText().toString().trim(),k=key.getText().toString().trim();if(m.isEmpty()||m.length()>128||k.length()>1024){error("Проверьте название модели и ключ.");return;}if(!provider.equals(prefs.getString("provider","OpenAI")))apiKey="";if(!k.isEmpty())apiKey=k;key.setText("");prefs.edit().putString("provider",provider).putString("model",m).apply();Toast.makeText(this,"Сохранено. Ключ не записан на диск.",Toast.LENGTH_LONG).show();});action("Забыть API-ключ",()->{apiKey="";key.setText("");});action("Разрешения уведомлений и точных сигналов",this::notificationPermissions);text("Без почты, агентов LAB, фонового микрофона и настольного управления программами. Обычные данные хранятся локально без дополнительного шифрования; пароли — в отдельном зашифрованном сейфе. Android-резервное копирование отключено.");}
+    void notificationPermissions(){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},5);if(Build.VERSION.SDK_INT>=31&&!getSystemService(AlarmManager.class).canScheduleExactAlarms())startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,android.net.Uri.parse("package:"+getPackageName())));}
+    void dictate(){Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM).putExtra(RecognizerIntent.EXTRA_LANGUAGE,"ru-RU").putExtra(RecognizerIntent.EXTRA_PROMPT,"Текст не отправляется автоматически");try{startActivityForResult(i,1);}catch(ActivityNotFoundException e){error("Нет установленного распознавателя речи.");}}
+    void openWebsite(String raw){try{android.net.Uri u=android.net.Uri.parse(raw);if(!"https".equals(u.getScheme())&&!"http".equals(u.getScheme()))throw new Exception();startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception e){error("Некорректная ссылка или браузер недоступен.");}}
+    void share(String text){if(text.isEmpty()){error("Нет текста для экспорта.");return;}startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,text),"Поделиться"));}
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);IntentResult scan=IntentIntegrator.parseActivityResult(request,result,data);if(scan!=null){if(scan.getContents()!=null)job(()->SyncClient.begin(this,scan.getContents(),Build.MANUFACTURER+" "+Build.MODEL),()->show(12));return;}if(result!=RESULT_OK||data==null)return;
+        if(request==1){ArrayList<String> words=data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);if(input!=null&&words!=null&&!words.isEmpty())input.append((input.length()==0?"":"\n")+words.get(0));}
+        if(request==3){String sealed=exportVault;exportVault="";job(()->{try(java.io.OutputStream out=getContentResolver().openOutputStream(data.getData())){if(out==null)throw new Exception("Не удалось открыть файл");out.write(sealed.getBytes(java.nio.charset.StandardCharsets.UTF_8));}},()->error("Зашифрованная резервная копия сохранена. Без мастер-пароля её нельзя открыть."));}
+        if(request==4)job(()->{String raw=PublicData.read(getContentResolver().openInputStream(data.getData()),8*1024*1024);JSONObject f=new JSONObject(raw);VaultCrypto.validate(f);PrivateStorage.vault(this,f);prefs.edit().remove("vaultBiometric").remove("syncBaseVault").apply();},()->{lockVault();show(11);});
     }
-    private EditText field(String hint, String value, boolean secret) {
-        EditText view = new EditText(this); view.setHint(hint); view.setText(value); view.setTextColor(Color.WHITE); view.setHintTextColor(Color.LTGRAY);
-        if (secret) { view.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD); view.setSaveEnabled(false); }
-        else view.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        page.addView(view); return view;
-    }
-    private Button button(String text, Runnable action) { Button view = new Button(this); view.setText(text); view.setOnClickListener(v -> action.run()); return view; }
-    private void action(String text, Runnable action) { page.addView(button(text, action)); }
-    private void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_LONG).show(); }
-
-    private void chat() {
-        page.addView(label("Запрос и контекст передаются " + provider + ". Возможны расходы. Модель не выполняет действия на телефоне.", 14));
-        conversation = label(transcript(), 16); page.addView(conversation);
-        input = field("Напишите или продиктуйте запрос", draft, false);
-        action("Продиктовать", this::dictate);
-        send = button(busy ? "Ожидание ответа…" : "Отправить запрос", this::ask); send.setEnabled(!busy); page.addView(send);
-        action("Озвучить последний ответ", () -> { if (speechReady && !lastAnswer.isEmpty()) speaker.speak(lastAnswer, TextToSpeech.QUEUE_FLUSH, null, "jarvis-answer"); else toast("Ответ или русский системный голос недоступен."); });
-        action("Поделиться историей", () -> share(transcript()));
-        action("Очистить историю", () -> new AlertDialog.Builder(this).setMessage("Удалить историю чата на телефоне?")
-            .setPositiveButton("Удалить", (dialog, which) -> { if (busy) { toast("Дождитесь ответа."); return; } messages = new JSONArray(); lastAnswer = ""; saveMessages(); show(0); })
-            .setNegativeButton("Отмена", null).show());
-    }
-
-    private void ask() {
-        if (busy) return;
-        String text = input.getText().toString().trim();
-        if (text.isEmpty() || text.length() > 4000) { toast("Введите запрос до 4000 символов."); return; }
-        if (key.isEmpty()) { toast("В настройках укажите свой API-ключ. Он хранится только в памяти этого сеанса."); return; }
-        try {
-            messages.put(new JSONObject().put("role", "user").put("content", text)); trimHistory(); saveMessages();
-            JSONArray context = new JSONArray();
-            for (int i = Math.max(0, messages.length() - 20); i < messages.length(); i++) context.put(messages.getJSONObject(i));
-            String requestKey = key, requestModel = model; boolean openai = "OpenAI".equals(provider);
-            busy = true; draft = ""; input.setText(""); conversation.setText(transcript()); send.setEnabled(false); send.setText("Ожидание ответа…");
-            worker.execute(() -> {
-                try { String answer = ChatClient.ask(openai, requestKey, requestModel, context);
-                    runOnUiThread(() -> { if (isFinishing() || isDestroyed()) return; try { messages.put(new JSONObject().put("role", "assistant").put("content", answer)); lastAnswer = answer; trimHistory(); saveMessages(); } catch (JSONException ignored) {} finishRequest(null); });
-                } catch (Exception error) { runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) finishRequest(error instanceof java.io.IOException || error instanceof IllegalArgumentException ? error.getMessage() : "Не удалось выполнить запрос. Проверьте интернет и настройки."); }); }
-            });
-        } catch (JSONException e) { toast("Не удалось подготовить запрос."); }
-    }
-    private void finishRequest(String error) { busy = false; if (tab == 0) { if (conversation != null) conversation.setText(transcript()); if (send != null) { send.setEnabled(true); send.setText("Отправить запрос"); } } if (error != null) new AlertDialog.Builder(this).setTitle("Запрос не выполнен").setMessage(error).setPositiveButton("OK", null).show(); }
-    private void trimHistory() throws JSONException { if (messages.length() > 100) { JSONArray recent = new JSONArray(); for (int i = messages.length() - 100; i < messages.length(); i++) recent.put(messages.getJSONObject(i)); messages = recent; } }
-    private void saveMessages() { preferences.edit().putString("messages", messages.toString()).apply(); }
-    private String transcript() { StringBuilder text = new StringBuilder(); for (int i = 0; i < messages.length(); i++) { JSONObject message = messages.optJSONObject(i); if (message != null) text.append("user".equals(message.optString("role")) ? "Вы: " : "JARVIS: ").append(message.optString("content")).append("\n\n"); } return text.toString(); }
-
-    private void note() {
-        page.addView(label("Локальная заметка. Не шифруется и не отправляется модели автоматически.", 14));
-        note = field("Текст заметки", preferences.getString("note", ""), false); note.setMinLines(6);
-        action("Сохранить", () -> { String text = note.getText().toString(); if (text.length() > 12000) { toast("Лимит заметки — 12 000 символов."); return; } preferences.edit().putString("note", text).apply(); toast("Заметка сохранена."); });
-        action("Продиктовать в заметку", this::dictate);
-        action("Поделиться заметкой", () -> share(note.getText().toString()));
-    }
-    private void tasks() {
-        EditText task = field("Новая задача", "", false);
-        action("Добавить задачу", () -> {
-            String text = task.getText().toString().trim();
-            if (text.isEmpty() || text.length() > 500 || tasks.length() >= 100) { toast("До 100 задач, до 500 символов в каждой."); return; }
-            try { tasks.put(new JSONObject().put("text", text).put("done", false)); saveTasks(); show(2); } catch (JSONException ignored) {}
-        });
-        for (int i = 0; i < tasks.length(); i++) {
-            JSONObject item = tasks.optJSONObject(i); if (item == null) continue; final int index = i;
-            CheckBox check = new CheckBox(this); check.setText(item.optString("text")); check.setTextColor(Color.WHITE); check.setChecked(item.optBoolean("done"));
-            check.setOnCheckedChangeListener((v, checked) -> { try { tasks.getJSONObject(index).put("done", checked); saveTasks(); } catch (JSONException ignored) {} }); page.addView(check);
-        }
-        action("Убрать выполненные", () -> { JSONArray remaining = new JSONArray(); for (int i = 0; i < tasks.length(); i++) { JSONObject item = tasks.optJSONObject(i); if (item != null && !item.optBoolean("done")) remaining.put(item); } tasks = remaining; saveTasks(); show(2); });
-        action("Поделиться задачами", () -> share(tasks.toString()));
-        page.addView(label("Это список задач, не фоновый планировщик. Уведомления и напоминания ещё не перенесены.", 14));
-    }
-    private void saveTasks() { preferences.edit().putString("tasks", tasks.toString()).apply(); }
-    private void settings() {
-        page.addView(label("Мобильный прототип: нет Outlook COM, управления программами, сейфа, вложений и фонового прослушивания. Локальная Ollama пока не подключена.", 14));
-        Spinner providers = new Spinner(this); providers.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"OpenAI", "DeepSeek"})); providers.setSelection("OpenAI".equals(provider) ? 0 : 1); page.addView(providers);
-        EditText modelField = field("Модель: gpt-4.1-mini / deepseek-chat", model, false);
-        EditText keyField = field("Новый API-ключ (только на текущий сеанс)", "", true);
-        action("Сохранить настройки", () -> {
-            String selected = providers.getSelectedItem().toString(); String nextModel = modelField.getText().toString().trim();
-            String nextKey = keyField.getText().toString().trim();
-            if (nextModel.isEmpty() || nextModel.length() > 128 || nextKey.length() > 1024) { toast("Проверьте модель и ключ."); return; }
-            if (!selected.equals(provider)) key = "";
-            provider = selected; model = nextModel; if (!nextKey.isEmpty()) key = nextKey;
-            preferences.edit().putString("provider", provider).putString("model", model).apply(); keyField.setText(""); toast("Сохранено. Ключ не записан на диск.");
-        });
-        action("Забыть API-ключ", () -> { key = ""; keyField.setText(""); toast("Ключ удалён из текущего сеанса."); });
-        page.addView(label("История, заметка и задачи сохраняются на телефоне без шифрования. Системное распознавание может использовать сеть; офлайн зависит от установленного сервиса. После пересоздания приложения API-ключ нужно ввести заново.", 14));
-    }
-    private void dictate() {
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU").putExtra(RecognizerIntent.EXTRA_PROMPT, "Продиктуйте текст; ничего не будет отправлено автоматически");
-        try { startActivityForResult(intent, VOICE); } catch (ActivityNotFoundException e) { toast("На телефоне нет сервиса распознавания речи."); }
-    }
-    @Override protected void onActivityResult(int request, int result, Intent data) {
-        super.onActivityResult(request, result, data);
-        if (request == VOICE && result == RESULT_OK && data != null) {
-            ArrayList<String> resultText = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            if (resultText == null || resultText.isEmpty()) return;
-            EditText target = tab == 1 ? note : input;
-            if (target != null) target.append((target.length() == 0 ? "" : "\n") + resultText.get(0));
-        }
-    }
-    private void share(String text) { if (text.isEmpty()) { toast("Нет текста для экспорта."); return; } startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Экспорт текста")); }
-    @Override protected void onSaveInstanceState(Bundle state) { if (input != null) draft = input.getText().toString(); state.putString("draft", draft); state.putInt("tab", tab); super.onSaveInstanceState(state); }
-    @Override protected void onDestroy() { worker.shutdownNow(); key = ""; if (speaker != null) { speaker.stop(); speaker.shutdown(); } super.onDestroy(); }
+    @Override protected void onResume(){super.onResume();foreground=true;if(prefs!=null){ReminderReceiver.schedule(this);if(tab==11)show(11);}}
+    @Override protected void onStop(){foreground=false;lockVault();if(secretDialog!=null){secretDialog.dismiss();secretDialog=null;}super.onStop();}
+    @Override protected void onSaveInstanceState(Bundle state){if(tab==1&&input!=null)draft=input.getText().toString();state.putInt("tab",tab);state.putString("chatId",chatId);state.putString("draft",tab==11?"":draft);super.onSaveInstanceState(state);}
+    @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);worker.shutdownNow();apiKey="";lockVault();if(speaker!=null){speaker.stop();speaker.shutdown();}super.onDestroy();}
 }

@@ -1,4 +1,5 @@
 use tauri::Manager;
+pub(super) static VAULT_IO:parking_lot::Mutex<()>=parking_lot::Mutex::new(());
 fn path(app:&tauri::AppHandle)->Result<std::path::PathBuf,String>{
     let dir=app.path().app_data_dir().map_err(|_|"Не удалось найти папку хранилища")?;
     std::fs::create_dir_all(&dir).map_err(|_|"Не удалось создать папку хранилища")?;
@@ -6,11 +7,13 @@ fn path(app:&tauri::AppHandle)->Result<std::path::PathBuf,String>{
 }
 #[tauri::command]
 pub fn password_vault_load(app:tauri::AppHandle)->Result<Option<String>,String>{
+    let _guard=VAULT_IO.lock();
     let file=path(&app)?;
     match std::fs::read_to_string(file){Ok(value)=>Ok(Some(value)),Err(error) if error.kind()==std::io::ErrorKind::NotFound=>Ok(None),Err(_)=>Err("Не удалось открыть файл хранилища".into())}
 }
 #[tauri::command]
 pub fn password_vault_save(app:tauri::AppHandle,data:String)->Result<(),String>{
+    let _guard=VAULT_IO.lock();
     if data.len()>36_000_000{return Err("Хранилище слишком большое".into())}
     let value:serde_json::Value=serde_json::from_str(&data).map_err(|_|"Некорректный формат хранилища")?;
     if value["version"]!=1||!value["cards"]["data"].is_string()||!value["passwordKey"]["data"].is_string()||!value["recoveryKey"]["data"].is_string(){return Err("Некорректный формат хранилища".into())}

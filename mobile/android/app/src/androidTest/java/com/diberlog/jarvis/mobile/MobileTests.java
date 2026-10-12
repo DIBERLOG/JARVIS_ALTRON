@@ -1,0 +1,17 @@
+package com.diberlog.jarvis.mobile;
+
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.json.*;
+import javax.crypto.SecretKey;
+import static org.junit.Assert.*;
+
+@RunWith(AndroidJUnit4.class)
+public class MobileTests {
+    @Test public void vaultRoundTripWrongPasswordAndTampering()throws Exception{char[] password="test-only-master-123".toCharArray();JSONObject f=VaultCrypto.create(password);SecretKey key=VaultCrypto.unlock(f,password);JSONArray cards=new JSONArray().put(new JSONObject().put("id","test-card").put("title","Only fictional").put("password","dummy"));f=VaultCrypto.update(f,key,cards);assertEquals("dummy",VaultCrypto.cards(f,VaultCrypto.unlock(f,password)).getJSONObject(0).getString("password"));try{VaultCrypto.unlock(f,"wrong".toCharArray());fail("Wrong password accepted");}catch(javax.crypto.AEADBadTagException expected){}JSONObject corrupt=new JSONObject(f.toString());byte[] bytes=VaultCrypto.bytes(corrupt.getJSONObject("cards").getString("data"));bytes[0]^=1;corrupt.getJSONObject("cards").put("data",VaultCrypto.b64(bytes));try{VaultCrypto.cards(corrupt,key);fail("Tampering accepted");}catch(javax.crypto.AEADBadTagException expected){}}
+    @Test public void mergeKeepsBothPasswordVersionsAndDeletion()throws Exception{JSONArray base=new JSONArray("[{\"id\":\"a\",\"title\":\"old\"}]");JSONArray pc=new JSONArray("[{\"id\":\"a\",\"title\":\"pc\"}]");JSONArray phone=new JSONArray("[{\"id\":\"a\",\"title\":\"phone\"}]");assertEquals(2,MobileStore.mergeRecords(base,pc,phone,true).length());assertEquals(0,MobileStore.mergeRecords(base,base,new JSONArray(),true).length());}
+    @Test public void qrRejectsPublicHostsAndMalformedPins()throws Exception{assertTrue(SyncClient.privateIp("192.168.1.2"));assertFalse(SyncClient.privateIp("8.8.8.8"));assertFalse(SyncClient.privateIp("010.0.0.1"));assertFalse(SyncClient.privateIp("localhost"));try{SyncClient.parseQr("jarvis-pair://v1?host=8.8.8.8&port=47832");fail("Public endpoint accepted");}catch(Exception expected){}}
+    @Test public void pairingCredentialsAreEncryptedAtRest()throws Exception{android.content.Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();JSONObject test=new JSONObject().put("host","192.168.1.2").put("token","fictional-test-token");PrivateStorage.pairing(context,test);String raw=MobileStore.prefs(context).getString("pairing","");assertFalse(raw.contains("fictional-test-token"));assertEquals("fictional-test-token",PrivateStorage.pairing(context).getString("token"));PrivateStorage.pairing(context,null);}
+}

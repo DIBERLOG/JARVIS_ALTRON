@@ -13,6 +13,13 @@ lerna-debug.log*
 !.vscode/extensions.json
 .idea
 .DS_Store
+**/.gradle/
+/mobile/android/app/build/
+/mobile/android/build/
+/mobile/android/dist/
+/mobile/android/local.properties
+*.jks
+*.keystore
 *.suo
 *.ntvs*
 *.njsproj

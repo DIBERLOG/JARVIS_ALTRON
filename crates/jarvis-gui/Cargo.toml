@@ -31,6 +31,14 @@ chrono.workspace = true
 quick-xml = "0.38"
 zip = { version = "=1.1.4", default-features = false, features = ["deflate"] }
 vosk = "0.3.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.13.2"
+if-addrs = "0.13"
+sha2.workspace = true
+rand.workspace = true
+tempfile.workspace = true
+base64 = "0.22"
+subtle = "2.6"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

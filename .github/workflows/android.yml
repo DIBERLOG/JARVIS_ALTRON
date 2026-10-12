@@ -1,0 +1,42 @@
+name: Android Mobile LAB APK
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['mobile/android/**', '.github/workflows/android.yml']
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build and lint
+        working-directory: mobile/android
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+          gradle --no-daemon assembleDebug lintDebug
+      - name: Verify testing signature and prepare APK
+        run: |
+          mkdir -p mobile/android/dist
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/JARVIS-Mobile-1.0.0-lab.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose mobile/android/dist/JARVIS-Mobile-1.0.0-lab.apk
+          cd mobile/android/dist
+          sha256sum JARVIS-Mobile-1.0.0-lab.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-android-1.0.0-mobile-lab
+          path: mobile/android/dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-lint-reports
+          path: mobile/android/app/build/reports/lint-results-debug.*

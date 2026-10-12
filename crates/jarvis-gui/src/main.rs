@@ -71,6 +71,7 @@ fn main() {
             Ok(())
         })
         .manage(AppState { settings: manager })
+        .manage(tauri_commands::LanSync::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -82,6 +83,15 @@ fn main() {
         }).build())
         .manage(listening_shortcut::ListeningShortcut::default())
         .invoke_handler(tauri::generate_handler![
+            tauri_commands::lan_sync_status,
+            tauri_commands::lan_sync_addresses,
+            tauri_commands::lan_sync_start,
+            tauri_commands::lan_sync_stop,
+            tauri_commands::lan_sync_qr,
+            tauri_commands::lan_sync_approve,
+            tauri_commands::lan_sync_revoke,
+            tauri_commands::lan_sync_vault_enabled,
+            tauri_commands::lan_sync_resolve,
             window_motion::animate_window_in,
             listening_shortcut::set_listening_shortcut,
             // audio
