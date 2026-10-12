@@ -40,7 +40,14 @@ final class MobileStore {
     static Map<String,JSONObject> map(JSONArray a)throws JSONException{Map<String,JSONObject> m=new LinkedHashMap<>();if(a!=null)for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);m.put(o.getString("id"),o);}return m;}
     static JSONObject merge(JSONObject base,JSONObject local,JSONObject remote)throws JSONException{
         JSONObject out=new JSONObject(local.toString());for(String k:LISTS)out.put(k,mergeRecords(base.optJSONArray(k),local.optJSONArray(k),remote.optJSONArray(k),true));
-        Object b=base.opt("training"),l=local.opt("training"),r=remote.opt("training");if(same(l,b))out.put("training",r);else if(!same(r,b)&&!same(l,r)&&r instanceof JSONObject){out.put("phoneTrainingConflict",r);}
+        Object b=base.opt("training"),l=local.opt("training"),r=remote.opt("training");
+        if(same(l,b))out.put("training",r);
+        else if(!same(r,b)&&!same(l,r)&&r instanceof JSONObject&&l instanceof JSONObject){
+            JSONObject bt=b instanceof JSONObject?(JSONObject)b:new JSONObject(),lt=(JSONObject)l,rt=(JSONObject)r,merged=new JSONObject(lt.toString());
+            for(String k:new String[]{"exercises","plans","sessions"})merged.put(k,mergeRecords(bt.optJSONArray(k),lt.optJSONArray(k),rt.optJSONArray(k),true));
+            for(String k:new String[]{"profile","morningExercise","chargeSettings","chargeLevels"}){Object bv=bt.opt(k),lv=lt.opt(k),rv=rt.opt(k);if(same(lv,bv))merged.put(k,rv);else if(!same(rv,bv)&&!same(lv,rv))out.put("phoneTrainingConflict",rt);}
+            out.put("training",merged);
+        }
         return out;
     }
     static synchronized JSONArray chats(Context c)throws JSONException{return new JSONArray(prefs(c).getString("chats","[]"));}

@@ -20,6 +20,7 @@
     async function access(){
         if(busy)return;busy=true;error='';notice=''
         try{
+            stored=await invoke<string|null>('password_vault_load');if(disposed)return
             if(!stored){
                 if(master!==confirmation)throw Error('Мастер-пароли не совпадают')
                 const created=await createVault(master);if(disposed)return
