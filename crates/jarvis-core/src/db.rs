@@ -26,13 +26,11 @@ pub fn init_settings() -> structs::Settings {
         db_file_path.display()
     );
 
-    if let Some(settings) = read_settings_at(&db_file_path) {
-        info!("Settings loaded.");
-        return settings;
+    match read_settings_result(&db_file_path){
+        Ok(settings)=>{info!("Settings loaded.");settings},
+        Err(error) if error.kind()==io::ErrorKind::NotFound=>structs::Settings::default(),
+        Err(error)=>panic!("Не удалось открыть настройки; исходные данные не изменены: {error}"),
     }
-
-    warn!("No settings file found or there was an error parsing it. Creating default struct.");
-    structs::Settings::default()
 }
 
 /// init settings and return a SettingsManager ready to use
@@ -50,12 +48,17 @@ pub fn save_settings(settings: &structs::Settings) -> Result<(), std::io::Error>
 }
 
 fn read_settings_at(path: &Path) -> Option<structs::Settings> {
-    persistence::read(path).ok()
+    read_settings_result(path).ok()
 }
 
+fn read_settings_result(path:&Path)->io::Result<structs::Settings>{let value:serde_json::Value=persistence::read(path)?;let plain=if crate::secure_storage::is_sealed(&value){crate::secure_storage::open(&value,"settings").map_err(io::Error::other)?}else{value};serde_json::from_value(plain).map_err(io::Error::other)}
+
 fn save_settings_at(path: &Path, settings: &structs::Settings) -> io::Result<()> {
-    persistence::replace(path, settings)
+    persistence::transaction_with_codec(path,settings,|latest|{*latest=settings.clone();Ok(())},decode_settings,encode_settings).map(|_|()).map_err(io::Error::other)
 }
+
+fn decode_settings(value:serde_json::Value)->Result<serde_json::Value,String>{if crate::secure_storage::is_sealed(&value){crate::secure_storage::open(&value,"settings")}else{Ok(value)}}
+fn encode_settings(value:&serde_json::Value)->Result<serde_json::Value,String>{crate::secure_storage::seal(value,"settings")}
 
 /// Serializes read-modify-write across GUI and assistant processes. Each write
 /// starts from the latest disk state, so a stale process cannot reset settings.
@@ -67,7 +70,7 @@ where
     F: FnOnce(&mut structs::Settings) -> Result<(), String>,
 {
     let path = get_db_file_path();
-    let updated = persistence::transaction(&path, fallback, change)?;
+    let updated = persistence::transaction_with_codec(&path, fallback, change,decode_settings,encode_settings)?;
     info!("ALTRON kernel: settings transaction committed");
     Ok(updated)
 }
@@ -81,19 +84,19 @@ mod persistence_tests {
     use super::*;
 
     #[test]
-    fn settings_replace_existing_file_and_survive_reload() {
+    fn legacy_settings_replace_existing_file_and_survive_reload() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("app.db");
         let mut settings = structs::Settings::default();
-        save_settings_at(&path, &settings).unwrap();
+        persistence::replace(&path, &settings).unwrap();
         settings.set("tts_mode", "silero").unwrap();
-        save_settings_at(&path, &settings).unwrap();
+        persistence::replace(&path, &settings).unwrap();
         assert_eq!(
             read_settings_at(&path).unwrap().get("tts_mode").as_deref(),
             Some("silero")
         );
         settings.set("tts_mode", "xtts").unwrap();
-        save_settings_at(&path, &settings).unwrap();
+        persistence::replace(&path, &settings).unwrap();
         assert_eq!(
             read_settings_at(&path).unwrap().get("tts_mode").as_deref(),
             Some("xtts")

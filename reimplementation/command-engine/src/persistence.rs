@@ -29,6 +29,12 @@ where
     T: Serialize + DeserializeOwned + Clone,
     F: FnOnce(&mut T) -> Result<(), String>,
 {
+    transaction_with_codec(path,initial,update,Ok,|value|Ok(value.clone()))
+}
+
+/// Same lock/atomic commit contract, with authenticated storage encoding.
+pub fn transaction_with_codec<T,F,D,E>(path:&Path,initial:&T,update:F,decode:D,encode:E)->Result<T,String>
+where T:Serialize+DeserializeOwned+Clone,F:FnOnce(&mut T)->Result<(),String>,D:FnOnce(serde_json::Value)->Result<serde_json::Value,String>,E:FnOnce(&serde_json::Value)->Result<serde_json::Value,String>{
     let parent = path.parent().ok_or("Missing storage directory")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let guard = OpenOptions::new()
@@ -50,6 +56,7 @@ where
             ))
         }
     };
+    let original=decode(original)?;
     let mut value: T = serde_json::from_value(original.clone()).map_err(|e| e.to_string())?;
     update(&mut value)?;
     let mut output = original;
@@ -61,7 +68,7 @@ where
         }
         (existing, updated) => *existing = updated,
     }
-    replace(path, &output).map_err(|e| e.to_string())?;
+    replace(path, &encode(&output)?).map_err(|e| e.to_string())?;
     Ok(value)
 }
 

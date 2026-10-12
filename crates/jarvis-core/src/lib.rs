@@ -13,6 +13,8 @@ pub mod audio;
 pub mod commands;
 pub mod config;
 pub mod db;
+pub mod secure_storage;
+pub mod sync_journal;
 pub mod ipc_credentials;
 pub mod i18n;
 pub mod notifications;

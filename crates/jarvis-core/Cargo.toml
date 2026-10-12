@@ -27,6 +27,9 @@ parking_lot.workspace = true
 toml.workspace = true
 sha2.workspace = true
 subtle = "2.6"
+ring = "0.17.14"
+base64 = "0.22"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 nnnoiseless = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
@@ -55,7 +58,14 @@ tokenizers = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
+keyring = { version = "=3.6.3", features = ["windows-native"] }
 winrt-notification = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "=3.6.3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 [features]
 default = ["jarvis_app"]

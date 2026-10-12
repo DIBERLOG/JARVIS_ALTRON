@@ -17,11 +17,14 @@ fn equal(a:&str,b:&str)->bool {a.as_bytes().ct_eq(b.as_bytes()).into()}
 fn private(ip:Ipv4Addr)->bool {ip.is_private()&&!ip.is_unspecified()&&!ip.is_loopback()}
 fn atomic<T:Serialize>(path:&Path,value:&T)->Result<(),String>{
     let mut file=tempfile::NamedTempFile::new_in(path.parent().ok_or("Нет папки данных")?).map_err(|_|"Не удалось подготовить сохранение")?;
-    serde_json::to_writer(file.as_file_mut(),value).map_err(|_|"Не удалось записать данные")?;
+    let value=serde_json::to_value(value).map_err(|_|"Не удалось подготовить данные")?;
+    // Vault already has its own compatible ciphertext format and master password.
+    let sealed=if path.file_name().is_some_and(|name|name=="password-vault-v1.json"){value}else{jarvis_core::secure_storage::seal(&value,"lan-sync-local")?};
+    serde_json::to_writer(file.as_file_mut(),&sealed).map_err(|_|"Не удалось записать данные")?;
     file.as_file_mut().sync_all().map_err(|_|"Не удалось сохранить данные")?;
     file.persist(path).map_err(|_|"Не удалось заменить данные")?;Ok(())
 }
-fn load<T:serde::de::DeserializeOwned>(p:&Path)->Result<T,String>{serde_json::from_slice(&std::fs::read(p).map_err(|_|"Не удалось прочитать данные синхронизации")?).map_err(|_|"Повреждены данные синхронизации; исходный файл сохранён".into())}
+fn load<T:serde::de::DeserializeOwned>(p:&Path)->Result<T,String>{if std::fs::metadata(p).map_err(|_|"Не удалось прочитать данные синхронизации")?.len()>70*1024*1024{return Err("Файл синхронизации слишком большой".into());}let value:Value=serde_json::from_slice(&std::fs::read(p).map_err(|_|"Не удалось прочитать данные синхронизации")?).map_err(|_|"Повреждены данные синхронизации; исходный файл сохранён")?;let protected=jarvis_core::secure_storage::is_sealed(&value);let value=if protected{jarvis_core::secure_storage::open(&value,"lan-sync-local")?}else{value};let result=serde_json::from_value(value.clone()).map_err(|_|"Повреждены данные синхронизации; исходный файл сохранён")?;if !protected&&!p.file_name().is_some_and(|name|name=="password-vault-v1.json"){atomic(p,&value)?;}Ok(result)}
 #[derive(Serialize,Deserialize,Clone)]
 struct Device {id:String,name:String,token_hash:String,last_sync:Option<String>}
 #[derive(Serialize,Deserialize,Clone)]
