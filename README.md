@@ -13,7 +13,7 @@
 [![Основная платформа — Windows](https://img.shields.io/badge/PLATFORM-WINDOWS-35d4cf?style=for-the-badge)](#platforms)
 [![Linux — экспериментальная сборка](https://img.shields.io/badge/Linux-EXPERIMENTAL-f5bc42?style=for-the-badge&logo=linux&logoColor=white)](#platforms)
 [![macOS — Intel и Apple Silicon](https://img.shields.io/badge/macOS-INTEL_/_APPLE_SILICON-f5bc42?style=for-the-badge&logo=apple)](#platforms)
-[![Android — Mobile LAB](https://img.shields.io/badge/Android-MOBILE_LAB-3ddc84?style=for-the-badge&logo=android&logoColor=white)](mobile/android/README.md)
+[![Android — Mobile LAB](https://img.shields.io/badge/Android-MOBILE_LAB-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0-mobile-lab)
 [![Rust](https://img.shields.io/badge/Rust-181b20?style=for-the-badge&logo=rust&logoColor=white)](Cargo.toml)
 [![Tauri](https://img.shields.io/badge/Tauri-181b20?style=for-the-badge&logo=tauri&logoColor=35d4cf)](crates/jarvis-gui/tauri.conf.json)
 [![Svelte](https://img.shields.io/badge/Svelte-181b20?style=for-the-badge&logo=svelte&logoColor=ff6b46)](frontend/package.json)
@@ -38,7 +38,7 @@
 | 🪟 Windows x64 | **1.0.0 · Release** | [Установщик](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0). Классический Outlook / Kerio доступны только здесь |
 | 🐧 Linux x64 | **1.0.0 · экспериментальная** | Пакеты и инструкция — [Linux](#platforms). Голос и системные действия требуют проверки на реальном устройстве |
 | 🍎 macOS | **1.0.0 · экспериментальная** | Отдельные сборки Intel и Apple Silicon — [macOS](#platforms). Потребуются разрешения микрофона; Kerio не переносится |
-| 📱 Android 8+ | **1.0.0 · Mobile LAB** | [Сборки APK](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml) и [мобильная инструкция](mobile/android/README.md). Личный центр и чат; без почты и агентов |
+| 📱 Android 8+ | **1.0.0 · Mobile LAB** | [Скачать APK и Windows-компаньон](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0-mobile-lab); [мобильная инструкция](mobile/android/README.md). Личный центр и чат; без почты и агентов |
 
 > [!IMPORTANT]
 > Сборка без ошибок не заменяет тестирование на устройстве. Обмен по Wi-Fi требует новой компьютерной сборки с разделом «Синхронизация с телефоном»: ранее выпущенный Windows-установщик не обновляется автоматически. Для первого теста сейфа используйте вымышленные пароли.

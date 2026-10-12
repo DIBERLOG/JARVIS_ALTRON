@@ -13,8 +13,8 @@
 
 ## Установить APK
 
-1. Откройте [Android-сборки](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml), выберите последнюю успешную сборку.
-2. В Artifacts скачайте `jarvis-android-1.0.0-mobile-lab` и распакуйте ZIP. GitHub может потребовать вход.
+1. Откройте [выпуск Android + Wi-Fi Sync LAB](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0-mobile-lab).
+2. В Assets скачайте `JARVIS-Mobile-1.0.0-lab.apk`. Для Windows нужен отдельный `JARVIS-1.0.0-Windows-Mobile-Sync-LAB-setup.exe` из того же выпуска. Более новые тестовые APK доступны в [успешных Actions](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml).
 3. Перенесите `JARVIS-Mobile-1.0.0-lab.apk` на телефон и откройте. Разрешите установку из выбранного источника, затем отключите это разрешение.
 4. Разрешите уведомления. Микрофон нужен для диктовки, камера — только для QR-кода. Сопряжение доступно и через вставку строки.
 
