@@ -139,7 +139,7 @@ fn valid_center(v:&Value)->Result<(),String>{
     if let Some(t)=v.get("training").filter(|t|!t.is_null()){for key in ["exercises","plans","sessions"]{valid_records(&t[key])?;}}
     Ok(())
 }
-fn valid_date(v:&Value)->bool {v.as_str().is_some_and(|s|chrono::DateTime::parse_from_rfc3339(s).is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M").is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M:%S").is_ok())}
+fn valid_date(v:&Value)->bool {v.as_str().is_some_and(|s|chrono::DateTime::parse_from_rfc3339(s).is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M").is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M:%S%.f").is_ok())}
 fn valid_chats(v:&Value)->Result<(),String>{valid_records(v)?;for c in v.as_array().unwrap(){if !c["title"].as_str().is_some_and(|s|s.len()<=800)||!valid_date(&c["updatedAt"])||!c["messages"].as_array().is_some_and(|m|m.len()<=10000&&m.iter().all(|m|matches!(m["role"].as_str(),Some("user"|"assistant"))&&m["content"].as_str().is_some_and(|s|s.len()<=128000))){return Err("Некорректная история чата".into());}}Ok(())}
 fn valid_records(v:&Value)->Result<(),String>{let a=v.as_array().ok_or("Ожидается список записей")?;if a.len()>10000{return Err("Слишком много записей".into());}
     let mut ids=BTreeSet::new();for item in a{let id=item["id"].as_str().ok_or("У записи нет ID")?;if id.is_empty()||id.len()>128||!ids.insert(id){return Err("Повторный или некорректный ID".into());}}Ok(())}
@@ -167,6 +167,7 @@ fn vault_at(dir:&Path)->Result<Value,String>{let p=dir.join("password-vault-v1.j
 fn backup(dir:&Path,label:&str,data:&Value)->Result<(),String>{let backups=dir.join("lan-sync/backups");std::fs::create_dir_all(&backups).map_err(|_|"Не удалось создать резервную копию")?;atomic(&backups.join(format!("{label}-{}-{}.json",chrono::Utc::now().timestamp_millis(),&random()[..8])),data)}
 fn exchange(i:&mut Inner,body:&Value,settings:&jarvis_core::SettingsManager,dir:&Path)->Result<Value,String>{
     if body["version"]!=1{return Err("Неизвестная версия протокола".into());}let base=&body["base"];let remote=&body["center"];valid_center(base)?;valid_center(remote)?;
+    if i.saved.allow_vault&&body["syncVault"]==true{valid_vault(&body["vault"])?;valid_vault(&body["baseVault"])?;}
     let mut conflicts=i.saved.conflicts.clone();if conflicts.len()>200{return Err("Сначала разрешите конфликты на компьютере".into());}
     let updated=jarvis_core::db::update_settings(&settings.lock(),|s|{
         let local=if s.center_data.is_empty(){empty_center()}else{serde_json::from_str(&s.center_data).map_err(|_|"Повреждены данные Центра компьютера")?};valid_center(&local)?;

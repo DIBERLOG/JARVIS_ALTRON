@@ -90,3 +90,4 @@ tree.txt
 /tools/voice_training/transcripts_review.csv
 /tools/voice_training/s2_local_test/
 /tools/voice_training/all_recordings_experiments/
+/artifacts/
