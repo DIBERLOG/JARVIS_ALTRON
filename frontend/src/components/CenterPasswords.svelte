@@ -27,16 +27,16 @@
             }else if(recoveryMode){
                 if(master!==confirmation)throw Error('Новые мастер-пароли не совпадают')
                 const restored=await recoverVault(stored,recoveryInput,master)
-                await invoke('password_vault_save',{data:JSON.stringify(restored.file)})
+                await invoke('password_vault_save',{data:JSON.stringify(restored.file),expected:stored,checkCurrent:true})
                 if(disposed)return
                 stored=JSON.stringify(restored.file);file=restored.file;key=restored.key;cards=restored.cards;notice='Мастер-пароль заменён. Прежний ключ восстановления остаётся действующим.'
             }else{const opened=await unlockVault(stored,master);if(disposed)return;file=opened.file;key=opened.key;cards=opened.cards}
             master='';confirmation='';recoveryInput='';recoveryMode=false;activity()
         }catch(e){if(!disposed)error=e instanceof Error?e.message:String(e)}finally{busy=false}
     }
-    async function confirmRecovery(){if(!file||!recoverySaved)return;busy=true;error='';try{const data=JSON.stringify(file);await invoke('password_vault_save',{data});if(disposed)return;stored=data;recovery='';recoverySaved=false;notice='Хранилище создано. Ключ восстановления храните отдельно.'}catch(e){error=String(e)}finally{busy=false}}
+    async function confirmRecovery(){if(!file||!recoverySaved)return;busy=true;error='';try{const data=JSON.stringify(file);await invoke('password_vault_save',{data,expected:stored,checkCurrent:true});if(disposed)return;stored=data;recovery='';recoverySaved=false;notice='Хранилище создано. Ключ восстановления храните отдельно.'}catch(e){error=String(e)}finally{busy=false}}
     function edit(card?:PasswordCard){if(dirty&&!confirm('Перейти без сохранения изменений?'))return;id=card?.id||'';title=card?.title||'';login=card?.login||'';password=card?.password||'';site=card?.site||'';html=sanitizeNoteHtml(card?.html||'');plainText='';showPassword=false;dirty=false;editorKey++;error='';notice=''}
-    async function persist(next:PasswordCard[]){if(!file||!key||busy)return false;busy=true;error='';try{const updated=await updateVault(file,key,next);await invoke('password_vault_save',{data:JSON.stringify(updated)});if(disposed)return false;file=updated;stored=JSON.stringify(updated);cards=next;notice='Сохранено в зашифрованном хранилище';return true}catch(e){error=e instanceof Error?e.message:String(e);return false}finally{busy=false;activity()}}
+    async function persist(next:PasswordCard[]){if(!file||!key||busy)return false;busy=true;error='';try{const updated=await updateVault(file,key,next);await invoke('password_vault_save',{data:JSON.stringify(updated),expected:stored,checkCurrent:true});if(disposed)return false;file=updated;stored=JSON.stringify(updated);cards=next;notice='Сохранено в зашифрованном хранилище';return true}catch(e){error=e instanceof Error?e.message:String(e);return false}finally{busy=false;activity()}}
     async function save(){if(!title.trim()){error='Укажите название карточки';return}const safe=sanitizeNoteHtml(html);if(safe.length>NOTE_HTML_LIMIT){error='Карточка превышает 8 МБ';return}const card={id:id||crypto.randomUUID(),title:title.trim(),login,password,site,html:safe,updatedAt:new Date().toISOString()};if(await persist([...cards.filter(item=>item.id!==card.id),card])){id=card.id;dirty=false}}
     async function remove(){if(confirm('Удалить эту карточку из хранилища?')&&await persist(cards.filter(card=>card.id!==id))){dirty=false;edit()}}
     $: visible=cards.filter(card=>card.title.toLocaleLowerCase('ru-RU').includes(query.toLocaleLowerCase('ru-RU'))).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))

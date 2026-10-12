@@ -45,7 +45,7 @@ fn status(inner:&Inner)->Value{
         "qr":active.filter(|r|Instant::now()<r.expires).map(|r|format!("jarvis-pair://v1?host={}&port={}&fingerprint={}&secret={}",r.address.split(':').next().unwrap_or(""),r.address.split(':').nth(1).unwrap_or(""),r.fingerprint,r.secret)),
         "pending":active.map(|r|r.pending.iter().filter(|p|Instant::now()<p.expires&&p.token.is_none()).map(|p|json!({"id":p.id,"name":p.name,"code":p.code})).collect::<Vec<_>>()).unwrap_or_default(),
         "devices":inner.saved.devices.iter().map(|d|json!({"id":d.id,"name":d.name,"lastSync":d.last_sync})).collect::<Vec<_>>(),
-        "conflicts":inner.saved.conflicts.iter().map(|c|json!({"id":c.id,"area":c.area,"collection":c.collection,"itemId":c.item_id,"title":c.local.get("title").or(c.local.get("name")).and_then(Value::as_str).unwrap_or(&c.item_id)})).collect::<Vec<_>>()})
+        "conflicts":inner.saved.conflicts.iter().map(|c|json!({"id":c.id,"area":c.area,"collection":c.collection,"itemId":c.item_id,"title":c.local.get("title").or(c.local.get("name")).and_then(Value::as_str).unwrap_or(&c.item_id),"local":c.local,"phone":c.remote})).collect::<Vec<_>>()})
 }
 #[tauri::command]
 pub fn lan_sync_status(app:tauri::AppHandle,state:tauri::State<'_,LanSync>)->Result<Value,String>{let mut i=state.inner.lock();init(&mut i,&app)?;Ok(status(&i))}
@@ -132,9 +132,15 @@ fn empty_center()->Value {json!({"notes":[],"reminders":[],"birthdays":[],"habit
 fn valid_center(v:&Value)->Result<(),String>{
     if !v.is_object(){return Err("Некорректные данные Центра".into());}
     for key in ["notes","reminders","birthdays","habits"] {valid_records(&v[key])?;}
+    for note in v["notes"].as_array().unwrap(){if !note["title"].is_string()||!note["text"].is_string()||!valid_date(&note["updatedAt"]){return Err("Некорректная заметка".into());}}
+    for reminder in v["reminders"].as_array().unwrap(){if !reminder["title"].is_string()||!reminder["done"].is_boolean()||!valid_date(&reminder["dueAt"]){return Err("Некорректное напоминание".into());}}
+    for birthday in v["birthdays"].as_array().unwrap(){let day=birthday["day"].as_u64().unwrap_or(0) as u32;let month=birthday["month"].as_u64().unwrap_or(0) as u32;if !birthday["name"].is_string()||chrono::NaiveDate::from_ymd_opt(2024,month,day).is_none(){return Err("Некорректная дата рождения".into());}if let Some(y)=birthday.get("year"){if !y.as_u64().is_some_and(|n|(1..=9999).contains(&n)){return Err("Некорректный год дня рождения".into());}}}
+    for habit in v["habits"].as_array().unwrap(){if !habit["title"].is_string()||!habit["entries"].as_object().is_some_and(|e|e.values().all(|n|n.as_f64().is_some_and(|n|n.is_finite()&&n>=0.)))||!habit["target"].as_u64().is_some_and(|n|n>0&&n<=10000){return Err("Некорректная привычка".into());}}
     if let Some(t)=v.get("training").filter(|t|!t.is_null()){for key in ["exercises","plans","sessions"]{valid_records(&t[key])?;}}
     Ok(())
 }
+fn valid_date(v:&Value)->bool {v.as_str().is_some_and(|s|chrono::DateTime::parse_from_rfc3339(s).is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M").is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M:%S").is_ok())}
+fn valid_chats(v:&Value)->Result<(),String>{valid_records(v)?;for c in v.as_array().unwrap(){if !c["title"].as_str().is_some_and(|s|s.len()<=800)||!valid_date(&c["updatedAt"])||!c["messages"].as_array().is_some_and(|m|m.len()<=10000&&m.iter().all(|m|matches!(m["role"].as_str(),Some("user"|"assistant"))&&m["content"].as_str().is_some_and(|s|s.len()<=128000))){return Err("Некорректная история чата".into());}}Ok(())}
 fn valid_records(v:&Value)->Result<(),String>{let a=v.as_array().ok_or("Ожидается список записей")?;if a.len()>10000{return Err("Слишком много записей".into());}
     let mut ids=BTreeSet::new();for item in a{let id=item["id"].as_str().ok_or("У записи нет ID")?;if id.is_empty()||id.len()>128||!ids.insert(id){return Err("Повторный или некорректный ID".into());}}Ok(())}
 fn valid_vault(v:&Value)->Result<(),String>{
@@ -154,7 +160,8 @@ fn merge_records(base:&Value,local:&Value,remote:&Value,area:&str,key:&str,confl
 }
 fn merge_center(base:&Value,local:&Value,remote:&Value,conflicts:&mut Vec<Conflict>)->Value{
     let mut output=local.clone();for key in ["notes","reminders","birthdays","habits"]{output[key]=merge_records(&base[key],&local[key],&remote[key],"center",key,conflicts);}
-    output["training"]=merge_value(&base["training"],&local["training"],&remote["training"],"center","training","training",conflicts);output
+    if local["training"].is_object()||remote["training"].is_object(){let mut training=if local["training"].is_object(){local["training"].clone()}else{json!({})};for key in ["exercises","plans","sessions"]{training[key]=merge_records(&base["training"][key],&local["training"][key],&remote["training"][key],"center",&format!("training.{key}"),conflicts);}for key in ["profile","morningExercise","chargeSettings","chargeLevels"]{training[key]=merge_value(&base["training"][key],&local["training"][key],&remote["training"][key],"center",&format!("training.{key}"),key,conflicts);}output["training"]=training;}
+    output
 }
 fn vault_at(dir:&Path)->Result<Value,String>{let p=dir.join("password-vault-v1.json");if p.exists(){load(&p)}else{Ok(Value::Null)}}
 fn backup(dir:&Path,label:&str,data:&Value)->Result<(),String>{let backups=dir.join("lan-sync/backups");std::fs::create_dir_all(&backups).map_err(|_|"Не удалось создать резервную копию")?;atomic(&backups.join(format!("{label}-{}-{}.json",chrono::Utc::now().timestamp_millis(),&random()[..8])),data)}
@@ -164,7 +171,7 @@ fn exchange(i:&mut Inner,body:&Value,settings:&jarvis_core::SettingsManager,dir:
     let updated=jarvis_core::db::update_settings(&settings.lock(),|s|{
         let local=if s.center_data.is_empty(){empty_center()}else{serde_json::from_str(&s.center_data).map_err(|_|"Повреждены данные Центра компьютера")?};valid_center(&local)?;
         let merged=merge_center(base,&local,remote,&mut conflicts);if merged!=local{backup(dir,"center",&local)?;s.set("center_data",&merged.to_string())?;}
-        if body["syncChats"]==true{let b=&body["baseChats"];let r=&body["chats"];valid_records(b)?;valid_records(r)?;let l:Value=serde_json::from_str(if s.chat_history.is_empty(){"[]"}else{&s.chat_history}).map_err(|_|"Повреждена история компьютера")?;
+        if body["syncChats"]==true{let b=&body["baseChats"];let r=&body["chats"];valid_chats(b)?;valid_chats(r)?;let l:Value=serde_json::from_str(if s.chat_history.is_empty(){"[]"}else{&s.chat_history}).map_err(|_|"Повреждена история компьютера")?;valid_chats(&l)?;
             let merged=merge_records(b,&l,r,"chats","chats",&mut conflicts);if merged!=l{backup(dir,"chats",&l)?;s.set("chat_history_v1",&merged.to_string())?;}}
         Ok(())
     })?;*settings.lock_mut()=updated;
@@ -186,8 +193,9 @@ pub fn lan_sync_resolve(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,id:S
     let mut i=state.inner.lock();let index=i.saved.conflicts.iter().position(|c|c.id==id).ok_or("Конфликт не найден")?;let c=i.saved.conflicts[index].clone();
     if use_phone{let manager=&app.state::<crate::AppState>().settings;let updated=jarvis_core::db::update_settings(&manager.lock(),|s|{
         let key=if c.area=="chats"{"chat_history_v1"}else{"center_data"};let mut data:Value=serde_json::from_str(&s.get(key).unwrap_or_default()).map_err(|_|"Данные изменены или повреждены")?;
-        if c.collection=="training"{if data["training"]!=c.local{return Err("Запись изменена после конфликта. Сначала синхронизируйте заново".into());}data["training"]=c.remote.clone();}
-        else {let array=if c.area=="chats"{data.as_array_mut()}else{data[&c.collection].as_array_mut()}.ok_or("Список повреждён")?;let position=array.iter().position(|x|x["id"].as_str()==Some(&c.item_id));let current=position.map(|p|array[p].clone()).unwrap_or(Value::Null);if current!=c.local{return Err("Запись изменена после конфликта. Сначала синхронизируйте заново".into());}
+        let training_key=c.collection.strip_prefix("training.");
+        if training_key.is_some_and(|k|!matches!(k,"exercises"|"plans"|"sessions")){let key=training_key.unwrap();if data["training"][key]!=c.local{return Err("Данные изменены после конфликта; синхронизируйте заново".into());}data["training"][key]=c.remote.clone();}
+        else {let array=if c.area=="chats"{data.as_array_mut()}else if let Some(key)=training_key{data["training"][key].as_array_mut()}else{data[&c.collection].as_array_mut()}.ok_or("Список повреждён")?;let position=array.iter().position(|x|x["id"].as_str()==Some(&c.item_id));let current=position.map(|p|array[p].clone()).unwrap_or(Value::Null);if current!=c.local{return Err("Запись изменена после конфликта. Сначала синхронизируйте заново".into());}
             if let Some(p)=position{array.remove(p);}if !c.remote.is_null(){array.push(c.remote.clone());}}
         backup(&app.path().app_data_dir().map_err(|_|"Нет папки приложения")?,"before-conflict",&serde_json::from_str::<Value>(&s.get(key).unwrap_or_default()).map_err(|_|"Данные повреждены")?)?;s.set(key,&data.to_string())
     })?;*manager.lock_mut()=updated;}

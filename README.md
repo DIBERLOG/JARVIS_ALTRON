@@ -11,6 +11,9 @@
 
 [![Версия 1.0.0 — Release](https://img.shields.io/badge/1.0.0-RELEASE-35d4cf?style=for-the-badge)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0)
 [![Основная платформа — Windows](https://img.shields.io/badge/PLATFORM-WINDOWS-35d4cf?style=for-the-badge)](#platforms)
+[![Linux — экспериментальная сборка](https://img.shields.io/badge/Linux-EXPERIMENTAL-f5bc42?style=for-the-badge&logo=linux&logoColor=white)](#platforms)
+[![macOS — Intel и Apple Silicon](https://img.shields.io/badge/macOS-INTEL_/_APPLE_SILICON-f5bc42?style=for-the-badge&logo=apple)](#platforms)
+[![Android — Mobile LAB](https://img.shields.io/badge/Android-MOBILE_LAB-3ddc84?style=for-the-badge&logo=android&logoColor=white)](mobile/android/README.md)
 [![Rust](https://img.shields.io/badge/Rust-181b20?style=for-the-badge&logo=rust&logoColor=white)](Cargo.toml)
 [![Tauri](https://img.shields.io/badge/Tauri-181b20?style=for-the-badge&logo=tauri&logoColor=35d4cf)](crates/jarvis-gui/tauri.conf.json)
 [![Svelte](https://img.shields.io/badge/Svelte-181b20?style=for-the-badge&logo=svelte&logoColor=ff6b46)](frontend/package.json)
@@ -27,6 +30,24 @@
 > **Release 1.0.0:** экспериментальные разделы «Агенты · LAB», Microsoft 365 и перенос на другие ОС могут работать некорректно. Сообщайте об ошибках на [workspace34t@gmail.com](mailto:workspace34t@gmail.com). Не прикладывайте ключи и личные данные.
 
 В [релизе v1.0.0](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0) опубликован Windows x64 установщик. Статус экспериментальных сборок Linux/macOS и мобильного проекта указан [отдельно для каждой платформы](#platforms). Старый пререлиз v0.9.0 остаётся без установщика и не содержит последующих доработок автоматически.
+
+## Версии и поддержка устройств
+
+| Платформа | Версия и статус | Установка и особенности |
+| --- | --- | --- |
+| 🪟 Windows x64 | **1.0.0 · Release** | [Установщик](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0). Классический Outlook / Kerio доступны только здесь |
+| 🐧 Linux x64 | **1.0.0 · экспериментальная** | Пакеты и инструкция — [Linux](#platforms). Голос и системные действия требуют проверки на реальном устройстве |
+| 🍎 macOS | **1.0.0 · экспериментальная** | Отдельные сборки Intel и Apple Silicon — [macOS](#platforms). Потребуются разрешения микрофона; Kerio не переносится |
+| 📱 Android 8+ | **1.0.0 · Mobile LAB** | [Сборки APK](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml) и [мобильная инструкция](mobile/android/README.md). Личный центр и чат; без почты и агентов |
+
+> [!IMPORTANT]
+> Сборка без ошибок не заменяет тестирование на устройстве. Обмен по Wi-Fi требует новой компьютерной сборки с разделом «Синхронизация с телефоном»: ранее выпущенный Windows-установщик не обновляется автоматически. Для первого теста сейфа используйте вымышленные пароли.
+
+### Телефон ↔ компьютер: без облачного хранилища
+
+Новая реализация обмена работает в одной Wi-Fi сети: включите её в настройках компьютера, отсканируйте QR-код телефоном и подтвердите совпадающий код на ПК. Сервис выключен по умолчанию; компьютер и JARVIS должны оставаться включёнными. Для подключения может понадобиться разрешение брандмауэра **только для частной сети**.
+
+Передаются заметки, напоминания, дни рождения, привычки и тренировки. История чатов и сейф включаются отдельно. Мастер-пароль вводится локально на каждом устройстве; API-ключи и открытые пароли не входят в пакет синхронизации. Сейф передаётся зашифрованным, соединение проверяет сертификат по QR-коду. Конфликтующие изменения не должны молча перезаписывать друг друга: доступны выбор версии и резервные копии. Таймер, погодный кэш и настройки провайдеров остаются локальными.
 
 <details>
 <summary><strong>🧭 Навигация по README</strong></summary>

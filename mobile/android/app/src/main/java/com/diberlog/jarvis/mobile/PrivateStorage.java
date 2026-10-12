@@ -11,6 +11,7 @@ import android.security.keystore.*;
 import java.security.KeyStore;
 
 final class PrivateStorage {
+    static synchronized void vaultExpected(Context c,JSONObject expected,JSONObject value)throws Exception{if(!MobileStore.same(vault(c),expected))throw new IOException("Сейф изменён при синхронизации. Запись не перезаписана. Заблокируйте и откройте сейф заново.");vault(c,value);}
     static synchronized JSONObject vault(Context c)throws Exception{File f=new File(c.getFilesDir(),"password-vault-v1.json");return f.exists()?new JSONObject(read(f)):null;}
     static synchronized void vault(Context c,JSONObject value)throws Exception{VaultCrypto.validate(value);JSONObject old=vault(c);if(old!=null&&!MobileStore.same(old,value))backup(c,"vault",old.toString());write(new File(c.getFilesDir(),"password-vault-v1.json"),value.toString());}
     static void backup(Context c,String prefix,String text)throws Exception{File d=new File(c.getFilesDir(),"backups");if(!d.exists()&&!d.mkdirs())throw new IOException("Не удалось создать резервную копию");write(new File(d,prefix+"-"+System.currentTimeMillis()+"-"+MobileStore.id()+".json"),text);}

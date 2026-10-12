@@ -34,7 +34,7 @@
     <h3>Конфликты данных</h3>
     <p>Обе версии сохраняются до выбора. Восстановление с телефона может изменить запись или удалить её, если она удалена на телефоне.</p>
     {#if !status.conflicts.length}<p>Конфликтов нет.</p>{/if}
-    {#each status.conflicts as conflict}<article><strong>{conflict.collection}: {conflict.title}</strong><button disabled={busy} on:click={()=>action('lan_sync_resolve',{id:conflict.id,usePhone:false})}>Оставить версию компьютера</button><button disabled={busy} on:click={()=>{if(confirm('Применить версию телефона? Резервная копия текущих данных будет сохранена.'))action('lan_sync_resolve',{id:conflict.id,usePhone:true})}}>Применить версию телефона</button></article>{/each}
+    {#each status.conflicts as conflict}<article><strong>{conflict.collection}: {conflict.title}</strong><details><summary>Сравнить обе версии</summary><p>Компьютер</p><pre>{conflict.local===null?'Запись удалена':JSON.stringify(conflict.local,null,2)}</pre><p>Телефон</p><pre>{conflict.phone===null?'Запись удалена':JSON.stringify(conflict.phone,null,2)}</pre></details><button disabled={busy} on:click={()=>action('lan_sync_resolve',{id:conflict.id,usePhone:false})}>Оставить версию компьютера</button><button disabled={busy} on:click={()=>{if(confirm('Применить версию телефона? Резервная копия текущих данных будет сохранена.'))action('lan_sync_resolve',{id:conflict.id,usePhone:true})}}>Применить версию телефона</button></article>{/each}
     <p class="footnote">Компьютерный JARVIS должен оставаться запущенным. Если соединение не устанавливается, разрешите приложению входящие подключения только в частной сети. Резервные копии находятся в папке данных приложения / lan-sync / backups. Автозапуск сервера после перезапуска не включён.</p>
 </section>
 <style>
