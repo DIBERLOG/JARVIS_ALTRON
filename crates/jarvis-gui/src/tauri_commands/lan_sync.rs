@@ -163,6 +163,19 @@ fn merge_center(base:&Value,local:&Value,remote:&Value,conflicts:&mut Vec<Confli
     if local["training"].is_object()||remote["training"].is_object(){let mut training=if local["training"].is_object(){local["training"].clone()}else{json!({})};for key in ["exercises","plans","sessions"]{training[key]=merge_records(&base["training"][key],&local["training"][key],&remote["training"][key],"center",&format!("training.{key}"),conflicts);}for key in ["profile","morningExercise","chargeSettings","chargeLevels"]{training[key]=merge_value(&base["training"][key],&local["training"][key],&remote["training"][key],"center",&format!("training.{key}"),key,conflicts);}output["training"]=training;}
     output
 }
+fn normalize_center(mut data:Value)->Result<Value,String>{if !data.is_object(){return Err("Некорректные данные Центра".into());}for key in ["notes","reminders","birthdays","habits"]{if data.get(key).is_none(){data[key]=json!([]);}}Ok(data)}
+fn merge_center_checked(base:&Value,local:&Value,remote:&Value)->Result<Value,String>{let mut conflicts=vec![];let result=merge_center(base,local,remote,&mut conflicts);if !conflicts.is_empty(){return Err("Эта запись одновременно изменена в другом окне или на устройстве. Ваши изменения не перезаписали другую версию. Скопируйте несохранённый текст, обновите раздел и сравните версии.".into());}Ok(result)}
+#[tauri::command]
+pub fn center_save_data(state:tauri::State<'_,crate::AppState>,base:String,data:String)->Result<String,String>{
+    if base.len()>16*1024*1024||data.len()>16*1024*1024{return Err("Данные Центра превышают 16 МБ".into());}
+    let base=normalize_center(serde_json::from_str(&base).map_err(|_|"Некорректная базовая версия Центра")?)?;
+    let remote=normalize_center(serde_json::from_str(&data).map_err(|_|"Некорректные изменения Центра")?)?;valid_center(&base)?;valid_center(&remote)?;
+    let mut merged=String::new();let mut guard=state.settings.lock_mut();let updated=jarvis_core::db::update_settings(&guard,|settings|{
+        let local=if settings.center_data.is_empty(){empty_center()}else{normalize_center(serde_json::from_str(&settings.center_data).map_err(|_|"Данные Центра на диске повреждены")?)?};valid_center(&local)?;
+        let result=merge_center_checked(&base,&local,&remote)?;
+        merged=result.to_string();settings.set("center_data",&merged)
+    })?;*guard=updated;Ok(merged)
+}
 fn vault_at(dir:&Path)->Result<Value,String>{let p=dir.join("password-vault-v1.json");if p.exists(){load(&p)}else{Ok(Value::Null)}}
 fn backup(dir:&Path,label:&str,data:&Value)->Result<(),String>{let backups=dir.join("lan-sync/backups");std::fs::create_dir_all(&backups).map_err(|_|"Не удалось создать резервную копию")?;atomic(&backups.join(format!("{label}-{}-{}.json",chrono::Utc::now().timestamp_millis(),&random()[..8])),data)}
 fn exchange(i:&mut Inner,body:&Value,settings:&jarvis_core::SettingsManager,dir:&Path)->Result<Value,String>{
@@ -204,6 +217,13 @@ pub fn lan_sync_resolve(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,id:S
 }
 #[cfg(test)]
 mod tests {use super::*;
+    #[test] fn stale_center_saves_merge_independent_edits_but_reject_same_record(){
+        let base=json!({"notes":[{"id":"a","title":"old"},{"id":"b","title":"old"}],"reminders":[],"birthdays":[],"habits":[]});
+        let mut local=base.clone();local["notes"][0]["title"]=json!("local");
+        let mut remote=base.clone();remote["notes"][1]["title"]=json!("remote");
+        let merged=merge_center_checked(&base,&local,&remote).unwrap();assert_eq!(merged["notes"][0]["title"],"local");assert_eq!(merged["notes"][1]["title"],"remote");
+        remote["notes"][0]["title"]=json!("conflict");assert!(merge_center_checked(&base,&local,&remote).is_err());assert_eq!(local["notes"][0]["title"],"local");
+    }
     #[test] fn authentication_rejects_unknown_revoked_and_expired_tokens(){
         let directory=tempfile::tempdir().unwrap();let state=LanSync::default();
         let settings=jarvis_core::SettingsManager::new(jarvis_core::Settings::default());

@@ -215,9 +215,9 @@ pub(super) fn send_chat(state: &AppState, client_messages: Vec<ChatMessage>, use
     let latest = client_messages.last().unwrap().content.to_lowercase();
     messages.extend(client_messages);
     let mut source_footer = String::new();
-    if agent.is_none() && (use_web_search || needs_live_info(&latest)) {
+    if agent.is_none() && jarvis_core::chat::should_search(&provider,use_web_search,&latest) {
         let now = chrono::Local::now().to_rfc3339();
-        let facts = chat_search_web(messages.last().unwrap().content.clone())?;
+        let facts = chat_search_web(messages.last().unwrap().content.clone()).unwrap_or_else(|_|"Свежий поиск недоступен. Продолжи без него, явно сообщи, что актуальные сведения не проверены; не выдумывай новости, цены или результаты поиска.".into());
         source_footer = facts.split_whitespace().filter(|part| part.starts_with("https://")).take(4).collect::<Vec<_>>().join("\n");
         messages.last_mut().unwrap().content.push_str(&format!("\n\nТекущая дата: {now}. Ниже результаты свежего поиска. Используй их для ответа; называй источник, ссылку и дату публикации, если дата указана. Не выдумывай отсутствующие даты или факты. Если данных недостаточно, скажи об этом.\n{facts}"));
     }

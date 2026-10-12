@@ -219,6 +219,9 @@ pub fn run_jarvis_app() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn ipc_credentials()->Result<String,String>{jarvis_core::ipc_credentials::read_credentials()}
+
 #[derive(Serialize)]
 pub struct HealthStatus {
     pub microphone_ready: bool,

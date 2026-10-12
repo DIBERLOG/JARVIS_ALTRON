@@ -101,7 +101,7 @@
         clearTimeout(noticeTimer)
         saving = true; error = ""; notice = ""
         try {
-            await saveCenterData(next); data = next; notice = message
+            await saveCenterData(next,data); data = next; notice = message
             if (!disposed && message.startsWith("Заметка")) noticeTimer = setTimeout(() => { notice = "" }, 2000)
         }
         catch (e) { error = String(e) }

@@ -9,6 +9,8 @@ use std::time::Duration;
 
 #[cfg(feature = "lua")]
 #[derive(Serialize)] struct Message<'a> { role: &'a str, content: &'a str }
+/// A local model never acquires an implicit dependency on an internet search.
+pub fn should_search(provider:&str,requested:bool,text:&str)->bool{requested||(matches!(provider,"openai"|"deepseek")&&needs_live_info(text))}
 const JARVIS: &str = "Ты JARVIS — личный русскоязычный техно-ассистент собеседника. Общайся как спокойный, вежливый и остроумный помощник: сдержанная доброжелательность, точность, ненавязчивая ирония, уверенный тон без пафоса. Ты миролюбив и умеренно оптимистичен, но реалист: не приукрашивай факты, честно называй риски и ограничения, затем предлагай практичный следующий шаг. Обращайся к собеседнику «сэр» естественно и регулярно: при приветствии, подтверждении действия, ответе на личный вопрос или важном выводе. Обычно достаточно одного «сэр» на ответ; не вставляй его в каждое предложение и не используй в сухих перечнях, коде или цитатах. Отвечай по существу, обычно кратко, но подробно, когда вопрос того требует. Не начинай каждый ответ одинаковой фразой. Не используй Markdown и эмодзи. Не утверждай, что ты персонаж из фильма.";
 const ALTRON: &str = "ТЫ — АЛТРОН. Русскоязычный техноассистент с холодным, отстранённым интеллектом.
 
@@ -77,10 +79,10 @@ fn ask_with_history_options(text: &str, history: &[(String, String)], spoken: bo
     let openai_model=s.openai_chat_model; let openai_key=s.api_keys.openai;
     let mut system_prompt = format!("{}\n{}", persona_prompt(&persona), web_evidence_prompt());
     system_prompt.push_str("\nДля голосового разговора обычно отвечай в 2–3 коротких предложениях. Если пользователь просит подробно, объясняй подробнее. При приложенных результатах поиска отвечай по ним, не утверждай, что доступ к интернету отсутствует. При ошибке поиска честно сообщи, что именно этот поиск не удался.");
-    let live_context = if needs_live_info(text) {
+    let live_context = if should_search(&provider,false,text) {
         Some(voice_live_context(text).unwrap_or_else(|error| {
-            log::warn!("Voice web search failed: {error}");
-            format!("Поиск не удался: {error}. Свежие факты не подтверждены; не выдумывай результаты поиска.")
+            let _=error;log::warn!("Voice web search unavailable; continuing without verified live facts");
+            "Поиск не удался. Свежие факты не подтверждены; не выдумывай результаты поиска.".to_string()
         }))
     } else { None };
     let user_text = match live_context {
@@ -391,6 +393,13 @@ fn voice_feed_items(source: &str, xml: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_chat_does_not_require_implicit_web_search(){
+        assert!(!super::should_search("local",false,"Какие новости сегодня?"));
+        assert!(!super::should_search("ollama",false,"Найди в интернете"));
+        assert!(super::should_search("local",true,"Объясни закон Ома"));
+        assert!(super::should_search("deepseek",false,"Какие новости сегодня?"));
+    }
     #[test]
     fn openai_reply_reads_only_visible_text_and_rejects_incomplete() {
         let value=serde_json::json!({"status":"completed","output":[{"type":"reasoning","content":[{"type":"output_text","text":"hidden"}]},{"type":"message","content":[{"type":"output_text","text":"Ответ"},{"type":"refusal","refusal":"Отказ"}]}]});

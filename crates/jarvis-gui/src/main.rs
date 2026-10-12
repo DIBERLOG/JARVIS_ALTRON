@@ -104,6 +104,7 @@ fn main() {
             tauri_commands::db_write,
             tauri_commands::db_write_many,
             tauri_commands::center_restore_data,
+            tauri_commands::center_save_data,
 
             // etc
             tauri_commands::get_app_version,
@@ -127,6 +128,7 @@ fn main() {
             tauri_commands::get_health_status,
             tauri_commands::is_jarvis_app_running,
             tauri_commands::run_jarvis_app,
+            tauri_commands::ipc_credentials,
 
             // vosk
             tauri_commands::list_vosk_models,

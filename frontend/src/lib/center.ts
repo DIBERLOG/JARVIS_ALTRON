@@ -21,20 +21,24 @@ export function defaultHabits(): Habit[] {
 }
 
 export const emptyCenterData = (): CenterData => ({ reminders: [], birthdays: [], notes: [], habits: [] })
+const snapshots=new WeakMap<CenterData,string>()
 
 export async function loadCenterData(): Promise<CenterData> {
     const raw = await invoke<string>("db_read", { key: "center_data" })
-    if (!raw) return { ...emptyCenterData(), habits: defaultHabits() }
+    if (!raw) {const data={ ...emptyCenterData(), habits: defaultHabits() };snapshots.set(data,JSON.stringify(emptyCenterData()));return data}
     const parsed = JSON.parse(raw)
     if (!parsed || !Array.isArray(parsed.reminders) || !Array.isArray(parsed.birthdays)) {
         throw new Error("Данные Центра повреждены")
     }
-    return { reminders: parsed.reminders, birthdays: parsed.birthdays, notes: Array.isArray(parsed.notes) ? parsed.notes : [], habits: Array.isArray(parsed.habits) ? parsed.habits : defaultHabits(), training: parsed.training } as CenterData
+    const data={ reminders: parsed.reminders, birthdays: parsed.birthdays, notes: Array.isArray(parsed.notes) ? parsed.notes : [], habits: Array.isArray(parsed.habits) ? parsed.habits : defaultHabits(), training: parsed.training } as CenterData
+    snapshots.set(data,raw);return data
 }
 
-export async function saveCenterData(data: CenterData): Promise<void> {
-    const saved = await invoke<boolean>("db_write", { key: "center_data", val: JSON.stringify(data) })
-    if (!saved) throw new Error("Не удалось сохранить данные Центра")
+export async function saveCenterData(data: CenterData,previous:CenterData=data): Promise<void> {
+    const base=snapshots.get(previous)
+    if(base===undefined)throw new Error('Базовая версия Центра не загружена. Обновите раздел перед сохранением.')
+    const saved=await invoke<string>('center_save_data',{base,data:JSON.stringify(data)})
+    Object.assign(data,JSON.parse(saved));snapshots.set(data,saved)
 }
 
 export function dayKey(date: Date): string {

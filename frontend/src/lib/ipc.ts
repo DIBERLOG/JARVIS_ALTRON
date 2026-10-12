@@ -19,13 +19,13 @@ export const activeNotification = writable<JarvisNotification | null>(null)
 
 // ### CONNECTION ###
 
-const IPC_URL = "ws://127.0.0.1:9712"
 const RECONNECT_DELAY = 5000
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let manualDisconnect = false
 let enabled = false  // only connect when enabled
+let connecting=false
 
 export function enableIpc() {
     enabled = true
@@ -37,22 +37,28 @@ export function disableIpc() {
     disconnectIpc()
 }
 
-export function connectIpc(port: number = 9712) {
-    if (ws?.readyState === WebSocket.OPEN) return
+export async function connectIpc(port: number = 9712) {
+    if (connecting || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return
 
     manualDisconnect = false
     enabled = true
 
+    connecting=true
+    let token:string
+    try{token=await invoke<string>('ipc_credentials')}catch{connecting=false;lastError.set('Защищённое голосовое ядро недоступно. Перезапустите JARVIS после обновления.');scheduleReconnect();return}
+    connecting=false
+    if(!enabled||manualDisconnect)return
     ws = new WebSocket(`ws://127.0.0.1:${port}`)
+    const connection=ws
+    const authTimeout=setTimeout(()=>{if(ws===connection&&!get(ipcConnected)){lastError.set('Голосовое ядро не подтвердило защищённое подключение. Обновите оба процесса JARVIS.');connection.close()}},8000)
 
     ws.onopen = () => {
-        ipcConnected.set(true)
-        jarvisState.set("idle")
-        ws?.send(JSON.stringify({ action: "get_muted" }))
-        console.log("[IPC] connected")
+        if(ws!==connection)return
+        ws?.send(JSON.stringify({action:'authenticate',token}))
     }
 
     ws.onclose = () => {
+        clearTimeout(authTimeout);if(ws!==connection)return
         dialogueActive.set(false)
         ipcConnected.set(false)
         microphoneMuteKnown.set(false)
@@ -62,12 +68,16 @@ export function connectIpc(port: number = 9712) {
     }
 
     ws.onerror = (err) => {
+        if(ws!==connection)return
         console.error("[IPC] error:", err)
     }
 
     ws.onmessage = (event) => {
+        if(ws!==connection)return
         try {
             const msg = JSON.parse(event.data)
+            if(msg.event==='authenticated'){clearTimeout(authTimeout);ipcConnected.set(true);jarvisState.set('idle');ws?.send(JSON.stringify({action:'get_muted'}));return}
+            if(!get(ipcConnected))return
             handleEvent(msg)
         } catch (e) {
             console.error("[IPC] failed to parse message:", e)
@@ -107,7 +117,7 @@ export function disconnectIpc() {
 // ### EVENT HANDLING ###
 
 function handleEvent(data: any) {
-    console.log("IPC: Event", data.event, data)
+    // Personal event payloads must not be copied to browser logs.
 
     switch (data.event) {
         case "dialogue_mode":
@@ -175,6 +185,7 @@ function handleEvent(data: any) {
 // ### ACTIONS ###
 
 export function sendAction(action: string, payload: Record<string, any> = {}) {
+    if(!get(ipcConnected))return false
     if (ws?.readyState !== WebSocket.OPEN) {
         return false
     }
@@ -197,7 +208,7 @@ export function reloadCommands() {
 
 export function sendIpcMessage(message: object): Promise<void> {
     return new Promise((resolve, reject) => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (!get(ipcConnected) || !ws || ws.readyState !== WebSocket.OPEN) {
             reject(new Error("IPC not connected"))
             return
         }

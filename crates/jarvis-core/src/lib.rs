@@ -13,6 +13,7 @@ pub mod audio;
 pub mod commands;
 pub mod config;
 pub mod db;
+pub mod ipc_credentials;
 pub mod i18n;
 pub mod notifications;
 pub mod platform;

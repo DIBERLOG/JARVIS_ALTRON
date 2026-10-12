@@ -1,7 +1,7 @@
 // File System Lua API: read, write, list (sandboxed)
 
 use mlua::{Lua, Table};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::fs;
 
 use crate::lua::sandbox::SandboxLevel;
@@ -194,19 +194,64 @@ fn resolve_path(command_path: &PathBuf, path: &str, sandbox: SandboxLevel) -> ml
         return Ok(path.to_path_buf());
     }
     
+    if !sandbox.allows_expanded_paths() && path.components().any(|c| matches!(c, Component::ParentDir | Component::Prefix(_) | Component::RootDir)) {
+        return Err(mlua::Error::runtime("Parent and rooted paths not allowed in this sandbox"));
+    }
     // relative path - resolve against command folder
     let resolved = command_path.join(path);
     
     // canonicalize to resolve ../ etc and check it's still within command folder
-    let canonical = resolved.canonicalize()
-        .unwrap_or_else(|_| resolved.clone());
-    
+    if sandbox.allows_expanded_paths() { return Ok(resolved); }
     let cmd_canonical = command_path.canonicalize()
-        .unwrap_or_else(|_| command_path.clone());
+        .map_err(|_| mlua::Error::runtime("Command folder cannot be resolved"))?;
+    // Validate existing ancestors too: a missing file beneath an escaping symlink
+    // must not bypass the check merely because the whole path cannot canonicalize.
+    let mut ancestor = resolved.as_path();
+    let canonical = loop {
+        match ancestor.canonicalize() {
+            Ok(value) => break value,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if fs::symlink_metadata(ancestor).is_ok() {
+                    return Err(mlua::Error::runtime("Unresolvable symbolic link"));
+                }
+                ancestor = ancestor.parent().ok_or_else(|| mlua::Error::runtime("Path cannot be resolved"))?;
+            }
+            Err(_) => return Err(mlua::Error::runtime("Path cannot be resolved")),
+        }
+    };
     
     if !sandbox.allows_expanded_paths() && !canonical.starts_with(&cmd_canonical) {
         return Err(mlua::Error::runtime("Path escapes command folder"));
     }
     
     Ok(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn lua_rejects_new_paths_outside_command_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = dir.path().join("command");
+        fs::create_dir(&command).unwrap();
+        let lua = Lua::new();
+        let jarvis = lua.create_table().unwrap();
+        register(&lua, &jarvis, &command, SandboxLevel::Standard).unwrap();
+        lua.globals().set("jarvis", jarvis).unwrap();
+        assert!(lua.load("jarvis.fs.write('../escaped.txt', 'test')").exec().is_err());
+        assert!(!dir.path().join("escaped.txt").exists());
+        lua.load("jarvis.fs.write('nested/inside.txt', 'test')").exec().unwrap();
+        assert_eq!(fs::read_to_string(command.join("nested/inside.txt")).unwrap(), "test");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn missing_file_beneath_symlink_cannot_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = dir.path().join("command");
+        let outside = dir.path().join("outside");
+        fs::create_dir(&command).unwrap();fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, command.join("link")).unwrap();
+        assert!(resolve_path(&command,"link/new.txt",SandboxLevel::Standard).is_err());
+    }
 }
