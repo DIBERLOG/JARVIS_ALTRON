@@ -204,6 +204,22 @@ pub fn lan_sync_resolve(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,id:S
 }
 #[cfg(test)]
 mod tests {use super::*;
+    #[test] fn authentication_rejects_unknown_revoked_and_expired_tokens(){
+        let directory=tempfile::tempdir().unwrap();let state=LanSync::default();
+        let settings=jarvis_core::SettingsManager::new(jarvis_core::Settings::default());
+        assert_eq!(handle("/sync","unknown",json!({}),&state.inner,&settings,directory.path()).0,503);
+        {let mut i=state.inner.lock();i.runtime=Some(Runtime{stop:Arc::new(AtomicBool::new(false)),address:"192.168.1.2:47832".into(),fingerprint:random(),secret:"test-secret".into(),expires:Instant::now()+Duration::from_secs(120),pending:vec![]});}
+        assert_eq!(handle("/sync","unknown",json!({}),&state.inner,&settings,directory.path()).0,401);
+        assert_eq!(handle("/pair","wrong",json!({"name":"Phone"}),&state.inner,&settings,directory.path()).0,401);
+        assert_eq!(handle("/pair","test-secret",json!({"name":"Phone"}),&state.inner,&settings,directory.path()).0,202);
+        let pending=status(&state.inner.lock())["pending"][0]["id"].as_str().unwrap().to_string();
+        assert_eq!(handle("/pair/status","test-secret",json!({"id":pending}),&state.inner,&settings,directory.path()).0,202);
+        assert_eq!(handle("/sync","unapproved",json!({}),&state.inner,&settings,directory.path()).0,401);
+        {let mut i=state.inner.lock();i.saved.devices.push(Device{id:"revoked".into(),name:"Phone".into(),token_hash:digest("approved"),last_sync:None});i.saved.devices.clear();i.runtime.as_mut().unwrap().expires=Instant::now()-Duration::from_secs(1);}
+        assert_eq!(handle("/sync","approved",json!({}),&state.inner,&settings,directory.path()).0,401);
+        assert_eq!(handle("/pair","test-secret",json!({"name":"Phone"}),&state.inner,&settings,directory.path()).0,401);
+        assert!(!directory.path().join("password-vault-v1.json").exists());
+    }
     #[test] fn three_way_preserves_edits_and_deletions(){let b=json!([{"id":"a","title":"old"}]);let l=b.clone();let r=json!([]);let mut c=vec![];assert_eq!(merge_records(&b,&l,&r,"center","notes",&mut c),json!([]));assert!(c.is_empty());
         let l=json!([{"id":"a","title":"pc"}]);let r=json!([{"id":"a","title":"phone"}]);assert_eq!(merge_records(&b,&l,&r,"center","notes",&mut c),l);assert_eq!(c.len(),1);assert_eq!(c[0].remote,r[0]);}
     #[test] fn only_private_addresses_and_sealed_vaults(){assert!(private("192.168.1.2".parse().unwrap()));assert!(!private("8.8.8.8".parse().unwrap()));assert!(!private("127.0.0.1".parse().unwrap()));assert!(valid_vault(&json!({"version":1,"cards":{"data":"plaintext"}})).is_err());assert!(valid_records(&json!([{"id":"a"},{"id":"a"}])).is_err());}
