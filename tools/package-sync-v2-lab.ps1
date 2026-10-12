@@ -21,7 +21,7 @@ Copy-Item -LiteralPath "$repository\LICENSE.txt","$repository\THIRD_PARTY_NOTICE
 Copy-Item -LiteralPath "$repository\third_party\licenses" -Destination "$windows\third_party" -Recurse -Force
 Copy-Item -LiteralPath "$repository\docs\SYNC_V2_LAB_TESTING.md" -Destination "$windows\READ-ME-SYNC-v2-LAB.md"
 Copy-Item -LiteralPath "$repository\docs\SYNC_V2_VALIDATION.md" -Destination "$windows\SYNC_V2_VALIDATION.md"
-Copy-Item -LiteralPath "$repository\mobile\android\app\build\outputs\apk\release\app-release.apk" -Destination "$destination\JARVIS-Mobile-1.1.0-Sync-v2-LAB.apk"
+Copy-Item -LiteralPath "$repository\mobile\android\app\build\outputs\apk\release\app-release.apk" -Destination "$destination\JARVIS-Mobile-1.1.1-Sync-v2-LAB.apk"
 & "$windows\JARVIS-Sync-v2-LAB.exe" --release-smoke-test
 if ($LASTEXITCODE -ne 0) { throw 'Проверка комплекта Windows не прошла.' }
 $compiler = Join-Path $env:LOCALAPPDATA 'tauri\NSIS\makensis.exe'
