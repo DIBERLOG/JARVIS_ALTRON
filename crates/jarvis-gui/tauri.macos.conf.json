@@ -1,7 +1,7 @@
 {
   "bundle": {
     "targets": ["app", "dmg"],
-    "externalBin": ["../../target/release/jarvis-app"],
+    "externalBin": ["../../target/release/jarvis-app-sync-v2-lab"],
     "resources": {
       "../../target/release/libpv_recorder.dylib": "libpv_recorder.dylib",
       "../../LICENSE.txt": "LICENSE.txt",

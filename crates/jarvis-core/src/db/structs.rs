@@ -45,6 +45,8 @@ pub struct Settings {
     #[serde(default)]
     pub chat_history: String,
     #[serde(default)]
+    pub request_history: String,
+    #[serde(default)]
     pub schedule_website: String,
     #[serde(default = "default_chat_speak_responses")]
     pub chat_speak_responses: bool,
@@ -106,6 +108,7 @@ impl Settings {
             "deepseek_chat_model"       => Some(self.deepseek_chat_model.clone()),
             "openai_chat_model"         => Some(self.openai_chat_model.clone()),
             "chat_history_v1"           => Some(self.chat_history.clone()),
+            "request_history_v1"        => Some(self.request_history.clone()),
             "schedule_website"          => Some(self.schedule_website.clone()),
             "chat_speak_responses"      => Some(self.chat_speak_responses.to_string()),
             "tts_mode"                  => Some(self.tts_mode.clone()),
@@ -199,6 +202,12 @@ impl Settings {
                 }
                 self.schedule_website=raw.into();
             },
+            "request_history_v1" => {
+                if val.len()>6_500_000{return Err("История запросов слишком большая".into());}
+                let entries:serde_json::Value=serde_json::from_str(val).map_err(|_|"Некорректная история запросов")?;
+                if !entries.as_array().is_some_and(|items|items.len()<=500&&items.iter().all(|e|e["id"].is_string()&&e["text"].as_str().is_some_and(|s|s.chars().count()<=12000)&&matches!(e["source"].as_str(),Some("chat"|"voice"))&&e["at"].as_str().is_some_and(|s|chrono::DateTime::parse_from_rfc3339(s).is_ok()))){return Err("Некорректная история запросов".into());}
+                self.request_history=val.into();
+            },
             "chat_history_v1" => {
                 if val.len() > 20_000_000 { return Err("История чатов превышает 20 МБ".into()); }
                 let history: serde_json::Value = serde_json::from_str(val).map_err(|_| "Некорректная история чатов")?;
@@ -261,6 +270,7 @@ impl Settings {
             "deepseek_chat_model",
             "openai_chat_model",
             "chat_history_v1",
+            "request_history_v1",
             "schedule_website",
             "chat_speak_responses",
             "tts_mode",
@@ -306,6 +316,7 @@ impl Default for Settings {
             deepseek_chat_model: default_deepseek_chat_model(),
             openai_chat_model: default_openai_chat_model(),
             chat_history: String::new(),
+            request_history: String::new(),
             schedule_website: String::new(),
             chat_speak_responses: default_chat_speak_responses(),
             tts_mode: default_tts_mode(),

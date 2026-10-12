@@ -1,0 +1,154 @@
+package com.diberlog.jarvis.mobile;
+
+import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.content.ContentValues;
+import android.util.Base64;
+import org.json.*;
+import java.util.*;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import javax.crypto.*;
+import javax.crypto.spec.*;
+import java.io.*;
+
+/** Encrypted snapshot, heads, outbox and cursor committed together. No plaintext fallback. */
+final class SyncJournal {
+    private static final String[] TRAINING_LISTS={"exercises","plans","sessions"};
+    private static final String[] TRAINING_FIELDS={"profile","morningExercise","chargeSettings","chargeLevels"};
+    static String random(){byte[] b=new byte[32];new SecureRandom().nextBytes(b);StringBuilder s=new StringBuilder();for(byte n:b)s.append(String.format(Locale.ROOT,"%02x",n&255));return s.toString();}
+    static boolean identifier(String s){return s.matches("[a-fA-F0-9]{64}");}
+    static String encoded(byte[] b){return Base64.encodeToString(b,Base64.NO_WRAP);}
+    static byte[] decoded(String s){return Base64.decode(s,Base64.NO_WRAP);}
+    static JSONObject seal(Object value,String purpose,SecretKey key)throws Exception{
+        Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key);
+        cipher.updateAAD(("jarvis-protected-json:1:"+purpose).getBytes(StandardCharsets.UTF_8));
+        byte[] plain=(value==null?"null":value.toString()).getBytes(StandardCharsets.UTF_8);
+        try{return new JSONObject().put("format","jarvis-protected-json").put("version",1).put("nonce",encoded(cipher.getIV())).put("data",encoded(cipher.doFinal(plain)));}finally{Arrays.fill(plain,(byte)0);}
+    }
+    static Object open(JSONObject envelope,String purpose,SecretKey key)throws Exception{
+        if(envelope.length()!=4||!"jarvis-protected-json".equals(envelope.getString("format"))||envelope.getInt("version")!=1)throw new IOException("Неизвестный формат шифрования");
+        byte[] nonce=decoded(envelope.getString("nonce")),data=decoded(envelope.getString("data"));if(nonce.length!=12||data.length<16||data.length>48*1024*1024)throw new IOException("Повреждён зашифрованный пакет");
+        Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,key,new GCMParameterSpec(128,nonce));cipher.updateAAD(("jarvis-protected-json:1:"+purpose).getBytes(StandardCharsets.UTF_8));
+        byte[] plain=cipher.doFinal(data);try{return new JSONTokener(new String(plain,StandardCharsets.UTF_8)).nextValue();}finally{Arrays.fill(plain,(byte)0);}
+    }
+    static String aad(JSONObject op)throws JSONException{return new JSONArray().put(op.getInt("version")).put(op.getString("op_id")).put(op.getString("device_id")).put(op.getString("collection")).put(op.getString("entity_id")).put(op.getJSONArray("parents")).put(op.getBoolean("deleted")).put(op.getInt("key_version")).toString();}
+    static SecretKey groupKey(JSONObject group,int epoch)throws Exception{
+        JSONArray bytes=group.getJSONObject("keys").getJSONArray(Integer.toString(epoch));if(bytes.length()!=32)throw new IOException("Некорректный ключ группы");byte[] key=new byte[32];for(int i=0;i<32;i++){int n=bytes.getInt(i);if(n<0||n>255)throw new IOException("Некорректный ключ");key[i]=(byte)n;}return new SecretKeySpec(key,"AES");
+    }
+    private static SQLiteDatabase database(Context c)throws Exception{
+        SQLiteDatabase db=SQLiteDatabase.openOrCreateDatabase(new File(c.getFilesDir(),"sync-v2.sqlite"),null);db.enableWriteAheadLogging();db.execSQL("PRAGMA synchronous=FULL");
+        db.execSQL("CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS operations(seq INTEGER PRIMARY KEY AUTOINCREMENT,op_id TEXT UNIQUE NOT NULL,collection TEXT NOT NULL,entity_id TEXT NOT NULL,payload TEXT NOT NULL,outbound INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS records(collection TEXT NOT NULL,entity_id TEXT NOT NULL,sealed TEXT NOT NULL,PRIMARY KEY(collection,entity_id))");
+        db.execSQL("CREATE TABLE IF NOT EXISTS cursors(peer TEXT PRIMARY KEY,value INTEGER NOT NULL)");
+        if(raw(db,"SELECT value FROM metadata WHERE key='snapshot'",new String[]{})==null){
+            android.content.SharedPreferences prefs=MobileStore.prefs(c);JSONObject center=new JSONObject(prefs.getString("center",MobileStore.empty().toString()));if(!prefs.contains("center")&&!prefs.getString("note","").isEmpty())center.getJSONArray("notes").put(new JSONObject().put("id",MobileStore.id()).put("title","Заметка").put("text",prefs.getString("note","")).put("updatedAt",MobileStore.now()).put("format","plain"));MobileStore.validate(center);
+            JSONObject snapshot=new JSONObject().put("center_data",center.toString()).put("chat_history",prefs.getString("chats","[]")).put("local_tasks",prefs.getString("tasks","[]")).put("sync_share_chats",prefs.getBoolean("syncChats",false)).put("sync_share_vault",prefs.getBoolean("syncVault",false));
+            JSONObject vault=PrivateStorage.vaultLegacy(c);if(vault!=null)snapshot.put("sync_vault",vault);
+            JSONObject protectedSnapshot=seal(snapshot,"sync-snapshot",PrivateStorage.deviceKey());
+            File copy=new File(c.getFilesDir(),"sync-v2-migration-encrypted.json");if(!copy.exists())PrivateStorage.write(copy,protectedSnapshot.toString());
+            if(!MobileStore.same(snapshot,open(new JSONObject(PrivateStorage.read(copy)),"sync-snapshot",PrivateStorage.deviceKey())))throw new IOException("Не удалось проверить копию миграции");
+            metadata(db,"snapshot",protectedSnapshot.toString());
+        }return db;
+    }
+    private static String raw(SQLiteDatabase db,String sql,String[] args){try(Cursor r=db.rawQuery(sql,args)){return r.moveToFirst()?r.getString(0):null;}}
+    private static void metadata(SQLiteDatabase db,String key,String value){ContentValues row=new ContentValues();row.put("key",key);row.put("value",value);if(db.insertWithOnConflict("metadata",null,row,SQLiteDatabase.CONFLICT_REPLACE)<0)throw new android.database.sqlite.SQLiteException("Metadata commit failed");}
+    private static JSONObject snapshot(SQLiteDatabase db)throws Exception{return (JSONObject)open(new JSONObject(raw(db,"SELECT value FROM metadata WHERE key='snapshot'",new String[]{})),"sync-snapshot",PrivateStorage.deviceKey());}
+    private static JSONObject group(SQLiteDatabase db)throws Exception{String raw=raw(db,"SELECT value FROM metadata WHERE key='group'",new String[]{});return raw==null?null:(JSONObject)open(new JSONObject(raw),"sync-group",PrivateStorage.deviceKey());}
+    private static void store(SQLiteDatabase db,JSONObject snapshot)throws Exception{metadata(db,"snapshot",seal(snapshot,"sync-snapshot",PrivateStorage.deviceKey()).toString());}
+    static synchronized JSONObject snapshot(Context c)throws Exception{try(SQLiteDatabase db=database(c)){return snapshot(db);}}
+    static synchronized void provision(Context c,JSONObject wire,String device)throws Exception{
+        if(wire.getInt("version")!=2||!identifier(wire.getString("group_id"))||!identifier(device))throw new IOException("Некорректная группа");groupKey(wire,wire.getInt("epoch"));
+        try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject existing=group(db);if(existing!=null&&!existing.getString("group_id").equals(wire.getString("group_id")))throw new IOException("Другая группа; используйте новую тестовую установку");
+            JSONObject next=new JSONObject(wire.toString()).put("device_id",device);if(existing!=null){if(next.getInt("epoch")<existing.getInt("epoch"))throw new IOException("Откат ключа или другой ID устройства");
+                if(!device.equals(existing.getString("device_id")))db.execSQL("UPDATE operations SET outbound=2");
+                Iterator<String> epochs=existing.getJSONObject("keys").keys();while(epochs.hasNext()){String epoch=epochs.next();if(!MobileStore.same(existing.getJSONObject("keys").get(epoch),next.getJSONObject("keys").opt(epoch)))throw new IOException("Изменён ключ предыдущей версии");}}
+            metadata(db,"group",seal(next,"sync-group",PrivateStorage.deviceKey()).toString());JSONObject before=snapshot(db);commitSnapshot(db,before,before,next);db.setTransactionSuccessful();
+        }finally{db.endTransaction();}}
+    }
+    private static Map<String,JSONObject> records(JSONObject snapshot)throws Exception{
+        Map<String,JSONObject> result=new TreeMap<>();JSONObject center=new JSONObject(snapshot.getString("center_data"));MobileStore.validate(center);
+        for(String list:MobileStore.LISTS)addList(result,list,center.getJSONArray(list));JSONObject training=center.optJSONObject("training");
+        if(training!=null){for(String list:TRAINING_LISTS)addList(result,"training."+list,training.optJSONArray(list));for(String field:TRAINING_FIELDS)if(training.has(field)&&!training.isNull(field))result.put("training."+field+"\n"+field,new JSONObject().put("value",training.get(field)));}
+        if(snapshot.optBoolean("sync_share_chats"))addList(result,"chats",new JSONArray(snapshot.optString("chat_history","[]")));
+        if(snapshot.optBoolean("sync_share_vault")&&snapshot.optJSONObject("sync_vault")!=null){VaultCrypto.validate(snapshot.getJSONObject("sync_vault"));result.put("vault\ncontainer",new JSONObject().put("value",snapshot.getJSONObject("sync_vault")));}return result;
+    }
+    private static void addList(Map<String,JSONObject> result,String collection,JSONArray list)throws Exception{if(list==null)return;MobileStore.records(list);for(int i=0;i<list.length();i++){JSONObject item=list.getJSONObject(i);String id=item.getString("id");if(id.indexOf('\n')>=0)throw new IOException("Некорректный ID");result.put(collection+"\n"+id,new JSONObject().put("value",item));}}
+    private static JSONArray versions(SQLiteDatabase db,String collection,String entity)throws Exception{
+        String sealed=raw(db,"SELECT sealed FROM records WHERE collection=? AND entity_id=?",new String[]{collection,entity});return sealed==null?new JSONArray():(JSONArray)open(new JSONObject(sealed),"record:"+collection+":"+entity,PrivateStorage.deviceKey());
+    }
+    private static void commitSnapshot(SQLiteDatabase db,JSONObject before,JSONObject after,JSONObject group)throws Exception{commitSnapshot(db,before,after,group,null);}
+    private static void commitSnapshot(SQLiteDatabase db,JSONObject before,JSONObject after,JSONObject group,Map<String,JSONArray> expectedParents)throws Exception{
+        if(group!=null){Map<String,JSONObject> old=records(before),next=records(after);Set<String> all=new TreeSet<>(old.keySet());all.addAll(next.keySet());
+            for(String key:all){String[] parts=key.split("\n",2);if((parts[0].equals("chats")&&!after.optBoolean("sync_share_chats"))||(parts[0].equals("vault")&&!after.optBoolean("sync_share_vault")))continue;JSONArray heads=versions(db,parts[0],parts[1]);Object a=old.containsKey(key)?old.get(key).get("value"):JSONObject.NULL,b=next.containsKey(key)?next.get(key).get("value"):JSONObject.NULL;
+                if(MobileStore.same(a,b)&&(heads.length()>0||b==JSONObject.NULL))continue;if((expectedParents==null?heads:expectedParents.getOrDefault(key,new JSONArray())).length()>1)throw new IOException("Сначала разрешите конфликт записи в синхронизации");
+                JSONArray parents=expectedParents==null?new JSONArray():expectedParents.getOrDefault(key,new JSONArray());if(expectedParents==null&&!(a==JSONObject.NULL&&b!=JSONObject.NULL&&heads.length()>0&&!MobileStore.same(heads.getJSONObject(0).get("value"),b)))for(int i=0;i<heads.length();i++)parents.put(heads.getJSONObject(i).getString("op_id"));
+                JSONObject op=new JSONObject().put("version",2).put("op_id",random()).put("device_id",group.getString("device_id")).put("collection",parts[0]).put("entity_id",parts[1]).put("parents",parents).put("deleted",b==JSONObject.NULL).put("key_version",group.getInt("epoch"));
+                op.put("sealed",seal(b,aad(op),groupKey(group,group.getInt("epoch"))));apply(db,group,op,true);
+            }}store(db,after);
+    }
+    static synchronized void save(Context c,String field,Object value)throws Exception{try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject before=snapshot(db),after=new JSONObject(before.toString());after.put(field,value);commitSnapshot(db,before,after,group(db));db.setTransactionSuccessful();}finally{db.endTransaction();}}}
+    static synchronized void sharing(Context c,boolean chats,boolean vault)throws Exception{try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject before=snapshot(db),after=new JSONObject(before.toString());after.put("sync_share_chats",chats).put("sync_share_vault",vault);commitSnapshot(db,before,after,group(db));db.setTransactionSuccessful();}finally{db.endTransaction();}}}
+    private static void validate(JSONObject op)throws Exception{
+        String c=op.getString("collection"),entity=op.getString("entity_id");Set<String> allowed=new HashSet<>(Arrays.asList(MobileStore.LISTS));allowed.addAll(Arrays.asList("chats","vault"));for(String f:TRAINING_LISTS)allowed.add("training."+f);for(String f:TRAINING_FIELDS)allowed.add("training."+f);
+        if(op.length()!=9||op.getInt("version")!=2||op.getInt("key_version")<1||!identifier(op.getString("op_id"))||!identifier(op.getString("device_id"))||!allowed.contains(c)||entity.isEmpty()||entity.length()>128||entity.chars().anyMatch(Character::isISOControl)||op.toString().length()>6*1024*1024)throw new IOException("Некорректная операция v2");
+        JSONArray parents=op.getJSONArray("parents");Set<String> unique=new HashSet<>();if(parents.length()>32)throw new IOException("Слишком много родителей");for(int i=0;i<parents.length();i++)if(!identifier(parents.getString(i))||!unique.add(parents.getString(i)))throw new IOException("Некорректные родители");
+    }
+    private static boolean apply(SQLiteDatabase db,JSONObject group,JSONObject op,boolean outbound)throws Exception{
+        validate(op);Object value=open(op.getJSONObject("sealed"),aad(op),groupKey(group,op.getInt("key_version")));if(op.getBoolean("deleted")&&value!=JSONObject.NULL)throw new IOException("Удаление содержит данные");
+        String prior=raw(db,"SELECT payload FROM operations WHERE op_id=?",new String[]{op.getString("op_id")});if(prior!=null){JSONObject old=new JSONObject(prior);if(!MobileStore.same(old,op)){
+            Object oldValue=open(old.getJSONObject("sealed"),aad(old),groupKey(group,old.getInt("key_version")));JSONObject oldMetadata=new JSONObject(old.toString()).put("key_version",op.getInt("key_version")).put("sealed",op.getJSONObject("sealed"));
+            if(old.getInt("key_version")==op.getInt("key_version")||!MobileStore.same(oldMetadata,op)||!MobileStore.same(oldValue,value))throw new IOException("Другой пакет с повторным ID");
+            if(op.getInt("key_version")>old.getInt("key_version"))db.execSQL("UPDATE operations SET payload=? WHERE op_id=?",new Object[]{op.toString(),op.getString("op_id")});
+        }return false;}
+        String collection=op.getString("collection"),entity=op.getString("entity_id");JSONArray parents=op.getJSONArray("parents");Set<String> removed=new HashSet<>();for(int i=0;i<parents.length();i++){String parent=parents.getString(i);if(raw(db,"SELECT op_id FROM operations WHERE op_id=? AND collection=? AND entity_id=?",new String[]{parent,collection,entity})==null)throw new IOException("Отсутствует родительская операция");removed.add(parent);}
+        JSONArray heads=versions(db,collection,entity);List<JSONObject> kept=new ArrayList<>();for(int i=0;i<heads.length();i++)if(!removed.contains(heads.getJSONObject(i).getString("op_id")))kept.add(heads.getJSONObject(i));kept.add(new JSONObject().put("op_id",op.getString("op_id")).put("deleted",op.getBoolean("deleted")).put("value",value));kept.sort(Comparator.comparing(o->o.optString("op_id")));JSONArray next=new JSONArray();for(JSONObject head:kept)next.put(head);
+        ContentValues operation=new ContentValues();operation.put("op_id",op.getString("op_id"));operation.put("collection",collection);operation.put("entity_id",entity);operation.put("payload",op.toString());operation.put("outbound",outbound?1:0);db.insertOrThrow("operations",null,operation);
+        ContentValues record=new ContentValues();record.put("collection",collection);record.put("entity_id",entity);record.put("sealed",seal(next,"record:"+collection+":"+entity,PrivateStorage.deviceKey()).toString());if(db.insertWithOnConflict("records",null,record,SQLiteDatabase.CONFLICT_REPLACE)<0)throw new IOException("Не удалось сохранить версии");return true;
+    }
+    static synchronized JSONObject outbound(Context c)throws Exception{try(SQLiteDatabase db=database(c)){JSONObject group=group(db);if(group==null)throw new IOException("Нет сопряжения v2");boolean recovery=raw(db,"SELECT op_id FROM operations WHERE outbound=2 LIMIT 1",new String[]{})!=null;JSONArray operations=new JSONArray();int size=0;try(Cursor r=db.rawQuery("SELECT payload FROM operations WHERE outbound="+(recovery?2:1)+" ORDER BY seq LIMIT 100",null)){while(r.moveToNext()){String raw=r.getString(0);if(size+raw.length()>7*1024*1024)break;size+=raw.length();operations.put(new JSONObject(raw));}}String peer=raw(db,"SELECT value FROM metadata WHERE key='relay'",new String[]{});if(peer==null)peer=group.getString("group_id");String cursor=raw(db,"SELECT value FROM cursors WHERE peer=?",new String[]{peer});return new JSONObject().put("version",2).put("group_id",group.getString("group_id")).put("cursor",cursor==null?0:Long.parseLong(cursor)).put("operations",operations).put("recovering",recovery);}}
+    private static void project(SQLiteDatabase db,JSONObject snapshot)throws Exception{
+        JSONObject center=new JSONObject(snapshot.getString("center_data"));JSONArray chats=new JSONArray(snapshot.optString("chat_history","[]"));
+        try(Cursor r=db.rawQuery("SELECT collection,entity_id FROM records ORDER BY collection,entity_id",null)){while(r.moveToNext()){String collection=r.getString(0),entity=r.getString(1);JSONArray heads=versions(db,collection,entity);Object value=JSONObject.NULL;boolean deleted=false;for(int i=0;i<heads.length();i++)if(heads.getJSONObject(i).getBoolean("deleted"))deleted=true;if(!deleted&&heads.length()>0)value=heads.getJSONObject(0).get("value");
+            if(collection.equals("vault")){if(snapshot.optBoolean("sync_share_vault")){if(value!=JSONObject.NULL)VaultCrypto.validate((JSONObject)value);snapshot.put("sync_vault",value);}continue;}
+            JSONObject training=center.optJSONObject("training");if(collection.startsWith("training.")){if(training==null){training=new JSONObject();for(String list:TRAINING_LISTS)training.put(list,new JSONArray());center.put("training",training);}String field=collection.substring(9);if(Arrays.asList(TRAINING_FIELDS).contains(field)){training.put(field,value);continue;}}
+            JSONArray list;if(collection.equals("chats")){if(!snapshot.optBoolean("sync_share_chats"))continue;list=chats;}else if(collection.startsWith("training.")){String field=collection.substring(9);list=training.optJSONArray(field);if(list==null){list=new JSONArray();training.put(field,list);}}else{list=center.getJSONArray(collection);}
+            for(int i=list.length()-1;i>=0;i--)if(entity.equals(list.getJSONObject(i).getString("id")))list.remove(i);
+            if(value!=JSONObject.NULL){if(!(value instanceof JSONObject)||!entity.equals(((JSONObject)value).getString("id")))throw new IOException("ID записи не совпадает с операцией");list.put(value);}
+        }}snapshot.put("center_data",center.toString()).put("chat_history",chats.toString());records(snapshot);
+    }
+    static synchronized void receive(Context c,JSONObject response)throws Exception{try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject group=group(db);if(response.getInt("version")!=2||!group.getString("group_id").equals(response.getString("group_id"))||group.getInt("epoch")!=response.getInt("epoch"))throw new IOException("Несовместимый пакет v2");String peer=raw(db,"SELECT value FROM metadata WHERE key='relay'",new String[]{});if(peer==null)peer=group.getString("group_id");if(!peer.equals(response.optString("relay_id",group.getString("group_id"))))throw new IOException("Хаб сменил журнал; повторите получение ключей");String old=raw(db,"SELECT value FROM cursors WHERE peer=?",new String[]{peer});long previous=old==null?0:Long.parseLong(old),cursor=response.getLong("cursor"),last=0;if(cursor<previous)throw new IOException("Курсор уменьшился");JSONArray items=response.getJSONArray("items"),acks=response.getJSONArray("acknowledged");if(items.length()>1000||acks.length()>1000)throw new IOException("Пакет слишком большой");
+        for(int i=0;i<items.length();i++){JSONArray item=items.getJSONArray(i);long seq=item.getLong(0);if(seq<=last||seq>cursor)throw new IOException("Неверный порядок операций");boolean inserted=apply(db,group,item.getJSONObject(1),false);if(seq<=previous&&inserted)throw new IOException("Неизвестная операция в старом курсоре");last=seq;}
+        JSONObject snapshot=snapshot(db);project(db,snapshot);store(db,snapshot);for(int i=0;i<acks.length();i++)db.execSQL("UPDATE operations SET outbound=0 WHERE op_id=?",new Object[]{acks.getString(i)});
+        ContentValues row=new ContentValues();row.put("peer",peer);row.put("value",cursor);if(db.insertWithOnConflict("cursors",null,row,SQLiteDatabase.CONFLICT_REPLACE)<0)throw new IOException("Не удалось сохранить курсор");db.setTransactionSuccessful();
+    }finally{db.endTransaction();}}}
+    static synchronized JSONArray conflicts(Context c)throws Exception{try(SQLiteDatabase db=database(c)){JSONArray conflicts=new JSONArray();try(Cursor r=db.rawQuery("SELECT collection,entity_id FROM records ORDER BY collection,entity_id",null)){while(r.moveToNext()){JSONArray versions=versions(db,r.getString(0),r.getString(1));if(versions.length()>1)conflicts.put(new JSONObject().put("collection",r.getString(0)).put("entity",r.getString(1)).put("versions",versions));}}return conflicts;}}
+    static synchronized void resolve(Context c,String collection,String entity,JSONArray expected,Object value)throws Exception{try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject group=group(db);JSONArray heads=versions(db,collection,entity);Set<String> actual=new TreeSet<>(),wanted=new TreeSet<>();for(int i=0;i<heads.length();i++)actual.add(heads.getJSONObject(i).getString("op_id"));for(int i=0;i<expected.length();i++)wanted.add(expected.getString(i));if(!actual.equals(wanted))throw new IOException("Конфликт изменился; обновите список");JSONObject op=new JSONObject().put("version",2).put("op_id",random()).put("device_id",group.getString("device_id")).put("collection",collection).put("entity_id",entity).put("parents",expected).put("deleted",value==null||value==JSONObject.NULL).put("key_version",group.getInt("epoch"));op.put("sealed",seal(value,aad(op),groupKey(group,group.getInt("epoch"))));apply(db,group,op,true);JSONObject snapshot=snapshot(db);project(db,snapshot);store(db,snapshot);db.setTransactionSuccessful();}finally{db.endTransaction();}}}
+    static JSONObject recoverySeal(JSONObject payload,char[] password)throws Exception{
+        if(password.length<12||password.length>1024)throw new IOException("Пароль восстановления: от 12 символов");byte[] salt=new byte[16];new SecureRandom().nextBytes(salt);
+        PBEKeySpec spec=new PBEKeySpec(password,salt,600000,256);byte[] key=SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();spec.clearPassword();
+        try{return new JSONObject().put("format","jarvis-sync-recovery").put("version",2).put("iterations",600000).put("salt",encoded(salt)).put("sealed",seal(payload,"sync-recovery-v2",new SecretKeySpec(key,"AES")));}finally{Arrays.fill(key,(byte)0);}
+    }
+    static JSONObject recoveryOpen(JSONObject backup,char[] password)throws Exception{
+        if(backup.length()!=5||!"jarvis-sync-recovery".equals(backup.getString("format"))||backup.getInt("version")!=2||backup.getInt("iterations")!=600000||password.length>1024)throw new IOException("Неизвестный формат восстановления");byte[] salt=decoded(backup.getString("salt"));if(salt.length!=16)throw new IOException("Повреждён salt");PBEKeySpec spec=new PBEKeySpec(password,salt,600000,256);byte[] key=SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();spec.clearPassword();try{return (JSONObject)open(backup.getJSONObject("sealed"),"sync-recovery-v2",new SecretKeySpec(key,"AES"));}finally{Arrays.fill(key,(byte)0);}
+    }
+    static synchronized JSONObject exportRecovery(Context c,char[] password)throws Exception{try(SQLiteDatabase db=database(c)){JSONArray history=new JSONArray();try(Cursor r=db.rawQuery("SELECT payload FROM operations ORDER BY seq",null)){while(r.moveToNext())history.put(new JSONObject(r.getString(0)));}JSONObject group=group(db);if(group!=null)group=new JSONObject(group.toString()).put("peer",JSONObject.NULL);JSONObject payload=new JSONObject().put("group",group==null?JSONObject.NULL:group).put("snapshot",snapshot(db)).put("history",history);JSONObject protectedCopy=recoverySeal(payload,password);if(!MobileStore.same(payload,recoveryOpen(protectedCopy,password)))throw new IOException("Проверка восстановления не прошла");return protectedCopy;}}
+    static synchronized void restoreRecovery(Context c,JSONObject backup,char[] password)throws Exception{
+        JSONObject payload=recoveryOpen(backup,password),restored=payload.getJSONObject("snapshot");records(restored);JSONArray history=payload.getJSONArray("history");JSONObject group=payload.optJSONObject("group");if(group!=null){group=new JSONObject(group.toString()).put("device_id",random());group.remove("peer");groupKey(group,group.getInt("epoch"));}
+        try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject current=snapshot(db);if(group(db)!=null||!records(current).isEmpty()||new JSONArray(current.optString("chat_history","[]")).length()>0||current.optJSONObject("sync_vault")!=null)throw new IOException("Восстановление разрешено только в пустой тестовой установке");
+            if(group!=null){metadata(db,"group",seal(group,"sync-group",PrivateStorage.deviceKey()).toString());for(int i=0;i<history.length();i++)apply(db,group,history.getJSONObject(i),false);db.execSQL("UPDATE operations SET outbound=2");}
+            project(db,restored);store(db,restored);db.setTransactionSuccessful();
+        }finally{db.endTransaction();}}
+    }
+
+    static synchronized void rewrap(Context c,JSONArray ids)throws Exception{if(ids.length()>100)throw new IOException("Слишком много операций ротации");try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject group=group(db);for(int i=0;i<ids.length();i++){String raw=raw(db,"SELECT payload FROM operations WHERE op_id=? AND outbound IN(1,2)",new String[]{ids.getString(i)});if(raw==null)throw new IOException("Нет ожидающей операции");JSONObject op=new JSONObject(raw);Object value=open(op.getJSONObject("sealed"),aad(op),groupKey(group,op.getInt("key_version")));if(op.getInt("key_version")>=group.getInt("epoch"))throw new IOException("Некорректная ротация");op.put("key_version",group.getInt("epoch"));op.put("sealed",seal(value,aad(op),groupKey(group,group.getInt("epoch"))));db.execSQL("UPDATE operations SET payload=? WHERE op_id=?",new Object[]{op.toString(),op.getString("op_id")});}db.setTransactionSuccessful();}finally{db.endTransaction();}}}
+
+    static final class Edit{final JSONObject snapshot;final Map<String,JSONArray> parents;Edit(JSONObject s,Map<String,JSONArray> p){snapshot=s;parents=p;}}
+    static synchronized Edit editState(Context c)throws Exception{try(SQLiteDatabase db=database(c)){db.beginTransactionNonExclusive();try{JSONObject snapshot=snapshot(db);Map<String,JSONArray> parents=new HashMap<>();try(Cursor rows=db.rawQuery("SELECT collection,entity_id FROM records",null)){while(rows.moveToNext()){JSONArray ids=new JSONArray(),heads=versions(db,rows.getString(0),rows.getString(1));for(int i=0;i<heads.length();i++)ids.put(heads.getJSONObject(i).getString("op_id"));parents.put(rows.getString(0)+"\n"+rows.getString(1),ids);}}db.setTransactionSuccessful();return new Edit(snapshot,parents);}finally{db.endTransaction();}}}
+    static synchronized void saveEdit(Context c,String field,Object value,Edit expected)throws Exception{if(expected==null){save(c,field,value);return;}try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject current=snapshot(db),group=group(db),desired=new JSONObject(expected.snapshot.toString()).put(field,value),after=new JSONObject(current.toString()).put(field,value);desired.put("sync_share_chats",current.optBoolean("sync_share_chats")).put("sync_share_vault",current.optBoolean("sync_share_vault"));if(group==null){if(field.equals("center_data"))after.put(field,MobileStore.merge(new JSONObject(expected.snapshot.getString(field)),new JSONObject(current.getString(field)),new JSONObject(value.toString())).toString());store(db,after);}else{commitSnapshot(db,expected.snapshot,desired,group,expected.parents);project(db,after);store(db,after);}db.setTransactionSuccessful();}finally{db.endTransaction();}}}
+    static synchronized void saveVaultExpected(Context c,JSONObject expected,JSONObject value)throws Exception{VaultCrypto.validate(value);try(SQLiteDatabase db=database(c)){db.beginTransaction();try{JSONObject before=snapshot(db);if(!MobileStore.same(before.optJSONObject("sync_vault"),expected))throw new IOException("Сейф изменён при синхронизации; откройте его заново");JSONObject after=new JSONObject(before.toString()).put("sync_vault",value);commitSnapshot(db,before,after,group(db));db.setTransactionSuccessful();}finally{db.endTransaction();}}}
+    static synchronized void relay(Context c,String identity)throws Exception{if(!identifier(identity))throw new IOException("Некорректная идентичность журнала");try(SQLiteDatabase db=database(c)){metadata(db,"relay",identity);}}
+
+}

@@ -3,13 +3,24 @@ android {
     namespace 'com.diberlog.jarvis.mobile'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.diberlog.jarvis.mobile'
+        applicationId 'com.diberlog.jarvis.mobile.syncv2lab'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '1.0.0-mobile-lab'
+        versionCode 2
+        versionName '1.1.0-sync-v2-lab'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    signingConfigs {
+        labRelease {
+            if (System.getenv('JARVIS_LAB_KEYSTORE')) {
+                storeFile file(System.getenv('JARVIS_LAB_KEYSTORE'))
+                storePassword System.getenv('JARVIS_LAB_SIGNING_PASSWORD')
+                keyAlias 'jarvis-sync-v2-lab'
+                keyPassword System.getenv('JARVIS_LAB_SIGNING_PASSWORD')
+            }
+        }
+    }
+    buildTypes { release { signingConfig signingConfigs.labRelease; minifyEnabled false } }
     defaultConfig { testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
 }
 dependencies {

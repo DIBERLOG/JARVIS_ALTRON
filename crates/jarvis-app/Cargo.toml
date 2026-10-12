@@ -6,6 +6,10 @@ license-file.workspace = true
 repository.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "jarvis-app-sync-v2-lab"
+path = "src/main.rs"
+
 [dependencies]
 jarvis-core = { path = "../jarvis-core", features = ["intent"] }
 once_cell.workspace = true

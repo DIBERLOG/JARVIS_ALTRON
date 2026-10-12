@@ -4,7 +4,7 @@
     "resources": {
       "../../resources/tts/Speak.exe": "resources/tts/Speak.exe",
       "../../resources/tts/Speak.ahk": "resources/tts/Speak.ahk",
-      "../../target/release/jarvis-app.exe": "jarvis-app.exe",
+      "../../target/release/jarvis-app-sync-v2-lab.exe": "jarvis-app-sync-v2-lab.exe",
       "../../target/release/DirectML.dll": "DirectML.dll",
       "../../target/release/msvcp140.dll": "msvcp140.dll",
       "../../target/release/msvcp140_1.dll": "msvcp140_1.dll",

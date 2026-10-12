@@ -6,6 +6,10 @@ license-file.workspace = true
 repository.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "jarvis-gui-sync-v2-lab"
+path = "src/main.rs"
+
 [dependencies]
 jarvis-core = { path = "../jarvis-core", default-features = false, features = ["web-search"] }
 tauri = { version = "2", features = [] } # v1: "shell-open", "dialog-message", "path-all"
@@ -45,6 +49,9 @@ tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 hound.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+keyring = { version = "=3.6.3", features = ["windows-native"] }
 
 [features]
 default = ["custom-protocol"]

@@ -10,7 +10,7 @@
         <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
         <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
     </queries>
-    <application android:label="JARVIS Mobile · LAB" android:theme="@android:style/Theme.Material.NoActionBar"
+    <application android:label="JARVIS Mobile · Sync v2 LAB" android:theme="@android:style/Theme.Material.NoActionBar"
         android:allowBackup="false" android:usesCleartextTraffic="false" android:icon="@drawable/jarvis_logo" android:fullBackupContent="false">
         <receiver android:name=".ReminderReceiver" android:exported="false" />
         <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter></receiver>

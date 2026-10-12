@@ -2,7 +2,7 @@
   "productName": "jarvis-altron",
   "bundle": {
     "targets": ["deb", "appimage"],
-    "externalBin": ["../../target/release/jarvis-app"],
+    "externalBin": ["../../target/release/jarvis-app-sync-v2-lab"],
     "resources": {
       "../../target/release/libvosk.so": "libvosk.so",
       "../../target/release/libpv_recorder.so": "libpv_recorder.so",

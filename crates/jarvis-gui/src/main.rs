@@ -22,7 +22,7 @@ fn main() {
     if std::env::args().any(|arg| arg == "--release-smoke-test") {
         let root = &*jarvis_core::APP_DIR;
         let core = std::env::current_exe().expect("Executable path unavailable")
-            .with_file_name(if cfg!(windows) { "jarvis-app.exe" } else { "jarvis-app" });
+            .with_file_name(if cfg!(windows) { "jarvis-app-sync-v2-lab.exe" } else { "jarvis-app-sync-v2-lab" });
         assert!(core.is_file() && root.join("resources/commands").is_dir(), "Incomplete release package");
         return;
     }
@@ -53,6 +53,7 @@ fn main() {
     DB.set(manager.arc().clone())
             .expect("DB already initialized");
 
+    tauri_commands::start_background_sync();
     tauri::Builder::default()
         .setup(|app| {
             use tauri::Manager;
@@ -83,6 +84,16 @@ fn main() {
         }).build())
         .manage(listening_shortcut::ListeningShortcut::default())
         .invoke_handler(tauri::generate_handler![
+            tauri_commands::sync_v2_prepare,
+            tauri_commands::sync_v2_export,
+            tauri_commands::sync_v2_restore,
+            tauri_commands::sync_v2_resolve,
+            tauri_commands::sync_v2_pair_begin,
+            tauri_commands::sync_v2_pair_finish,
+            tauri_commands::sync_v2_run,
+            tauri_commands::sync_v2_auto,
+            tauri_commands::sync_v2_disconnect,
+            tauri_commands::sync_v2_sharing,
             tauri_commands::lan_sync_status,
             tauri_commands::lan_sync_addresses,
             tauri_commands::lan_sync_start,
@@ -105,6 +116,7 @@ fn main() {
             tauri_commands::db_write_many,
             tauri_commands::center_restore_data,
             tauri_commands::center_save_data,
+            tauri_commands::chat_save_history,
 
             // etc
             tauri_commands::get_app_version,

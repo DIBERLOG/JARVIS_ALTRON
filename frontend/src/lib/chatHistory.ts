@@ -14,12 +14,14 @@ export function parseChatHistory(raw:string):ChatSession[]{
     }
     return value
 }
-export async function loadChatHistory(){return parseChatHistory(await invoke<string>('db_read',{key:'chat_history_v1'}))}
+let lastSubmitted='[]'
+export async function loadChatHistory(){const raw=await invoke<string>('db_read',{key:'chat_history_v1'});const chats=parseChatHistory(raw);lastSubmitted=JSON.stringify(chats);return chats}
 let pending=Promise.resolve()
 export function saveChatHistory(chats:ChatSession[]){
     const raw=JSON.stringify(chats)
     parseChatHistory(raw)
-    const write=pending.catch(()=>{}).then(async()=>{if(!await invoke('db_write',{key:'chat_history_v1',val:raw}))throw new Error('История чата не сохранена')})
+    const base=lastSubmitted;lastSubmitted=raw
+    const write=pending.catch(()=>{}).then(async()=>{await invoke('chat_save_history',{base,data:raw})})
     pending=write
     return write
 }

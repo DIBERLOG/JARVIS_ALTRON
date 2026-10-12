@@ -8,6 +8,7 @@ fn path(app:&tauri::AppHandle)->Result<std::path::PathBuf,String>{
 #[tauri::command]
 pub fn password_vault_load(app:tauri::AppHandle)->Result<Option<String>,String>{
     let _guard=VAULT_IO.lock();
+    if jarvis_core::sync_profile::enabled(){let snapshot=jarvis_core::sync_profile::read()?;if let Some(value)=snapshot.get("sync_vault"){return Ok((!value.is_null()).then(||value.to_string()));}}
     let file=path(&app)?;
     match std::fs::read_to_string(file){Ok(value)=>Ok(Some(value)),Err(error) if error.kind()==std::io::ErrorKind::NotFound=>Ok(None),Err(_)=>Err("Не удалось открыть файл хранилища".into())}
 }
@@ -17,6 +18,14 @@ pub fn password_vault_save(app:tauri::AppHandle,data:String,expected:Option<Stri
     if data.len()>36_000_000{return Err("Хранилище слишком большое".into())}
     let value:serde_json::Value=serde_json::from_str(&data).map_err(|_|"Некорректный формат хранилища")?;
     if value["version"]!=1||!value["cards"]["data"].is_string()||!value["passwordKey"]["data"].is_string()||!value["recoveryKey"]["data"].is_string(){return Err("Некорректный формат хранилища".into())}
+    if jarvis_core::sync_profile::enabled(){
+        jarvis_core::sync_data::validate_vault(&value)?;
+        return jarvis_core::sync_profile::update(&serde_json::json!({}),|snapshot|{
+            if check_current.unwrap_or(false){let expected:serde_json::Value=expected.as_ref().map(|v|serde_json::from_str(v)).transpose().map_err(|_|"Некорректная ожидаемая версия")?.unwrap_or(serde_json::Value::Null);
+                if snapshot.get("sync_vault").unwrap_or(&serde_json::Value::Null)!=&expected{return Err("Сейф изменился; откройте его заново".into());}}
+            snapshot["sync_vault"]=value;Ok(())
+        }).map(|_|());
+    }
     let file=path(&app)?;
     if check_current.unwrap_or(false){
         let current=match std::fs::read_to_string(&file){Ok(v)=>Some(v),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>None,Err(_)=>return Err("Не удалось проверить текущую версию сейфа".into())};

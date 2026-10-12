@@ -7,16 +7,20 @@ import java.util.*;
 
 /** Same allowlisted Center schema as desktop. No API keys or plaintext vault here. */
 final class MobileStore {
+    private static final Map<Object,SyncJournal.Edit> EDITS=new WeakHashMap<>();
     static final String[] LISTS={"notes","reminders","birthdays","habits"};
     static String id(){return UUID.randomUUID().toString();}
     static String now(){return Instant.now().toString();}
     static SharedPreferences prefs(Context c){return c.getSharedPreferences("jarvis-mobile",Context.MODE_PRIVATE);}
     static JSONObject empty() throws JSONException {JSONObject d=new JSONObject();for(String k:LISTS)d.put(k,new JSONArray());return d;}
     static synchronized JSONObject center(Context c) throws JSONException {
-        SharedPreferences p=prefs(c);String raw=p.getString("center",null);if(raw!=null){JSONObject d=new JSONObject(raw);validate(d);return d;}
-        JSONObject d=empty();String old=p.getString("note","");if(!old.isEmpty())d.getJSONArray("notes").put(new JSONObject().put("id",id()).put("title","Заметка").put("text",old).put("updatedAt",now()).put("format","plain"));return d;
+        try{SyncJournal.Edit edit=SyncJournal.editState(c);JSONObject center=new JSONObject(edit.snapshot.getString("center_data"));EDITS.put(center,edit);for(String list:LISTS){JSONArray items=center.getJSONArray(list);for(int i=0;i<items.length();i++)EDITS.put(items.getJSONObject(i),edit);}return center;}catch(Exception e){throw new JSONException(e.getMessage());}
     }
-    static synchronized void save(Context c,JSONObject data) throws JSONException {validate(data);if(data.toString().length()>4_000_000)throw new JSONException("Данные больше 4 МБ");if(!prefs(c).edit().putString("center",data.toString()).commit())throw new JSONException("Не удалось сохранить данные");ReminderReceiver.schedule(c);}
+    static synchronized void save(Context c,JSONObject data) throws JSONException {
+        validate(data);if(data.toString().length()>4_000_000)throw new JSONException("Данные больше 4 МБ");
+        try{SyncJournal.saveEdit(c,"center_data",data.toString(),EDITS.get(data));}catch(Exception e){throw new JSONException(e.getMessage());}ReminderReceiver.schedule(c);
+    }
+    static synchronized JSONObject editCenter(Context c,JSONObject record)throws JSONException{SyncJournal.Edit edit=EDITS.get(record);if(edit==null)return center(c);JSONObject center=new JSONObject(edit.snapshot.getString("center_data"));EDITS.put(center,edit);return center;}
     static void validate(JSONObject data) throws JSONException {for(String k:LISTS)records(data.getJSONArray(k));JSONObject t=data.optJSONObject("training");if(t!=null)for(String k:new String[]{"exercises","plans","sessions"})records(t.getJSONArray(k));}
     static void records(JSONArray array)throws JSONException {if(array.length()>10000)throw new JSONException("Слишком много записей");Set<String> ids=new HashSet<>();for(int i=0;i<array.length();i++){String id=array.getJSONObject(i).getString("id");if(id.isEmpty()||id.length()>128||!ids.add(id))throw new JSONException("Некорректный или повторный ID");}}
     static boolean same(Object a,Object b){return canonical(a).equals(canonical(b));}
@@ -50,6 +54,8 @@ final class MobileStore {
         }
         return out;
     }
-    static synchronized JSONArray chats(Context c)throws JSONException{return new JSONArray(prefs(c).getString("chats","[]"));}
-    static synchronized void saveChats(Context c,JSONArray chats)throws JSONException{records(chats);if(!prefs(c).edit().putString("chats",chats.toString()).commit())throw new JSONException("Не удалось сохранить историю");}
+    static synchronized JSONArray chats(Context c)throws JSONException{try{SyncJournal.Edit edit=SyncJournal.editState(c);JSONArray chats=new JSONArray(edit.snapshot.getString("chat_history"));EDITS.put(chats,edit);return chats;}catch(Exception e){throw new JSONException(e.getMessage());}}
+    static synchronized void saveChats(Context c,JSONArray chats)throws JSONException{records(chats);try{SyncJournal.saveEdit(c,"chat_history",chats.toString(),EDITS.get(chats));}catch(Exception e){throw new JSONException(e.getMessage());}}    static synchronized JSONArray localTasks(Context c)throws JSONException{try{return new JSONArray(SyncJournal.snapshot(c).optString("local_tasks","[]"));}catch(Exception e){throw new JSONException(e.getMessage());}}
+    static synchronized void saveLocalTasks(Context c,JSONArray tasks)throws JSONException{try{if(tasks.toString().length()>4_000_000)throw new Exception("Список задач слишком большой");SyncJournal.save(c,"local_tasks",tasks.toString());}catch(Exception e){throw new JSONException(e.getMessage());}}
+
 }

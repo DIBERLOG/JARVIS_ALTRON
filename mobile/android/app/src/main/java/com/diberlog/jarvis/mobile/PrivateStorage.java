@@ -11,9 +11,10 @@ import android.security.keystore.*;
 import java.security.KeyStore;
 
 final class PrivateStorage {
-    static synchronized void vaultExpected(Context c,JSONObject expected,JSONObject value)throws Exception{if(!MobileStore.same(vault(c),expected))throw new IOException("Сейф изменён при синхронизации. Запись не перезаписана. Заблокируйте и откройте сейф заново.");vault(c,value);}
-    static synchronized JSONObject vault(Context c)throws Exception{File f=new File(c.getFilesDir(),"password-vault-v1.json");return f.exists()?new JSONObject(read(f)):null;}
-    static synchronized void vault(Context c,JSONObject value)throws Exception{VaultCrypto.validate(value);JSONObject old=vault(c);if(old!=null&&!MobileStore.same(old,value))backup(c,"vault",old.toString());write(new File(c.getFilesDir(),"password-vault-v1.json"),value.toString());}
+    static synchronized void vaultExpected(Context c,JSONObject expected,JSONObject value)throws Exception{SyncJournal.saveVaultExpected(c,expected,value);}
+    static JSONObject vaultLegacy(Context c)throws Exception{File f=new File(c.getFilesDir(),"password-vault-v1.json");return f.exists()?new JSONObject(read(f)):null;}
+    static synchronized JSONObject vault(Context c)throws Exception{return SyncJournal.snapshot(c).optJSONObject("sync_vault");}
+    static synchronized void vault(Context c,JSONObject value)throws Exception{VaultCrypto.validate(value);JSONObject old=vault(c);if(old!=null&&!MobileStore.same(old,value))backup(c,"vault",old.toString());SyncJournal.save(c,"sync_vault",value);}
     static void backup(Context c,String prefix,String text)throws Exception{File d=new File(c.getFilesDir(),"backups");if(!d.exists()&&!d.mkdirs())throw new IOException("Не удалось создать резервную копию");write(new File(d,prefix+"-"+System.currentTimeMillis()+"-"+MobileStore.id()+".json"),text);}
     static String read(File file)throws Exception{try(InputStream in=new FileInputStream(file);ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>16*1024*1024)throw new IOException("Файл больше 16 МБ");out.write(b,0,n);}return out.toString("UTF-8");}}
     static void write(File file,String value)throws Exception{AtomicFile a=new AtomicFile(file);FileOutputStream out=a.startWrite();try{out.write(value.getBytes(StandardCharsets.UTF_8));a.finishWrite(out);}catch(Exception e){a.failWrite(out);throw e;}}

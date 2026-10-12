@@ -57,3 +57,6 @@ mod outlook;
 pub use outlook::*;
 mod lan_sync;
 pub use lan_sync::*;
+
+mod sync_client;
+pub use sync_client::*;

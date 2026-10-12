@@ -76,7 +76,7 @@ pub const DEFAULT_VOICE: &str = "jarvis-remaster";
 pub const SOUND_PATH: &str = "resources/sound"; // extended from SOUND_DIR (resources/sound)
 pub const VOICES_PATH: &str = "voices"; // extended from SOUND_PATH (resources/sound)
 
-pub const BUNDLE_IDENTIFIER: &str = "com.priler.jarvis";
+pub const BUNDLE_IDENTIFIER: &str = "com.diberlog.jarvis.syncv2lab";
 pub const DB_FILE_NAME: &str = "app.db";
 pub const LOG_FILE_NAME: &str = "log.txt";
 pub const APP_VERSION: Option<&str> = option_env!("CARGO_PKG_VERSION");

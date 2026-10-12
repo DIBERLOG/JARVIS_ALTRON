@@ -81,7 +81,7 @@ static COMPONENTS: Lazy<Mutex<Components>> = Lazy::new(|| {
 
 /// Find jarvis-app process and return its PID
 fn find_jarvis_app_pid(sys: &System) -> Option<Pid> {
-    let expected = std::env::current_exe().ok()?.with_file_name(if cfg!(windows) { "jarvis-app.exe" } else { "jarvis-app" });
+    let expected = std::env::current_exe().ok()?.with_file_name(if cfg!(windows) { "jarvis-app-sync-v2-lab.exe" } else { "jarvis-app-sync-v2-lab" });
     for (pid, process) in sys.processes() {
         if process.exe().is_some_and(|path| path == expected) {
             return Some(*pid);
@@ -191,10 +191,10 @@ pub fn run_jarvis_app() -> Result<(), String> {
         .to_path_buf();
     
     #[cfg(target_os = "windows")]
-    let jarvis_app_name = "jarvis-app.exe";
+    let jarvis_app_name = "jarvis-app-sync-v2-lab.exe";
     
     #[cfg(not(target_os = "windows"))]
-    let jarvis_app_name = "jarvis-app";
+    let jarvis_app_name = "jarvis-app-sync-v2-lab";
     
     let jarvis_app_path = exe_dir.join(jarvis_app_name);
     

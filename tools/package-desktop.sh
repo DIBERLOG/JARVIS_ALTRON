@@ -63,13 +63,13 @@ esac
 recorder_source="$(find target/release/build -path "*/out/lib/$recorder_platform/$recorder" -print -quit)"
 [[ -n "$recorder_source" ]] || { echo 'Native PvRecorder missing from Cargo output.' >&2; exit 1; }
 cp "$recorder_source" "target/release/$recorder"
-cp "target/release/jarvis-app" "target/release/jarvis-app-$host"
+cp "target/release/jarvis-app-sync-v2-lab" "target/release/jarvis-app-sync-v2-lab-$host"
 cp "$VOSK_LIBRARY_DIR/$native" "target/release/$native"
 if [[ "$native" == libvosk.dylib ]]; then
   # Avoid an absolute developer-machine dependency in the bundled core.
-  dependency="$(otool -L target/release/jarvis-app | awk '/libvosk/{print $1; exit}')"
+  dependency="$(otool -L target/release/jarvis-app-sync-v2-lab | awk '/libvosk/{print $1; exit}')"
   [[ -n "$dependency" ]] || { echo 'Core does not link Vosk as expected.' >&2; exit 1; }
-  install_name_tool -change "$dependency" '@rpath/libvosk.dylib' "target/release/jarvis-app-$host"
+  install_name_tool -change "$dependency" '@rpath/libvosk.dylib' "target/release/jarvis-app-sync-v2-lab-$host"
   install_name_tool -id '@rpath/libvosk.dylib' target/release/libvosk.dylib
 fi
 cd crates/jarvis-gui

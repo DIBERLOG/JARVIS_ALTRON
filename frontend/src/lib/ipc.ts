@@ -37,7 +37,7 @@ export function disableIpc() {
     disconnectIpc()
 }
 
-export async function connectIpc(port: number = 9712) {
+export async function connectIpc(port: number = 9713) {
     if (connecting || ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return
 
     manualDisconnect = false

@@ -3483,7 +3483,7 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jarvis-app"
-version = "1.0.0"
+version = "1.1.0-sync-v2-lab"
 dependencies = [
  "glib 0.21.5",
  "gtk",
@@ -3501,7 +3501,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-cli"
-version = "1.0.0"
+version = "1.1.0-sync-v2-lab"
 dependencies = [
  "env_logger",
  "jarvis-core",
@@ -3512,7 +3512,7 @@ dependencies = [
 
 [[package]]
 name = "jarvis-core"
-version = "1.0.0"
+version = "1.1.0-sync-v2-lab"
 dependencies = [
  "altron-command-engine",
  "base64 0.22.1",
@@ -3563,13 +3563,14 @@ dependencies = [
 
 [[package]]
 name = "jarvis-gui"
-version = "1.0.0"
+version = "1.1.0-sync-v2-lab"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "hound",
  "if-addrs",
  "jarvis-core",
+ "keyring",
  "lazy_static",
  "log",
  "once_cell",

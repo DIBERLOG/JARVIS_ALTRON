@@ -1,0 +1,71 @@
+{
+  "key": [
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42,
+    42
+  ],
+  "operation": {
+    "collection": "notes",
+    "deleted": false,
+    "device_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "entity_id": "interop-note",
+    "key_version": 1,
+    "op_id": "507a738e6e72a84a228ce8237e3568632f410be3dbda882da0c02c14c6f6c1ec",
+    "parents": [],
+    "sealed": {
+      "data": "9ZF/qJSSFBUY8ZvdCZ+TXkC2X1UsA5+JG9eXZF2HjalMNoAAJWMvp3CPr+Zi2vkOHvasxDaG0RkyvV4HA7fA8SmLqpR+ePC2IxoNvKOgihkTd2eu43ecmlKu76sVAFNOjc9OAJ2UEJ3WRJZ+ZH2DeyyKU3BSl2P9wp8MjpSgGpr5BpYM1g67YgQoq/5Em1ZC5qwEEEH7QT1Trh9JCV2e3wrPJRypug==",
+      "format": "jarvis-protected-json",
+      "nonce": "TUrPwPSR5FL0Smsi",
+      "version": 1
+    },
+    "version": 2
+  },
+  "password": "fictional Unicode пароль 2026",
+  "recovery": {
+    "format": "jarvis-sync-recovery",
+    "iterations": 600000,
+    "salt": "MhftX7W96tSpWMgrYyfjMg==",
+    "sealed": {
+      "data": "t2ytx1K2TOzcP0WnRpCkJZG2q/o1ZUHkyr7EZHqko7qSROV6/BRgo2gBf7khwI0o3TvWFWeK8McKXA==",
+      "format": "jarvis-protected-json",
+      "nonce": "tflWWN2PLfUlA1pT",
+      "version": 1
+    },
+    "version": 2
+  },
+  "value": {
+    "id": "interop-note",
+    "text": "Вымышленное: кавычки \" и \\",
+    "title": "Проверка / Unicode",
+    "updatedAt": "2026-10-12T12:00:00Z"
+  }
+}

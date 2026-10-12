@@ -28,7 +28,7 @@ fn authenticated(text:&str,expected:&str)->bool{
 
 use super::events::{IpcAction, IpcEvent};
 
-pub const IPC_PORT: u16 = 9712;
+pub const IPC_PORT: u16 = 9713;
 pub const IPC_ADDR: &str = "127.0.0.1";
 
 static BROADCAST_TX: OnceCell<broadcast::Sender<IpcEvent>> = OnceCell::new();
