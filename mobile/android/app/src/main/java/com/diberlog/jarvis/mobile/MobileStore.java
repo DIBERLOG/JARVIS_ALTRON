@@ -7,7 +7,16 @@ import java.util.*;
 
 /** Same allowlisted Center schema as desktop. No API keys or plaintext vault here. */
 final class MobileStore {
-    private static final Map<Object,SyncJournal.Edit> EDITS=new WeakHashMap<>();
+    private static final Map<Object,SyncJournal.Edit> EDITS=new IdentityEdits();
+    // Android JSONArray has a mutable value hash: ordinary WeakHashMap loses its edit baseline after mutation.
+    private static final class IdentityEdits extends AbstractMap<Object,SyncJournal.Edit>{
+        final java.lang.ref.ReferenceQueue<Object> queue=new java.lang.ref.ReferenceQueue<>();final Map<Key,SyncJournal.Edit> values=new HashMap<>();
+        static final class Key extends java.lang.ref.WeakReference<Object>{final int hash;Key(Object value,java.lang.ref.ReferenceQueue<Object> queue){super(value,queue);hash=System.identityHashCode(value);}public int hashCode(){return hash;}public boolean equals(Object other){return this==other||other instanceof Key&&get()!=null&&get()==((Key)other).get();}}
+        void clean(){java.lang.ref.Reference<?> expired;while((expired=queue.poll())!=null)values.remove(expired);}
+        public SyncJournal.Edit get(Object value){clean();return values.get(new Key(value,null));}
+        public SyncJournal.Edit put(Object value,SyncJournal.Edit edit){clean();return values.put(new Key(value,queue),edit);}
+        public Set<Map.Entry<Object,SyncJournal.Edit>> entrySet(){clean();Set<Map.Entry<Object,SyncJournal.Edit>> result=new HashSet<>();for(Map.Entry<Key,SyncJournal.Edit> entry:values.entrySet()){Object value=entry.getKey().get();if(value!=null)result.add(new SimpleImmutableEntry<>(value,entry.getValue()));}return result;}
+    }
     static final String[] LISTS={"notes","reminders","birthdays","habits","tasks"};
     static String id(){return UUID.randomUUID().toString();}
     static String now(){return Instant.now().toString();}
@@ -31,6 +40,7 @@ final class MobileStore {
         if(value instanceof Number)return new java.math.BigDecimal(value.toString()).stripTrailingZeros().toPlainString();
         return value instanceof String?JSONObject.quote((String)value):value.toString();
     }
+    static JSONArray mergeChatsStrict(JSONArray base,JSONArray local,JSONArray remote)throws JSONException{Map<String,JSONObject>b=map(base),l=map(local),r=map(remote);Set<String> ids=new HashSet<>();ids.addAll(b.keySet());ids.addAll(l.keySet());ids.addAll(r.keySet());for(String id:ids){Object before=b.get(id),current=l.get(id),requested=r.get(id);if(!same(current,requested)&&!same(requested,before)&&!same(current,before))throw new JSONException("Эта беседа изменена другим клиентом. Исходная история сохранена; обновите чат.");}return mergeRecords(base,local,remote,false);}
     static JSONArray mergeRecords(JSONArray base,JSONArray local,JSONArray remote,boolean duplicateConflicts)throws JSONException {
         Map<String,JSONObject>b=map(base),l=map(local),r=map(remote);Set<String> ids=new TreeSet<>();ids.addAll(b.keySet());ids.addAll(l.keySet());ids.addAll(r.keySet());JSONArray result=new JSONArray();
         for(String id:ids){Object bv=b.get(id),lv=l.get(id),rv=r.get(id);Object chosen;
@@ -54,7 +64,8 @@ final class MobileStore {
         }
         return out;
     }
-    static synchronized JSONArray chats(Context c)throws JSONException{try{SyncJournal.Edit edit=SyncJournal.editState(c);JSONArray chats=new JSONArray(edit.snapshot.getString("chat_history"));EDITS.put(chats,edit);return chats;}catch(Exception e){throw new JSONException(e.getMessage());}}
+    static synchronized JSONArray chats(Context c)throws JSONException{try{SyncJournal.Edit edit=SyncJournal.editState(c);JSONArray chats=new JSONArray(edit.snapshot.getString("chat_history"));EDITS.put(chats,edit);for(int n=0;n<chats.length();n++)EDITS.put(chats.getJSONObject(n),edit);return chats;}catch(Exception e){throw new JSONException(e.getMessage());}}
+    static synchronized void saveChat(Context c,JSONObject chat)throws JSONException{try{synchronized(SyncJournal.class){SyncJournal.Edit base=EDITS.get(chat);JSONArray chats=base==null?chats(c):new JSONArray(base.snapshot.getString("chat_history"));if(base!=null)EDITS.put(chats,base);boolean found=false;for(int n=0;n<chats.length();n++)if(chats.getJSONObject(n).getString("id").equals(chat.getString("id"))){chats.put(n,chat);found=true;break;}if(!found)chats.put(chat);saveChats(c,chats);EDITS.put(chat,SyncJournal.editState(c));}}catch(Exception e){throw new JSONException(e.getMessage());}}
     static synchronized void saveChats(Context c,JSONArray chats)throws JSONException{records(chats);try{SyncJournal.saveEdit(c,"chat_history",chats.toString(),EDITS.get(chats));}catch(Exception e){throw new JSONException(e.getMessage());}}    static synchronized JSONArray localTasks(Context c)throws JSONException{try{return new JSONArray(SyncJournal.snapshot(c).optString("local_tasks","[]"));}catch(Exception e){throw new JSONException(e.getMessage());}}
     static synchronized void saveLocalTasks(Context c,JSONArray tasks)throws JSONException{try{if(tasks.toString().length()>4_000_000)throw new Exception("Список задач слишком большой");SyncJournal.save(c,"local_tasks",tasks.toString());}catch(Exception e){throw new JSONException(e.getMessage());}}
 

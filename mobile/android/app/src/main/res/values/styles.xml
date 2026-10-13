@@ -22,4 +22,9 @@
         <item name="android:textColorPrimary">#F1F4F5</item>
         <item name="android:textColorSecondary">#A7B2B8</item>
     </style>
+    <style name="Theme.Jarvis.Light.Base" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item><item name="android:colorAccent">#176D60</item><item name="android:windowBackground">#F1F5F4</item><item name="android:colorBackground">#F1F5F4</item><item name="android:textColorPrimary">#172B30</item><item name="android:textColorSecondary">#455E65</item><item name="android:statusBarColor">#F1F5F4</item><item name="android:navigationBarColor">#F1F5F4</item><item name="android:windowLightStatusBar">true</item><item name="android:windowActionModeOverlay">true</item><item name="android:alertDialogTheme">@style/Theme.Jarvis.Light.Dialog</item>
+    </style>
+    <style name="Theme.Jarvis.Light" parent="Theme.Jarvis.Light.Base" />
+    <style name="Theme.Jarvis.Light.Dialog" parent="android:style/Theme.Material.Light.Dialog.Alert"><item name="android:fontFamily">sans-serif</item><item name="android:colorAccent">#176D60</item><item name="android:colorBackground">#FFFFFF</item><item name="android:windowBackground">#FFFFFF</item><item name="android:textColorPrimary">#172B30</item><item name="android:textColorSecondary">#455E65</item></style>
 </resources>

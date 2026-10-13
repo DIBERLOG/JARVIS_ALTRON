@@ -1,8 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Jarvis" parent="Theme.Jarvis.Base">
-        <item name="android:windowSplashScreenBackground">#101315</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/jarvis_logo</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">#101315</item>
-    </style>
+<style name="Theme.Jarvis" parent="Theme.Jarvis.Base"><item name="android:windowSplashScreenBackground">@color/jarvis_icon_background</item><item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item><item name="android:windowSplashScreenIconBackgroundColor">@color/jarvis_icon_background</item></style>
+<style name="Theme.Jarvis.Light" parent="Theme.Jarvis.Light.Base"><item name="android:windowSplashScreenBackground">@color/jarvis_icon_background</item><item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item><item name="android:windowSplashScreenIconBackgroundColor">@color/jarvis_icon_background</item></style>
 </resources>

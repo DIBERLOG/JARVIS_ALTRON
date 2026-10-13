@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {appearance} from "@/lib/appearance"
     import { onMount } from "svelte"
     import { invoke } from "@tauri-apps/api/core"
     import { goto } from "@roxi/routify"
@@ -240,6 +241,7 @@
 <Space h="xl" />
 
 <header class="settings-heading"><p>КОНТРОЛЬНЫЙ ЦЕНТР</p><h1>Настройки</h1><span>Слушание, голос, модели и перенос данных — каждый в своём разделе.</span></header>
+<section class="appearance-picker"><label for="app-appearance">Тема приложения</label><select id="app-appearance" bind:value={$appearance}><option value="dark">Тёмная</option><option value="light">Светлая</option><option value="system">Как в системе</option></select><p>Применяется ко всем разделам и сохраняется автоматически.</p></section>
 <Notification
     title={t('settings-beta-title')}
     icon={QuestionMarkCircled}

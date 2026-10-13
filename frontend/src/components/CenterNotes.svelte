@@ -85,6 +85,8 @@
 </section>
 
 <style lang="scss">
+ .note-list button.active strong{color:#09282d}.note-list button.active small{color:#204c50;font-weight:600}.note-list button strong{font-size:1rem;line-height:1.4}.note-list button small{font-size:.76rem;line-height:1.5}.note-list button{gap:.4rem}
+
     .notes-panel {--accent:#60f3e9;--line:#295056;padding:1rem;border:1px solid var(--line);border-radius:11px;background:linear-gradient(140deg,#143036aa,transparent 55%),#0d1b20;color:#eafafa;font-family:"Manrope Variable",sans-serif}
     header {display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:1rem}.eyebrow {margin:0;color:var(--accent);font-size:.6rem;font-weight:800;letter-spacing:.14em}h2 {margin:.3rem 0 0;font-size:1.15rem}
     .layout {display:grid;grid-template-columns:135px minmax(0,1fr);gap:.7rem}.note-list {display:flex;flex-direction:column;gap:.4rem;max-height:440px;overflow:auto}.note-list button {display:flex;flex-direction:column;gap:.25rem;text-align:left}.note-list strong {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem}
@@ -96,4 +98,5 @@
     .checklist {display:flex;flex-direction:column;gap:.4rem;max-height:300px;overflow:auto}.check-row {display:flex;align-items:center;gap:.4rem}.check-row input[type="checkbox"] {width:17px;height:17px;flex:none;accent-color:var(--accent)}.check-row.done input:not([type="checkbox"]) {text-decoration:line-through;color:#719793}.remove {padding:.35rem;color:#f8b2b2;border:0;background:transparent;font-size:1rem}.add-item {border-style:dashed;color:var(--accent)}.actions {display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.2rem}.delete {color:#ffb3b3;border-color:#7c4549;background:#301b20}.error {color:#ffb3b3;font-size:.7rem}
     @media (max-width: 580px) {.layout {grid-template-columns:1fr}.note-list {flex-direction:row;max-height:100px}.note-list button {min-width:130px;max-width:180px}}
     button {min-height:35px;font-size:.76rem;padding:.55rem .7rem}
+ .note-list button.active{background:#a0e4ce;border-color:#76baa8;color:#09282d}
 </style>

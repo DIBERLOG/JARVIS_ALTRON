@@ -291,6 +291,7 @@ mod phrase_tests {
             include_str!("../../../resources/commands/discord/command.toml"),
             include_str!("../../../resources/commands/steam/command.toml"),
             include_str!("../../../resources/commands/weather/command.toml"),
+            include_str!("../../../resources/commands/vpn/command.toml"),
         ];
         let packs: Vec<JCommandsList> = manifests
             .iter()
@@ -302,6 +303,10 @@ mod phrase_tests {
             ("открой стим", "game_mode"),
             ("открой расписание", "open_schedule"),
             ("погода в Москве", "weather"),
+            ("открой впн", "vpn_happ_open"),
+            ("перезапусти хэпп", "vpn_happ_restart"),
+            ("открой клаудфлер", "vpn_cloudflare_open"),
+            ("переподключи варп", "vpn_cloudflare_restart"),
         ] {
             let CommandSelection::Found(_, command) =
                 resolve_in_language(phrase, &packs, "ru", false)

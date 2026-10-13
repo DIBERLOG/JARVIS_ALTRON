@@ -1,0 +1,23 @@
+:root{--ui-bg:#0b1013;--ui-panel:#172126;--ui-input:#101a1f;--ui-text:#edf5f5;--ui-muted:#b4c2c7;--ui-line:#34474e;--ui-accent:#a0e4ce;--ui-selected:#163b35;--ui-danger:#ffb4ae}
+:root[data-theme=light]{color-scheme:light;--ui-bg:#f1f5f4;--ui-panel:#ffffff;--ui-input:#f5f8f7;--ui-text:#172b30;--ui-muted:#455e65;--ui-line:#b7cecc;--ui-accent:#176d60;--ui-selected:#e0f2eb;--ui-danger:#a52b38}
+html[data-theme=light],html[data-theme=light] body,html[data-theme=light] #app,html[data-theme=light] #wrapper{background:var(--ui-bg)!important;color:var(--ui-text)!important}
+html[data-theme=light] :is(header,.header,.header-right,#header-navigation,.section-content,.settings-heading,.tabs-content){background:var(--ui-panel)!important;color:var(--ui-text)!important;border-color:var(--ui-line)!important}
+html[data-theme=light] :is(.panel,.entry,.news-card,.sync,.preferences,.settings-card,.settings-module,.settings-panel,.voice-preview,.chat-panel,.chat-container,.message,.agent-card,.chain-card,.stats,.overview,.habit-icon,.notes-panel,.rich-editor,.preview,.document,.note-list button,.training article,.training section,.habits article,.body-navigation button){background:var(--ui-panel)!important;color:var(--ui-text)!important;border-color:var(--ui-line)!important;box-shadow:none!important}
+html[data-theme=light] :is(h1,h2,h3,h4,h5,p,label,strong,small,span,a,summary,li,legend,pre,code,th,td){color:var(--ui-text)!important}
+html[data-theme=light] :is(.muted,.eyebrow,.kicker,.footnote,.hint,.description,.note-list small,.entry-copy small,.logo-version,.settings-heading span){color:var(--ui-muted)!important}
+html[data-theme=light] :is(input,select,textarea,button,[contenteditable=true],.ProseMirror){color:var(--ui-text)!important;background:var(--ui-input)!important;border-color:var(--ui-line)!important;color-scheme:light}
+html[data-theme=light] :is(button.active,button.checked,button.primary,button.selected,button[aria-selected=true],.tabs .active,.entry.done,.day.today,.day.selected){background:var(--ui-selected)!important;color:#124b41!important;border-color:#428777!important}
+html[data-theme=light] :is(.primary,.add-btn,.send-btn){background:#176d60!important;color:#fff!important}
+html[data-theme=light] :is(.error,.delete,.remove){color:var(--ui-danger)!important}
+html[data-theme=light] svg text{fill:var(--ui-text)}
+html[data-theme=light] ::placeholder{color:#5d747b!important;opacity:1}
+html[data-theme=light] #jarvis-logo{background:none!important;filter:none;color:var(--ui-text)!important;line-height:20px}
+html[data-theme=light] #jarvis-logo::before{content:'JARVIS';font:800 23px/20px 'Segoe UI',sans-serif;letter-spacing:-1px}
+html[data-theme=light] :is(.ProseMirror,.preview,.document) :is(p,h2,h3,h4,li){color:var(--ui-text)!important}
+.appearance-picker{margin:20px 0;padding:18px;border:1px solid var(--ui-line);border-radius:16px;background:var(--ui-panel);color:var(--ui-text)}.appearance-picker label{display:block;margin-bottom:10px;font-weight:600}.appearance-picker select{font:inherit;padding:12px;border-radius:12px;border:1px solid var(--ui-line);background:var(--ui-input);color:var(--ui-text);min-width:220px}.appearance-picker p{margin-top:10px;color:var(--ui-muted);font-size:13px}
+
+html[data-theme=light] :is(.center-shell,.center-inner,.agents-workspace,.workspace,.command-registry,.chat-shell,.chat-workspace,.chat-history,.chat-main,.dialog,.news-panel,.privacy,.registry-heading,.view-toolbar,.section-nav,.settings-content,.chat-header,.composer,.guide,.command-card,.command-group,.conversation,.agent-output,.agent-settings,.agent-form,.message-bubble,.bubble){background:var(--ui-panel)!important;color:var(--ui-text)!important;border-color:var(--ui-line)!important}
+html[data-theme=light] :is(.chat-shell,.center-shell,.agents-workspace,.command-registry){--accent:var(--ui-accent);--line:var(--ui-line);--muted:var(--ui-muted)}
+html[data-theme=light] :is(.global-listening,.shortcut-card,.dialogue-personality,.tts-mode,.monitor-self-option,.voice-option,[role=alert]){background:var(--ui-panel)!important;color:var(--ui-text)!important;border-color:var(--ui-line)!important;box-shadow:none!important}
+html[data-theme=light] .module-label{color:var(--ui-accent)!important}
+html[data-theme=light] :is(button,.primary,.add-btn,.send-btn) :is(span,strong,small){color:inherit!important}

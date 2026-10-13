@@ -1,0 +1,31 @@
+[[commands]]
+id = "vpn_happ_open"
+type = "cli"
+description = "Открыть Happ VPN"
+cli_cmd = "powershell.exe"
+cli_args = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", "{command_dir}/vpn.ps1", "-Client", "Happ", "-Action", "Open"]
+phrases.ru = ["открой впн", "запусти впн", "открой ви пи эн", "открой хэпп", "открой хапп", "запусти хэпп", "открой happ"]
+
+[[commands]]
+id = "vpn_happ_restart"
+type = "cli"
+description = "Перезапустить приложение Happ VPN"
+cli_cmd = "powershell.exe"
+cli_args = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", "{command_dir}/vpn.ps1", "-Client", "Happ", "-Action", "Restart"]
+phrases.ru = ["перезапусти впн", "перезапусти ви пи эн", "перезапусти хэпп", "перезапусти хапп", "перезагрузи хэпп", "перезапусти happ"]
+
+[[commands]]
+id = "vpn_cloudflare_open"
+type = "cli"
+description = "Открыть Cloudflare One Client / WARP"
+cli_cmd = "powershell.exe"
+cli_args = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", "{command_dir}/vpn.ps1", "-Client", "Cloudflare", "-Action", "Open"]
+phrases.ru = ["открой клаудфлер", "открой клаудфлэр", "открой cloudflare", "открой варп", "запусти варп", "открой впн клаудфлер"]
+
+[[commands]]
+id = "vpn_cloudflare_restart"
+type = "cli"
+description = "Переподключить Cloudflare WARP штатной утилитой"
+cli_cmd = "powershell.exe"
+cli_args = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", "{command_dir}/vpn.ps1", "-Client", "Cloudflare", "-Action", "Restart"]
+phrases.ru = ["перезапусти клаудфлер", "перезапусти клаудфлэр", "перезапусти cloudflare", "перезапусти варп", "переподключи клаудфлер", "переподключи варп"]

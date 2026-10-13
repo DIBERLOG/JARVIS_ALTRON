@@ -31,7 +31,7 @@ final class MobileCenterPage {
         });
         view.addJavascriptInterface(this,"NativeCenter");
         String nonce=UUID.randomUUID().toString();String css=asset("mobile-center.css"),js=asset("mobile-center.js").replace("</script","<\\/script");
-        String html="<!doctype html><html lang='ru'><head><meta name='viewport' content='width=device-width,initial-scale=1'><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\"><style>"+css+"</style></head><body><div id='app'></div><script nonce='"+nonce+"'>const JarvisMode="+JSONObject.quote(mode)+";"+js+"</script></body></html>";
+        String html="<!doctype html><html lang='ru' data-theme='"+(MobileTheme.light(activity)?"light":"dark")+"'><head><meta name='viewport' content='width=device-width,initial-scale=1'><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\"><style>"+css+"</style></head><body><div id='app'></div><script nonce='"+nonce+"'>const JarvisMode="+JSONObject.quote(mode)+";"+js+"</script></body></html>";
         view.loadDataWithBaseURL("https://jarvis.invalid/mobile/",html,"text/html","UTF-8",null);
     }
     String asset(String name)throws Exception{try(InputStream in=activity.getAssets().open(name)){return PublicData.read(in,8*1024*1024);}}

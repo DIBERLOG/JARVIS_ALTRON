@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {resolvedAppearance} from "./lib/appearance"
     import { onMount, onDestroy } from "svelte"
     import { invoke } from "@tauri-apps/api/core"
     import { Router } from "@roxi/routify"
@@ -55,7 +56,7 @@
     })
 </script>
 
-<SvelteUIProvider themeObserver="dark" withNormalizeCSS withGlobalStyles>
+<SvelteUIProvider themeObserver={$resolvedAppearance} withNormalizeCSS withGlobalStyles>
     <Router {routes} />
 </SvelteUIProvider>
 
