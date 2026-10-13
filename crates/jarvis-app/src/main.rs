@@ -135,7 +135,7 @@ fn main() -> Result<(), String> {
     ipc::init();
 
     // channel for text commands (manually written in the GUI)
-    let (text_cmd_tx, text_cmd_rx) = mpsc::channel::<String>();
+    let (text_cmd_tx, text_cmd_rx) = mpsc::channel::<app::IncomingCommand>();
 
     let ipc_settings = settings.clone();
     ipc::set_action_handler(move |action| {
@@ -163,9 +163,12 @@ fn main() -> Result<(), String> {
             }
             IpcAction::TextCommand { text } => {
                 info!("Received authenticated text command");
-                if let Err(e) = text_cmd_tx.send(text) {
+                if let Err(e) = text_cmd_tx.send(app::IncomingCommand::Text(text)) {
                     error!("Failed to send text command to app: {}", e);
                 }
+            }
+            IpcAction::RemoteCommand { id, request_id, expires_at } => {
+                if jarvis_core::commands::remote_allowed(&id) {let _=text_cmd_tx.send(app::IncomingCommand::Remote{id,request_id,expires_at});}
             }
             IpcAction::Ping => {
                 // handled internally by server

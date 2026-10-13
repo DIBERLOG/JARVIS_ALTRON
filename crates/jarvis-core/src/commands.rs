@@ -397,3 +397,8 @@ mod phrase_tests {
         assert_eq!(arguments,vec!["C:/Folder With Spaces/windows/windows.ps1","a & b"]);
     }
 }
+
+/// Commands exposed to paired devices: fixed catalog IDs without user parameters.
+pub fn remote_allowed(id: &str) -> bool {
+    matches!(id, "browser_open" | "open_youtube" | "open_chatgpt" | "open_google" | "calculator_open" | "telegram_open" | "discord_open" | "vscode_open" | "windows_minimize_all" | "windows_restore_all" | "center_open" | "center_news_open" | "center_calendar" | "center_schedule" | "center_notes" | "center_timer_open" | "center_reminders" | "center_birthdays" | "center_weather" | "center_habits" | "center_training" | "center_stats" | "center_history")
+}

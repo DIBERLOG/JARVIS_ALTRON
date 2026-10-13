@@ -30,7 +30,25 @@ struct Device {id:String,name:String,token_hash:String,last_sync:Option<String>,
 #[derive(Serialize,Deserialize,Clone)]
 struct Conflict {id:String,area:String,collection:String,item_id:String,local:Value,remote:Value}
 #[derive(Serialize,Deserialize,Default,Clone)]
-struct Saved {#[serde(default)] rotation_pending:bool,devices:Vec<Device>,conflicts:Vec<Conflict>,allow_vault:bool}
+struct Saved {#[serde(default)] remote_requests:Vec<RemoteRequest>,#[serde(default)] rotation_pending:bool,devices:Vec<Device>,conflicts:Vec<Conflict>,allow_vault:bool}
+#[derive(Serialize,Deserialize,Clone)]
+struct RemoteRequest { id:String,device_id:String,command_id:String,expires_at:i64,status:String }
+fn remote_catalog()->Vec<Value>{super::get_commands_list().into_iter().filter(|c|jarvis_core::commands::remote_allowed(&c.id)).map(|c|json!({"id":c.id,"title":c.description})).collect()}
+fn enqueue_remote(saved:&mut Saved,device_id:&str,body:&Value,now:i64)->Result<Value,String>{
+    let id=body["id"].as_str().ok_or("Нет номера запроса")?;let command=body["command_id"].as_str().ok_or("Нет команды")?;
+    if id.len()!=36||!id.bytes().enumerate().all(|(n,b)|if [8,13,18,23].contains(&n){b==b'-'}else{b.is_ascii_hexdigit()}){return Err("Некорректный номер запроса".into());}
+    if let Some(r)=saved.remote_requests.iter().find(|r|r.id==id){if r.device_id!=device_id||r.command_id!=command{return Err("Номер запроса уже занят".into());}return Ok(json!({"id":r.id,"status":r.status}));}
+    let expires=body["expires_at"].as_i64().ok_or("Нет срока команды")?;if expires<=now||expires>now+60{return Err("Команда истекла. Проверьте время на телефоне".into());}
+    if !jarvis_core::commands::remote_allowed(command){return Err("Команда не разрешена для телефона".into());}
+    saved.remote_requests.retain(|r|r.expires_at>now-600);
+    if saved.remote_requests.len()>=128{return Err("Слишком много команд. Подождите несколько минут".into());}
+    saved.remote_requests.push(RemoteRequest{id:id.into(),device_id:device_id.into(),command_id:command.into(),expires_at:expires,status:"queued".into()});Ok(json!({"id":id,"status":"queued"}))
+}
+#[tauri::command]
+pub fn lan_sync_take_commands(app:tauri::AppHandle,state:tauri::State<'_,LanSync>)->Result<Value,String>{let mut i=state.inner.lock();if i.directory.is_none(){return Ok(json!([]));}init(&mut i,&app)?;if i.runtime.as_ref().is_none_or(|r|r.stop.load(Ordering::Relaxed)){return Ok(json!([]));}let now=chrono::Utc::now().timestamp();let mut candidate=i.saved.clone();if i.saved.rotation_pending{return Err("Ротация ключей не завершена".into());}let revoked=jarvis_core::sync_profile::root().and_then(|r|jarvis_core::sync_profile::load_at(&r))?.revoked_devices;let mut result=vec![];for r in &mut candidate.remote_requests {if r.status!="queued"{continue;}if r.expires_at<=now||!candidate.devices.iter().any(|d|d.id==r.device_id)||revoked.contains(&r.device_id){r.status="expired".into();continue;}if result.len()>=4{continue;}r.status="claimed".into();result.push(json!({"id":r.id,"command_id":r.command_id,"expires_at":r.expires_at}));}
+    if !result.is_empty()||candidate.remote_requests.iter().zip(&i.saved.remote_requests).any(|(a,b)|a.status!=b.status){atomic(&i.directory.as_ref().unwrap().join("devices.json"),&candidate)?;i.saved=candidate;}Ok(json!(result))}
+#[tauri::command]
+pub fn lan_sync_command_result(state:tauri::State<'_,LanSync>,id:String,status:String)->Result<(),String>{if !matches!(status.as_str(),"executed"|"shown"|"failed"|"uncertain"){return Err("Некорректный статус".into());}let mut i=state.inner.lock();let mut candidate=i.saved.clone();if let Some(r)=candidate.remote_requests.iter_mut().find(|r|r.id==id&&r.status=="claimed"){r.status=status;atomic(&i.directory.as_ref().ok_or("Нет профиля")?.join("devices.json"),&candidate)?;i.saved=candidate;}Ok(())}
 struct Pending {id:String,name:String,code:String,expires:Instant,token:Option<String>}
 struct Runtime {stop:Arc<AtomicBool>,address:String,fingerprint:String,secret:String,expires:Instant,pending:Vec<Pending>}
 struct Inner {saved:Saved,runtime:Option<Runtime>,directory:Option<PathBuf>}
@@ -175,11 +193,14 @@ fn handle(route:&str,token:&str,body:Value,inner:&Arc<Mutex<Inner>>,settings:&ja
             }return (202,json!({"pending":true}));}
         return (404,json!({"error":"Сопряжение не найдено или уже использовано"}));
     }
-    if !matches!(route,"/v2/sync"|"/v2/recover"|"/v2/keys"){return (400,json!({"error":"Sync v1 отключён в этой LAB-сборке; обновите клиент и выполните новое сопряжение"}));}
+    if !matches!(route,"/v2/sync"|"/v2/recover"|"/v2/keys"|"/v2/commands"|"/v2/command"|"/v2/command/status"){return (400,json!({"error":"Sync v1 отключён в этой LAB-сборке; обновите клиент и выполните новое сопряжение"}));}
     let hash=digest(token);let Some(device)=i.saved.devices.iter().position(|d|d.protocol==2&&equal(&d.token_hash,&hash))else{return (401,json!({"error":"Устройство отключено. Подключите заново по QR-коду"}));};
     let result=(||->Result<Value,String>{
         let root=jarvis_core::sync_profile::root()?;let group=jarvis_core::sync_profile::load_at(&root)?;
         if group.revoked_devices.contains(&i.saved.devices[device].id){return Err("Устройство отозвано; новые ключи недоступны".into());}
+        if route=="/v2/commands"{return Ok(json!({"commands":remote_catalog()}));}
+        if route=="/v2/command/status"{let id=body["id"].as_str().unwrap_or("");let r=i.saved.remote_requests.iter().find(|r|r.id==id&&r.device_id==i.saved.devices[device].id).ok_or("Запрос не найден")?;return Ok(json!({"id":r.id,"status":r.status,"expired":r.expires_at<chrono::Utc::now().timestamp()}));}
+        if route=="/v2/command"{let device_id=i.saved.devices[device].id.clone();let mut candidate=i.saved.clone();let response=enqueue_remote(&mut candidate,&device_id,&body,chrono::Utc::now().timestamp())?;atomic(&i.directory.as_ref().unwrap().join("devices.json"),&candidate)?;i.saved=candidate;return Ok(response);}
         if route=="/v2/keys"{let relay=jarvis_core::sync_relay::Relay::open(&root.join("sync-v2-relay.sqlite"),&group.group_id,group.epoch)?;return Ok(json!({"version":2,"features":["tasks"],"relay_id":relay.identity()?,"group":group_wire(&group)}));}
         if body["version"]!=2||body["group_id"]!=group.group_id{return Err("Несовместимая группа или протокол".into());}
         let mut operations:Vec<jarvis_core::sync_journal::Operation>=serde_json::from_value(body["operations"].clone()).map_err(|_|"Некорректные операции")?;let tasks_supported=body["features"].as_array().is_some_and(|v|v.iter().any(|f|f=="tasks"));if operations.iter().any(|op|op.collection=="tasks")&&!tasks_supported{return Err("Для общих задач обновите клиент до Sync v2 LAB 1.1.2".into());}
@@ -325,6 +346,15 @@ pub fn lan_sync_resolve(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,id:S
 }
 #[cfg(test)]
 mod tests {use super::*;
+    #[test] fn remote_commands_deduplicate_and_reject_changed_expired_or_unsafe_requests(){
+        let mut saved=Saved::default();let body=json!({"id":"12345678-1234-1234-1234-123456789abc","command_id":"calculator_open","expires_at":1060});
+        for _ in 0..10 {assert_eq!(enqueue_remote(&mut saved,"phone-a",&body,1000).unwrap()["status"],"queued");}assert_eq!(saved.remote_requests.len(),1);
+        saved.remote_requests[0].status="claimed".into();assert_eq!(enqueue_remote(&mut saved,"phone-a",&body,1001).unwrap()["status"],"claimed");
+        assert!(enqueue_remote(&mut saved,"phone-b",&body,1001).is_err());let mut changed=body.clone();changed["command_id"]=json!("browser_open");assert!(enqueue_remote(&mut saved,"phone-a",&changed,1001).is_err());
+        let wire=serde_json::to_string(&saved).unwrap();let mut restarted:Saved=serde_json::from_str(&wire).unwrap();assert_eq!(enqueue_remote(&mut restarted,"phone-a",&body,1002).unwrap()["status"],"claimed");
+        changed["id"]=json!("abcdefab-1234-1234-1234-123456789abc");changed["command_id"]=json!("computer_restart");assert!(enqueue_remote(&mut saved,"phone-a",&changed,1000).is_err());changed["command_id"]=json!("calculator_open");assert!(enqueue_remote(&mut saved,"phone-a",&changed,1061).is_err());assert!(!jarvis_core::commands::remote_allowed("repeat_command"));
+    }
+
     #[cfg(windows)]
     #[test]fn v2_gateway_three_profiles_java_ciphertext_rekey_and_revocation(){
         use jarvis_core::{sync_profile::{self,Group},sync_journal::{Journal,Operation},sync_relay::Feed};
@@ -380,6 +410,7 @@ mod tests {use super::*;
         assert_eq!(handle("/v2/sync","unknown",json!({}),&state.inner,&settings,directory.path()).0,503);
         {let mut i=state.inner.lock();i.runtime=Some(Runtime{stop:Arc::new(AtomicBool::new(false)),address:"192.168.1.2:47832".into(),fingerprint:random(),secret:"test-secret".into(),expires:Instant::now()+Duration::from_secs(120),pending:vec![]});}
         assert_eq!(handle("/v2/sync","unknown",json!({}),&state.inner,&settings,directory.path()).0,401);
+        for route in ["/v2/commands","/v2/command","/v2/command/status"]{assert_eq!(handle(route,"unknown",json!({}),&state.inner,&settings,directory.path()).0,401);assert_eq!(handle(route,"test-secret",json!({}),&state.inner,&settings,directory.path()).0,401);}
         assert_eq!(handle("/pair","wrong",json!({"version":2,"name":"Phone"}),&state.inner,&settings,directory.path()).0,401);
         assert_eq!(handle("/pair","test-secret",json!({"version":2,"name":"Phone"}),&state.inner,&settings,directory.path()).0,202);
         let pending=status(&state.inner.lock())["pending"][0]["id"].as_str().unwrap().to_string();

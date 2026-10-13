@@ -94,6 +94,8 @@ fn main() {
             tauri_commands::sync_v2_auto,
             tauri_commands::sync_v2_disconnect,
             tauri_commands::sync_v2_sharing,
+            tauri_commands::lan_sync_take_commands,
+            tauri_commands::lan_sync_command_result,
             tauri_commands::lan_sync_status,
             tauri_commands::lan_sync_addresses,
             tauri_commands::lan_sync_start,

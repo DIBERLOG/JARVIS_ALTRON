@@ -15,7 +15,7 @@
     import ReminderSchedule from '@/components/ReminderSchedule.svelte'
     import { sendAction } from '@/lib/ipc'
     import type { TrainingData } from "@/lib/training"
-    import { centerSection, centerRevision, centerVoiceHint } from '@/lib/centerVoice'
+    import { centerSection, centerRevision, centerVoiceHint, remoteCenterEditing } from '@/lib/centerVoice'
     import { birthdayDate, birthdayOccursInYear, dayKey, emptyCenterData, loadCenterData, makeId, nextBirthday, saveCenterData, type CenterData, type Reminder, type Note } from "@/lib/center"
 
     const weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -26,7 +26,7 @@
     let loading = true, saving = false, error = "", notice = ""
     let noticeTimer: ReturnType<typeof setTimeout> | undefined
     let disposed = false
-    onDestroy(() => { disposed = true; clearTimeout(noticeTimer) })
+    onDestroy(() => { remoteCenterEditing.set(false); disposed = true; clearTimeout(noticeTimer) })
     let reminderTitle = "", reminderDue = defaultDue(selectedDay)
     let reminderAdvance: number[] = [], editingReminder: string | null = null
     function editReminder(item: Reminder) {
@@ -179,7 +179,7 @@
             {:else if selectedSection === "tasks"}
                 <CenterTasks tasks={data.tasks||[]} disabled={saving} onSave={(tasks)=>persist({...data,tasks},"Задачи сохранены")}/>
             {:else if selectedSection === "notes"}
-                <CenterNotes notes={data.notes} disabled={saving || loading} onSave={saveNote} onDelete={deleteNote} />
+                <CenterNotes onDirty={(dirty)=>remoteCenterEditing.set(dirty)} notes={data.notes} disabled={saving || loading} onSave={saveNote} onDelete={deleteNote} />
             {:else if selectedSection === "voice-text"}
                 <CenterVoiceText disabled={saving || loading} onSave={saveNote} />
             {:else if selectedSection === "reminders"}

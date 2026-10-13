@@ -15,22 +15,44 @@ static CHAIN_LISTENING: AtomicBool = AtomicBool::new(false);
 static LAST_COMMAND: Mutex<Option<String>> = Mutex::new(None);
 static DIALOGUE_HISTORY: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
+#[derive(Clone)]
+pub enum IncomingCommand { Text(String), Remote { id: String, request_id: String, expires_at: i64 } }
+fn execute_remote(id: &str, request_id: &str, expires_at: i64) {
+    let status=(|| -> Result<&str, String> {
+        if SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as i64>expires_at || !commands::remote_allowed(id) {return Err("Команда недоступна или истекла".into());}
+        let packs=commands::parse_commands()?;
+        let center=commands::center::available_commands();
+        let command=packs.iter().flat_map(|p|p.commands.iter()).chain(center.iter()).find(|c|c.id==id).cloned();
+        let command=command.ok_or("Команда отсутствует на этом ПК")?;
+        let phrase=command.get_phrases("ru").first().cloned().ok_or("У команды нет фразы")?;
+        ipc::send(IpcEvent::RevealWindow);
+        ipc::send(IpcEvent::SpeechRecognized {text:phrase.clone()});
+        if command.cmd_type=="center" {ipc::send(IpcEvent::RemoteCenterCommand {id:id.into(),request_id:request_id.into()});return Ok("center_pending");}
+        let pack=packs.iter().find(|p|p.commands.iter().any(|c|c.id==id)).ok_or("Нет каталога команды")?;
+        commands::execute_command(&pack.path,&command,Some(&phrase),None)?;
+        ipc::send(IpcEvent::CommandExecuted {id:id.into(),success:true});
+        Ok("executed")
+    })().unwrap_or("failed");
+    if status!="center_pending" {ipc::send(IpcEvent::RemoteCommandResult {request_id:request_id.into(),status:status.into()});}
+    ipc::send(IpcEvent::Idle);
+}
+
 // Execute commands serially off the capture thread. Slow Lua, network requests,
 // model replies and restart warning clips must not suspend wake-word detection.
 struct CommandDispatcher {
-    sender: SyncSender<String>,
+    sender: SyncSender<IncomingCommand>,
     pending: Arc<AtomicUsize>,
 }
 
 impl CommandDispatcher {
     fn start(mut execute: impl FnMut(&str) -> bool + Send + 'static) -> Self {
-        let (sender, receiver) = mpsc::sync_channel::<String>(8);
+        let (sender, receiver) = mpsc::sync_channel::<IncomingCommand>(8);
         let pending = Arc::new(AtomicUsize::new(0));
         let worker_pending = pending.clone();
         std::thread::spawn(move || {
             for text in receiver {
                 if should_stop() { worker_pending.fetch_sub(1, Ordering::SeqCst); continue; }
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(&text)));
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &text { IncomingCommand::Text(text)=>execute(text), IncomingCommand::Remote{id,request_id,expires_at}=>{execute_remote(id,request_id,*expires_at);false} }));
                 CHAIN_LISTENING.store(result.unwrap_or_else(|_| {
                     ipc::send(IpcEvent::Error { message: "Ошибка выполнения команды".to_string() });
                     false
@@ -43,7 +65,7 @@ impl CommandDispatcher {
 
     fn submit(&self, text: &str) -> bool {
         self.pending.fetch_add(1, Ordering::SeqCst);
-        if self.sender.try_send(text.to_string()).is_err() {
+        if self.sender.try_send(IncomingCommand::Text(text.to_string())).is_err() {
             self.pending.fetch_sub(1, Ordering::SeqCst);
             ipc::send(IpcEvent::Error { message: "Очередь команд занята. Попробуйте через несколько секунд.".to_string() });
             return false;
@@ -136,11 +158,11 @@ enum VadState {
     VoiceActive,
 }
 
-pub fn start(text_cmd_rx: Receiver<String>, rt: &tokio::runtime::Runtime) -> Result<(), ()> {
+pub fn start(text_cmd_rx: Receiver<IncomingCommand>, rt: &tokio::runtime::Runtime) -> Result<(), ()> {
     main_loop(text_cmd_rx, rt)
 }
 
-fn main_loop(text_cmd_rx: Receiver<String>, rt: &tokio::runtime::Runtime) -> Result<(), ()> {
+fn main_loop(text_cmd_rx: Receiver<IncomingCommand>, rt: &tokio::runtime::Runtime) -> Result<(), ()> {
     let command_runtime = rt.handle().clone();
     let dispatcher = CommandDispatcher::start(move |text| execute_command(text, &command_runtime));
     let frame_length: usize = 512;
@@ -204,7 +226,7 @@ fn main_loop(text_cmd_rx: Receiver<String>, rt: &tokio::runtime::Runtime) -> Res
                 ipc::send(IpcEvent::Idle);
             }
             if let Ok(text) = text_cmd_rx.try_recv() {
-                process_text_command(&text, &dispatcher);
+                match text {IncomingCommand::Text(text)=>process_text_command(&text,&dispatcher),request=>{dispatcher.pending.fetch_add(1,Ordering::SeqCst);if dispatcher.sender.try_send(request).is_err(){dispatcher.pending.fetch_sub(1,Ordering::SeqCst);}}}
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
             continue 'wake_word;
@@ -233,7 +255,7 @@ fn main_loop(text_cmd_rx: Receiver<String>, rt: &tokio::runtime::Runtime) -> Res
         }
 
         if let Ok(text) = text_cmd_rx.try_recv() {
-            process_text_command(&text, &dispatcher);
+            match text {IncomingCommand::Text(text)=>process_text_command(&text,&dispatcher),request=>{dispatcher.pending.fetch_add(1,Ordering::SeqCst);if dispatcher.sender.try_send(request).is_err(){dispatcher.pending.fetch_sub(1,Ordering::SeqCst);}}}
             continue 'wake_word;
         }
 
@@ -546,7 +568,7 @@ fn center_phrase(text: &str) -> bool {
 fn playback_active() -> bool { tts::is_speaking() || jarvis_core::audio::is_playing() }
 
 fn process_text_command(text: &str, dispatcher: &CommandDispatcher) {
-    info!("Processing text command: {}", text);
+    info!("Processing authenticated text command");
     
     ipc::send(IpcEvent::SpeechRecognized { text: text.to_string() });
     

@@ -16,6 +16,8 @@ pub enum IpcEvent {
     
     // Command was executed
     CommandExecuted { id: String, success: bool },
+    RemoteCommandResult { request_id: String, status: String },
+    RemoteCenterCommand { id: String, request_id: String },
     
     // Returned to idle state
     Idle,
@@ -61,5 +63,6 @@ pub enum IpcAction {
 
     // Execute text command
     TextCommand { text: String },
+    RemoteCommand { id: String, request_id: String, expires_at: i64 },
     CenterReply { text: String, reply_id: String, follow_up: bool },
 }

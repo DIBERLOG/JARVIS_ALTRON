@@ -120,6 +120,12 @@ function handleEvent(data: any) {
     // Personal event payloads must not be copied to browser logs.
 
     switch (data.event) {
+        case "remote_center_command":
+            window.dispatchEvent(new CustomEvent("jarvis-remote-center-command",{detail:data}))
+            break
+        case "remote_command_result":
+            invoke("lan_sync_command_result",{id:data.request_id,status:data.status}).catch(()=>lastError.set("Не удалось сохранить результат команды с телефона"))
+            break
         case "dialogue_mode":
             dialogueActive.set(Boolean(data.active))
             break

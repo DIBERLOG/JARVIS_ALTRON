@@ -9,6 +9,7 @@ import { handleMailVoice, resetMailVoice } from './outlook'
 import { parseReminderDate } from './reminders'
 
 export const centerSection = writable('calendar')
+export const remoteCenterEditing = writable(false)
 export const trainingVoiceTab = writable('today')
 export const centerVoiceHint = writable('')
 let hintTimer: ReturnType<typeof setTimeout>
