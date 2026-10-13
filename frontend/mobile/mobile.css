@@ -26,3 +26,7 @@ html body #app .notes-panel.mobile-empty>header,html body #app .notes-panel.mobi
 
 html body #app .habits .check,html body #app .habits .archive,html body #app .habits .stepper button{width:48px;height:48px;min-width:48px;min-height:48px;padding:0;border-radius:50%;display:grid;place-items:center;flex-shrink:0}
 html body #app .habits .check{background:#13262a;border:2px solid #557a78}html body #app .habits .check.checked{background:#a0e4ce;color:#101315;border-color:#a0e4ce}html body #app .habits .archive{background:transparent;border:0;color:#a7b2b8}html body #app .habits .archive svg{width:22px;height:22px}html body #app .habits article{gap:8px;padding:14px 10px}html body #app .habits .habit-icon{width:34px;height:40px}html body #app .habits .copy p{font-size:14px}html body #app .habits .check-glyph{width:24px;height:24px}
+
+html body #app .tabs{gap:12px;padding:10px 0 18px}html body #app .toolbar,html body #app .mobile-compact .toolbar{gap:10px;padding:12px}html body #app .habits .stepper{gap:10px}html body #app .form-row,html body #app .filters,html body #app .inputs,html body #app .body-navigation{gap:12px}html body #app .training-grid{gap:18px}html body #app button{border-radius:16px;min-height:48px}html body #app .habits article{gap:12px}html body #app .habits .tabs{flex-wrap:wrap}html body #app .habits .tabs button{flex:1 1 90px}
+
+html body #app .mobile-compact .toolbar button{min-height:48px}
