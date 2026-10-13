@@ -1,4 +1,5 @@
 <script lang="ts">
+    import CenterTasks from "@/components/CenterTasks.svelte"
     import "@fontsource-variable/manrope/wght.css"
     import { onMount, onDestroy } from "svelte"
     import WeekWeather from "@/components/WeekWeather.svelte"
@@ -39,6 +40,7 @@
         { id: "news", label: "Новости", icon: "◈", ready: true },
         { id: "outlook", label: "Почта Outlook", icon: "✉", ready: true },
         { id: "calendar", label: "Календарь", icon: "▦", ready: true },
+        { id: "tasks", label: "Задачи", icon: "✓", ready: true },
         { id: "notes", label: "Заметки", icon: "✎", ready: true },
         { id: "voice-text", label: "Голос в текст", icon: "🎙", ready: true },
         { id: "timer", label: "Таймер", icon: "◷", ready: true },
@@ -174,6 +176,8 @@
                 <CenterNews />
             {:else if selectedSection === "outlook"}
                 <CenterOutlook />
+            {:else if selectedSection === "tasks"}
+                <CenterTasks tasks={data.tasks||[]} disabled={saving} onSave={(tasks)=>persist({...data,tasks},"Задачи сохранены")}/>
             {:else if selectedSection === "notes"}
                 <CenterNotes notes={data.notes} disabled={saving || loading} onSave={saveNote} onDelete={deleteNote} />
             {:else if selectedSection === "voice-text"}

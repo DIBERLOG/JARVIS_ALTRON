@@ -11,6 +11,15 @@
         <item name="android:navigationBarColor">#101315</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:alertDialogTheme">@style/Theme.Jarvis.Dialog</item>
     </style>
     <style name="Theme.Jarvis" parent="Theme.Jarvis.Base" />
+    <style name="Theme.Jarvis.Dialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:colorAccent">#A0E4CE</item>
+        <item name="android:colorBackground">#1B2023</item>
+        <item name="android:windowBackground">#1B2023</item>
+        <item name="android:textColorPrimary">#F1F4F5</item>
+        <item name="android:textColorSecondary">#A7B2B8</item>
+    </style>
 </resources>

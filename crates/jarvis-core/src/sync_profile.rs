@@ -37,7 +37,7 @@ pub fn read()->Result<Value,String>{journal()?.snapshot()?.ok_or("Отсутст
 
 const ITERATIONS:u32=600_000;
 pub fn recovery_seal(payload:&Value,password:&str)->Result<Value,String>{
-    if password.chars().count()<12||password.len()>1024{return Err("Пароль восстановления: от 12 символов".into());}
+    if password.chars().count()<6||password.len()>1024{return Err("Пароль восстановления: от 6 символов".into());}
     let mut salt=[0;16];rand::rngs::OsRng.fill_bytes(&mut salt);let mut key=[0;32];
     ring::pbkdf2::derive(ring::pbkdf2::PBKDF2_HMAC_SHA256,NonZeroU32::new(ITERATIONS).unwrap(),&salt,password.as_bytes(),&mut key);
     let sealed=secure_storage::seal_with_key(payload,"sync-recovery-v2",&key);key.fill(0);
@@ -93,6 +93,12 @@ pub fn restore_new(backup:&Value,password:&str)->Result<(),String>{
 
 #[cfg(test)]mod tests{
     use super::*;
+    #[test]fn recovery_accepts_six_characters_but_rejects_five(){
+        let original=json!({"snapshot":{"notes":[]}});
+        assert!(recovery_seal(&original,"abcde").is_err());
+        let backup=recovery_seal(&original,"abcdef").unwrap();
+        assert_eq!(recovery_open(&backup,"abcdef").unwrap(),original);
+    }
     #[test]fn recovery_wrong_password_tamper_and_new_local_key(){
         let original=json!({"groupKey":[7,8,9],"fictional_secret":"only-test","snapshot":{"center_data":"{\"notes\":[],\"reminders\":[],\"birthdays\":[],\"habits\":[]}"}});
         let backup=recovery_seal(&original,"fictional recovery password").unwrap();assert!(!backup.to_string().contains("only-test"));

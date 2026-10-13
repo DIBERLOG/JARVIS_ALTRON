@@ -162,7 +162,7 @@ fn main() -> Result<(), String> {
                 ipc::send(jarvis_core::ipc::IpcEvent::DialogueMode { active: app::dialogue_active() });
             }
             IpcAction::TextCommand { text } => {
-                info!("Received text command: {}", text);
+                info!("Received authenticated text command");
                 if let Err(e) = text_cmd_tx.send(text) {
                     error!("Failed to send text command to app: {}", e);
                 }

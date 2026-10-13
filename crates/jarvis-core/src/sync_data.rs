@@ -3,7 +3,7 @@ use serde_json::{json,Value};
 use std::collections::BTreeMap;
 use crate::sync_journal::Version;
 
-pub const LISTS:&[&str]=&["notes","reminders","birthdays","habits"];
+pub const LISTS:&[&str]=&["notes","reminders","birthdays","habits","tasks"];
 pub const TRAINING_LISTS:&[&str]=&["exercises","plans","sessions"];
 pub const TRAINING_FIELDS:&[&str]=&["profile","morningExercise","chargeSettings","chargeLevels"];
 /// JSON numbers retain their value when Java renders 70.0 as 70 during rekeying.
@@ -24,7 +24,7 @@ pub fn equivalent(a:&Value,b:&Value)->bool{
         },_=>false
     }
 }
-pub fn empty_center()->Value{json!({"notes":[],"reminders":[],"birthdays":[],"habits":[]})}
+pub fn empty_center()->Value{json!({"notes":[],"reminders":[],"birthdays":[],"habits":[],"tasks":[]})}
 fn parse(snapshot:&Value,key:&str,default:Value)->Result<Value,String>{
     match snapshot.get(key){
         None=>Ok(default),Some(value)=>{let raw=value.as_str().ok_or_else(||format!("Некорректный тип данных {key}"))?;if raw.is_empty(){Ok(default)}else{serde_json::from_str(raw).map_err(|_|format!("Повреждены данные {key}; синхронизация остановлена"))}}

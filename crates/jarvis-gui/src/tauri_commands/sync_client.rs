@@ -81,15 +81,15 @@ pub fn sync_v2_pair_finish(state:tauri::State<'_,crate::AppState>,password:Strin
 pub fn sync_v2_run()->Result<Value,String>{
     let _guard=CLIENT_IO.lock();
     let root=sync_profile::root()?;let mut group=sync_profile::load_at(&root)?;let peer=group.peer.clone().ok_or("Этот компьютер — хаб; клиенты подключаются к нему")?;let token=peer["token"].as_str().ok_or("Нет токена")?;
-    let response=request(&peer,"/v2/keys",token,&json!({"version":2}))?;let wire=&response["group"];
+    let response=request(&peer,"/v2/keys",token,&json!({"version":2}))?;let tasks_supported=response["features"].as_array().is_some_and(|v|v.iter().any(|f|f=="tasks"));let wire=&response["group"];
     let relay_id=response["relay_id"].as_str().filter(|v|v.len()==64&&v.bytes().all(|b|b.is_ascii_hexdigit())).ok_or("Нет идентичности журнала хаба")?.to_string();
     if wire["group_id"]!=group.group_id{return Err("Хаб сменил группу; очередь не изменена".into());}
     let epoch=wire["epoch"].as_u64().and_then(|v|u32::try_from(v).ok()).filter(|v|*v>0).ok_or("Нет версии ключа")?;if epoch<group.epoch{return Err("Откат версии ключа".into());}
     let keys:std::collections::BTreeMap<u32,[u8;32]>=serde_json::from_value(wire["keys"].clone()).map_err(|_|"Некорректные ключи")?;
     for (e,k) in &group.keys{if keys.get(e)!=Some(k){return Err("Ключ прошлой версии изменился".into());}}group.keys=keys;group.epoch=epoch;group.peer.as_mut().unwrap()["relay_id"]=json!(relay_id);sync_profile::save_at(&root,&group)?;
     let mut journal=sync_profile::journal_at(&root,&group)?;
-    for _ in 0..100{let recovery=journal.recovery_outbox()?;let operations=if recovery.is_empty(){journal.outbox(100)?}else{recovery.clone()};let cursor=journal.cursor(&relay_id)?;
-        let response=request(&peer,if recovery.is_empty(){"/v2/sync"}else{"/v2/recover"},token,&json!({"version":2,"group_id":group.group_id,"cursor":cursor,"operations":operations}))?;
+    for _ in 0..100{let recovery=journal.recovery_outbox()?;let operations=if recovery.is_empty(){journal.outbox(100)?}else{recovery.clone()};let cursor=journal.cursor(&relay_id)?;if operations.iter().any(|op|op.collection=="tasks")&&!tasks_supported{return Err("Для общих задач обновите хаб до Sync v2 LAB 1.1.2".into());}
+        let response=request(&peer,if recovery.is_empty(){"/v2/sync"}else{"/v2/recover"},token,&json!({"version":2,"features":["tasks"],"group_id":group.group_id,"cursor":cursor,"operations":operations}))?;
         let feed:jarvis_core::sync_relay::Feed=serde_json::from_value(response).map_err(|_|"Некорректный пакет v2")?;
         if feed.version!=2||feed.group_id!=group.group_id||feed.relay_id!=relay_id||feed.epoch!=group.epoch{return Err("Версия группы изменилась; повторите обмен".into());}
         if !feed.rekey.is_empty(){journal.rewrap_outbox(&feed.rekey)?;continue;}

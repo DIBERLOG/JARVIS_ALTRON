@@ -5,14 +5,21 @@
     import { sanitizeNoteHtml, NOTE_HTML_LIMIT } from "@/lib/richNotes"
     export let notes: Note[] = []
     export let disabled = false
+    export let mobile = false
     export let onSave: (note: Note) => Promise<boolean>
     export let onDelete: (id: string) => Promise<boolean>
+    export let onDirty: (dirty: boolean) => void = () => {}
     let id = "", title = "", text = "", items: ChecklistItem[] = []
     let type: "text" | "checklist" = "text"
     let html = "", dirty = false, localError = "", editorKey = 0
+    $: onDirty(dirty)
     $: ordered = [...notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     $: completed = items.filter(item => item.done).length
     function canLeave() { return !dirty || window.confirm("Есть несохранённые изменения. Перейти без сохранения?") }
+    export function requestLeave() { return canLeave() }
+    export function hasChanges() { return dirty }
+    export function selectedId() { return id }
+    export function selectId(value: string) { open(notes.find(note => note.id === value)) }
     function open(note?: Note) {
         if (!canLeave()) return
         id = note?.id ?? ""; title = note?.title ?? ""; text = note?.text ?? ""
@@ -48,7 +55,7 @@
     }
 </script>
 
-<section class="notes-panel" aria-label="Заметки">
+<section class="notes-panel" class:mobile-empty={mobile && !notes.length} aria-label="Заметки">
     <header><div><p class="eyebrow">МЫСЛИ И ПЛАНЫ</p><h2>Заметки</h2></div><button type="button" class="primary" disabled={disabled} on:click={() => open()}>+ Новая</button></header>
     <div class="layout">
         <div class="note-list" aria-label="Сохранённые заметки">
@@ -60,7 +67,7 @@
                 <div class="type-switch" aria-label="Тип заметки"><button type="button" class:active={type === "text"} aria-pressed={type === "text"} on:click={() => changeType("text")}>✎ Обычная</button><button type="button" class:active={type === "checklist"} aria-pressed={type === "checklist"} on:click={() => changeType("checklist")}>☑ Чек-лист</button></div>
                 <input aria-label="Заголовок заметки" maxlength="100" placeholder="Заголовок" bind:value={title} on:input={() => dirty = true} required />
                 {#if type === "text"}
-                    {#key editorKey}<RichNoteEditor bind:html bind:plainText={text} {disabled} on:change={() => dirty = true} />{/key}
+                    {#key editorKey}<RichNoteEditor {mobile} bind:html bind:plainText={text} {disabled} on:change={() => dirty = true} />{/key}
                 {:else}
                     <div class="progress"><span>Выполнено {completed} из {items.length}</span><progress value={completed} max={items.length || 1}></progress></div>
                     <div class="checklist">

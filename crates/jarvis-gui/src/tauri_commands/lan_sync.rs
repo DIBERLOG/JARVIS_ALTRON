@@ -180,9 +180,9 @@ fn handle(route:&str,token:&str,body:Value,inner:&Arc<Mutex<Inner>>,settings:&ja
     let result=(||->Result<Value,String>{
         let root=jarvis_core::sync_profile::root()?;let group=jarvis_core::sync_profile::load_at(&root)?;
         if group.revoked_devices.contains(&i.saved.devices[device].id){return Err("Устройство отозвано; новые ключи недоступны".into());}
-        if route=="/v2/keys"{let relay=jarvis_core::sync_relay::Relay::open(&root.join("sync-v2-relay.sqlite"),&group.group_id,group.epoch)?;return Ok(json!({"version":2,"relay_id":relay.identity()?,"group":group_wire(&group)}));}
+        if route=="/v2/keys"{let relay=jarvis_core::sync_relay::Relay::open(&root.join("sync-v2-relay.sqlite"),&group.group_id,group.epoch)?;return Ok(json!({"version":2,"features":["tasks"],"relay_id":relay.identity()?,"group":group_wire(&group)}));}
         if body["version"]!=2||body["group_id"]!=group.group_id{return Err("Несовместимая группа или протокол".into());}
-        let mut operations:Vec<jarvis_core::sync_journal::Operation>=serde_json::from_value(body["operations"].clone()).map_err(|_|"Некорректные операции")?;
+        let mut operations:Vec<jarvis_core::sync_journal::Operation>=serde_json::from_value(body["operations"].clone()).map_err(|_|"Некорректные операции")?;let tasks_supported=body["features"].as_array().is_some_and(|v|v.iter().any(|f|f=="tasks"));if operations.iter().any(|op|op.collection=="tasks")&&!tasks_supported{return Err("Для общих задач обновите клиент до Sync v2 LAB 1.1.2".into());}
         for operation in &operations{
             operation.validate()?;
             let key=group.keys.get(&operation.key_version).ok_or("Неизвестная версия ключа")?;
@@ -193,7 +193,7 @@ fn handle(route:&str,token:&str,body:Value,inner:&Arc<Mutex<Inner>>,settings:&ja
             else if !operation.collection.starts_with("training.") || matches!(operation.collection.as_str(),"training.exercises"|"training.plans"|"training.sessions"){
                 if value["id"].as_str()!=Some(&operation.entity_id){return Err("ID содержимого не совпадает с операцией".into());}
                 if operation.collection=="chats"{valid_chats(&json!([value]))?;}
-                else if matches!(operation.collection.as_str(),"notes"|"reminders"|"birthdays"|"habits"){let mut check=empty_center();check[&operation.collection]=json!([value]);valid_center(&check)?;}
+                else if matches!(operation.collection.as_str(),"notes"|"reminders"|"birthdays"|"habits"|"tasks"){let mut check=empty_center();check[&operation.collection]=json!([value]);valid_center(&check)?;}
                 else{valid_records(&json!([value]))?;}
             }
         }
@@ -215,11 +215,12 @@ fn handle(route:&str,token:&str,body:Value,inner:&Arc<Mutex<Inner>>,settings:&ja
         hub_cycle(&mut relay,&group)?;
         let feed=if route=="/v2/recover"{relay.recover(&i.saved.devices[device].id,&group.group_id,cursor,&operations)?}else{relay.exchange(&i.saved.devices[device].id,&group.group_id,cursor,&operations)?};
         hub_cycle(&mut relay,&group)?;
+        if feed.items.iter().any(|(_,op)|op.collection=="tasks")&&!tasks_supported{return Err("В группе есть общие задачи; обновите клиент до Sync v2 LAB 1.1.2. Курсор не изменён.".into());}
         Ok(serde_json::to_value(feed).map_err(|_|"Ошибка ответа")?)
     })();
     match result{Ok(value)=>{i.saved.devices[device].last_sync=Some(chrono::Utc::now().to_rfc3339());if let Err(error)=save(&i){return (500,json!({"error":error}));}(200,value)},Err(error)=>(400,json!({"error":error}))}
 }
-fn empty_center()->Value {json!({"notes":[],"reminders":[],"birthdays":[],"habits":[]})}
+fn empty_center()->Value {json!({"notes":[],"reminders":[],"birthdays":[],"habits":[],"tasks":[]})}
 fn group_wire(group:&jarvis_core::sync_profile::Group)->Value{json!({"version":2,"group_id":group.group_id,"epoch":group.epoch,"keys":group.keys})}
 fn hub_cycle(relay:&mut jarvis_core::sync_relay::Relay,group:&jarvis_core::sync_profile::Group)->Result<(),String>{
     let relay_id=relay.identity()?;let mut journal=jarvis_core::sync_profile::journal()?;
@@ -253,7 +254,7 @@ pub fn sync_v2_resolve(collection:String,entity:String,parents:Vec<String>,value
 }
 fn valid_center(v:&Value)->Result<(),String>{
     if !v.is_object(){return Err("Некорректные данные Центра".into());}
-    for key in ["notes","reminders","birthdays","habits"] {valid_records(&v[key])?;}
+    for key in ["notes","reminders","birthdays","habits"] {valid_records(&v[key])?;} if let Some(tasks)=v.get("tasks"){valid_records(tasks)?;for task in tasks.as_array().unwrap(){let text=task["text"].as_str().ok_or("Нет текста задачи")?;if text.trim().is_empty()||text.len()>4000||!task["done"].is_boolean(){return Err("Некорректная задача".into());}}}
     for note in v["notes"].as_array().unwrap(){if !note["title"].is_string()||!note["text"].is_string()||!valid_date(&note["updatedAt"]){return Err("Некорректная заметка".into());}}
     for reminder in v["reminders"].as_array().unwrap(){if !reminder["title"].is_string()||!reminder["done"].is_boolean()||!valid_date(&reminder["dueAt"]){return Err("Некорректное напоминание".into());}}
     for birthday in v["birthdays"].as_array().unwrap(){let day=birthday["day"].as_u64().unwrap_or(0) as u32;let month=birthday["month"].as_u64().unwrap_or(0) as u32;if !birthday["name"].is_string()||chrono::NaiveDate::from_ymd_opt(2024,month,day).is_none(){return Err("Некорректная дата рождения".into());}if let Some(y)=birthday.get("year"){if !y.as_u64().is_some_and(|n|(1..=9999).contains(&n)){return Err("Некорректный год дня рождения".into());}}}
@@ -262,7 +263,7 @@ fn valid_center(v:&Value)->Result<(),String>{
     Ok(())
 }
 fn valid_date(v:&Value)->bool {v.as_str().is_some_and(|s|chrono::DateTime::parse_from_rfc3339(s).is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M").is_ok()||chrono::NaiveDateTime::parse_from_str(s,"%Y-%m-%dT%H:%M:%S%.f").is_ok())}
-fn valid_chats(v:&Value)->Result<(),String>{valid_records(v)?;for c in v.as_array().unwrap(){if !c["title"].as_str().is_some_and(|s|s.len()<=800)||!valid_date(&c["updatedAt"])||!c["messages"].as_array().is_some_and(|m|m.len()<=10000&&m.iter().all(|m|matches!(m["role"].as_str(),Some("user"|"assistant"))&&m["content"].as_str().is_some_and(|s|s.len()<=128000))){return Err("Некорректная история чата".into());}}Ok(())}
+fn valid_chats(v:&Value)->Result<(),String>{valid_records(v)?;for c in v.as_array().unwrap(){if !c["title"].as_str().is_some_and(|s|s.len()<=800)||!valid_date(&c["updatedAt"])||!c["messages"].as_array().is_some_and(|m|m.len()<=10000&&m.iter().all(|m|matches!(m["role"].as_str(),Some("user"|"assistant"))&&m["content"].as_str().is_some_and(|s|s.len()<=1_000_000))){return Err("Некорректная история чата".into());}}Ok(())}
 fn valid_records(v:&Value)->Result<(),String>{let a=v.as_array().ok_or("Ожидается список записей")?;if a.len()>10000{return Err("Слишком много записей".into());}
     let mut ids=BTreeSet::new();for item in a{let id=item["id"].as_str().ok_or("У записи нет ID")?;if id.is_empty()||id.len()>128||!ids.insert(id){return Err("Повторный или некорректный ID".into());}}Ok(())}
 fn valid_vault(v:&Value)->Result<(),String>{
@@ -281,11 +282,11 @@ fn merge_records(base:&Value,local:&Value,remote:&Value,area:&str,key:&str,confl
     Value::Array(ids.iter().filter_map(|id|{let value=merge_value(b.get(id).unwrap_or(&Value::Null),l.get(id).unwrap_or(&Value::Null),r.get(id).unwrap_or(&Value::Null),area,key,id,conflicts);(!value.is_null()).then_some(value)}).collect())
 }
 fn merge_center(base:&Value,local:&Value,remote:&Value,conflicts:&mut Vec<Conflict>)->Value{
-    let mut output=local.clone();for key in ["notes","reminders","birthdays","habits"]{output[key]=merge_records(&base[key],&local[key],&remote[key],"center",key,conflicts);}
+    let mut output=local.clone();for key in ["notes","reminders","birthdays","habits","tasks"]{output[key]=merge_records(&base[key],&local[key],&remote[key],"center",key,conflicts);}
     if local["training"].is_object()||remote["training"].is_object(){let mut training=if local["training"].is_object(){local["training"].clone()}else{json!({})};for key in ["exercises","plans","sessions"]{training[key]=merge_records(&base["training"][key],&local["training"][key],&remote["training"][key],"center",&format!("training.{key}"),conflicts);}for key in ["profile","morningExercise","chargeSettings","chargeLevels"]{training[key]=merge_value(&base["training"][key],&local["training"][key],&remote["training"][key],"center",&format!("training.{key}"),key,conflicts);}output["training"]=training;}
     output
 }
-fn normalize_center(mut data:Value)->Result<Value,String>{if !data.is_object(){return Err("Некорректные данные Центра".into());}for key in ["notes","reminders","birthdays","habits"]{if data.get(key).is_none(){data[key]=json!([]);}}Ok(data)}
+fn normalize_center(mut data:Value)->Result<Value,String>{if !data.is_object(){return Err("Некорректные данные Центра".into());}for key in ["notes","reminders","birthdays","habits","tasks"]{if data.get(key).is_none(){data[key]=json!([]);}}Ok(data)}
 fn merge_center_checked(base:&Value,local:&Value,remote:&Value)->Result<Value,String>{let mut conflicts=vec![];let result=merge_center(base,local,remote,&mut conflicts);if !conflicts.is_empty(){return Err("Эта запись одновременно изменена в другом окне или на устройстве. Ваши изменения не перезаписали другую версию. Скопируйте несохранённый текст, обновите раздел и сравните версии.".into());}Ok(result)}
 #[tauri::command]
 pub fn center_save_data(state:tauri::State<'_,crate::AppState>,base:String,data:String)->Result<String,String>{
@@ -332,7 +333,7 @@ mod tests {use super::*;
         struct Cleanup(keyring::Entry);impl Drop for Cleanup{fn drop(&mut self){assert!(self.0.delete_credential().is_ok());}}
         let _cleanup=Cleanup(keyring::Entry::new("JARVIS_ALTRON.local-data.v1",&name).unwrap());
         let mut group=Group{version:2,group_id:random(),device_id:random(),epoch:1,keys:BTreeMap::from([(1,[42;32])]),peer:None,revoked_devices:vec![]};
-        let mut settings=jarvis_core::Settings::default();settings.api_keys.openai="fictional-not-synchronized".into();settings.center_data=json!({"notes":[{"id":"pc1","title":"Only test","text":"offline first PC","updatedAt":"2026-10-12T12:00:00Z"}],"reminders":[],"birthdays":[],"habits":[]}).to_string();
+        let mut settings=jarvis_core::Settings::default();settings.api_keys.openai="fictional-not-synchronized".into();settings.center_data=json!({"notes":[{"id":"pc1","title":"Only test","text":"offline first PC","updatedAt":"2026-10-12T12:00:00Z"}],"reminders":[],"birthdays":[],"habits":[],"tasks":[]}).to_string();
         sync_profile::prepare_group(serde_json::to_value(&settings).unwrap(),"fictional backup password",group.clone()).unwrap();
         let directory=root.join("lan-sync");std::fs::create_dir_all(&directory).unwrap();
         let android_id="a".repeat(64);let pc2_id="b".repeat(64);
@@ -367,7 +368,7 @@ mod tests {use super::*;
         assert_eq!(sync_profile::read().unwrap()["api_keys"]["openai"],"fictional-not-synchronized");
     }
     #[test] fn stale_center_saves_merge_independent_edits_but_reject_same_record(){
-        let base=json!({"notes":[{"id":"a","title":"old"},{"id":"b","title":"old"}],"reminders":[],"birthdays":[],"habits":[]});
+        let base=json!({"notes":[{"id":"a","title":"old"},{"id":"b","title":"old"}],"reminders":[],"birthdays":[],"habits":[],"tasks":[]});
         let mut local=base.clone();local["notes"][0]["title"]=json!("local");
         let mut remote=base.clone();remote["notes"][1]["title"]=json!("remote");
         let merged=merge_center_checked(&base,&local,&remote).unwrap();assert_eq!(merged["notes"][0]["title"],"local");assert_eq!(merged["notes"][1]["title"],"remote");

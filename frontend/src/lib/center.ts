@@ -4,9 +4,10 @@ import type { TrainingData } from "./training"
 export type Reminder = { id: string, title: string, dueAt: string, done: boolean, advanceDays?: number[], announced?: string[], createdAt?: string, silentPast?:boolean }
 export type Birthday = { id: string, name: string, month: number, day: number, year?: number }
 export type ChecklistItem = { id: string, text: string, done: boolean }
+export type QuickTask = { id: string, text: string, done: boolean, createdAt?: string, updatedAt?: string }
 export type Note = { id: string, title: string, text: string, updatedAt: string, type?: "text" | "checklist", format?: "plain" | "markdown" | "rich", html?: string, items?: ChecklistItem[] }
 export type Habit = { id: string; title: string; caption: string; icon: string; target: number; unit: string; createdOn: string; archivedOn?: string; entries: Record<string, number> }
-export type CenterData = { reminders: Reminder[], birthdays: Birthday[], notes: Note[], habits: Habit[], training?: TrainingData }
+export type CenterData = { reminders: Reminder[], birthdays: Birthday[], notes: Note[], habits: Habit[], tasks?: QuickTask[], training?: TrainingData }
 
 export function defaultHabits(): Habit[] {
     return [
@@ -20,7 +21,7 @@ export function defaultHabits(): Habit[] {
     ].map(([title, caption, icon, target, unit]) => ({ id: makeId(), title: String(title), caption: String(caption), icon: String(icon), target: Number(target), unit: String(unit), createdOn: dayKey(new Date()), entries: {} }))
 }
 
-export const emptyCenterData = (): CenterData => ({ reminders: [], birthdays: [], notes: [], habits: [] })
+export const emptyCenterData = (): CenterData => ({ reminders: [], birthdays: [], notes: [], habits: [], tasks: [] })
 const snapshots=new WeakMap<CenterData,string>()
 
 export async function loadCenterData(): Promise<CenterData> {
@@ -30,7 +31,8 @@ export async function loadCenterData(): Promise<CenterData> {
     if (!parsed || !Array.isArray(parsed.reminders) || !Array.isArray(parsed.birthdays)) {
         throw new Error("Данные Центра повреждены")
     }
-    const data={ reminders: parsed.reminders, birthdays: parsed.birthdays, notes: Array.isArray(parsed.notes) ? parsed.notes : [], habits: Array.isArray(parsed.habits) ? parsed.habits : defaultHabits(), training: parsed.training } as CenterData
+    if(parsed.tasks!==undefined&&!Array.isArray(parsed.tasks))throw new Error('Список задач повреждён; исходные данные сохранены')
+    const data={ reminders: parsed.reminders, birthdays: parsed.birthdays, notes: Array.isArray(parsed.notes) ? parsed.notes : [], habits: Array.isArray(parsed.habits) ? parsed.habits : defaultHabits(), tasks:parsed.tasks??[], training: parsed.training } as CenterData
     snapshots.set(data,raw);return data
 }
 

@@ -11,6 +11,8 @@
     import { defaultTraining, newTraining, changeTrainingStatus, trainingDuration, workingSets, trainingVolume, estimatedMax, previousTraining, progression, validateSet, trainingId, type TrainingData, type TrainingSession, type TrainingPlan, type PlanItem } from "@/lib/training"
     export let data: TrainingData | undefined
     export let disabled = false
+    export let mobile = false
+    export let beforeTabChange: () => boolean = () => true
     export let onSave: (data: TrainingData, habit?: string) => Promise<boolean>
     const defaults = defaultTraining()
     const tabs = [{ id: "today", label: "Сегодня" }, { id: "charge", label: "Зарядка" }, { id: "profile", label: "Мои параметры" }, { id: "plans", label: "Программы" }, { id: "exercises", label: "Упражнения" }, { id: "history", label: "История" }, { id: "stats", label: "Статистика" }, { id: "records", label: "Рекорды" }]
@@ -31,6 +33,7 @@
     }
     const warmups = ["Общая разминка", "Подготовка суставов и движений", "Разминочные подходы"]
     let tab = "today", planId = "push", exerciseIndex = 0, viewId = "", selectedKey = ""
+    export function currentTab() { return tab }
     $: tab = $trainingVoiceTab
     let weight = 0, reps = 8, rpe: number | null = 8, isWarmup = false
     let busy = false, error = "", now = Date.now(), note = ""
@@ -176,7 +179,7 @@
 
 <section class="training" aria-label="Тренировки JARVIS">
     <header><div><p class="kicker">JARVIS / TRAINING</p><h2>Твой следующий шаг.</h2></div><span class="date">{new Date(now).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}</span></header>
-    <nav class="tabs" aria-label="Разделы тренировок">{#each tabs as item}<button class:active={tab === item.id} aria-pressed={tab === item.id} on:click={() => tab = item.id}>{item.label}</button>{/each}</nav>
+    <nav class="tabs" aria-label="Разделы тренировок">{#each tabs as item}<button class:active={tab === item.id} aria-pressed={tab === item.id} on:click={() => {if(beforeTabChange())tab = item.id}}>{item.label}</button>{/each}</nav>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if (tab === "today" && !session) || tab === "charge"}
         <div class="panel daily-planner"><p class="kicker">JARVIS · ПОДБОР НА СЕГОДНЯ</p><h3>План с учётом последних дней</h3><div class="form-row"><label>Усталость сегодня<select bind:value={fatigue} on:change={()=>{suggested=null;chargeSuggested=null}}><option value={1}>1 · Отдохнул</option><option value={2}>2 · Обычная</option><option value={3}>3 · Устал</option><option value={4}>4 · Сильно устал</option><option value={5}>5 · Нужен отдых</option></select></label><label class="checkbox"><input type="checkbox" bind:checked={pain} on:change={()=>{suggested=null;chargeSuggested=null}}/>Есть боль или плохое самочувствие</label></div><small>Профиль: {training.profile?.experience||"опыт не указан"} · {training.profile?.heightCm??"—"} см · жир {training.profile?.bodyFatPercent??"—"}%. Учитываются записанные подходы, RPE и выполненная зарядка. Незаписанные занятия неизвестны.</small><div class="form-row"><button class="primary" disabled={locked} on:click={()=>recommend(false)}>Подобрать на сегодня</button><button disabled={locked} on:click={()=>recommend(true)}>🎲 Случайный подходящий вариант</button></div>
@@ -184,7 +187,7 @@
         {#if tab === "charge" && chargeSuggested}<div class="proposal"><h4>{chargeSuggested.blocked?"Сегодня лучше пропустить комплекс":`Зарядка · ${plannerLevels[chargeSuggested.level]}`}</h4><ul>{#each chargeSuggested.reasons as reason}<li>{reason}</li>{/each}</ul>{#each chargeSuggested.steps as step}<p class="empty">{step.name} · {step.hint}</p>{/each}<button class="primary" disabled={locked||chargeSuggested.blocked} on:click={applyCharge}>Применить зарядку на сегодня</button></div>{/if}
         <small>Подбор по правилам, не AI-диагноз и не гарантия восстановления. <a href="https://www.niddk.nih.gov/health-information/weight-management/healthy-eating-physical-activity-for-life/health-tips-for-adults" target="_blank" rel="noopener noreferrer">О постепенной нагрузке и отдыхе</a>.</small></div>
     {/if}
-    {#if tab !== "stats"}<div class="body-navigation"><TrainingBody bind:selected={bodyGroup} counts={bodyCounts} exercises={tab === "today" && session ? session.items : training.exercises} metric={tab === "today" && session ? "Рабочие подходы этой тренировки" : "Рабочие подходы завершённых тренировок"} caption="Только записанные рабочие подходы, без разминки." onSelect={chooseBody} onExercise={chooseExercise}/></div>{/if}
+    {#if tab !== "stats" && (!mobile || tab === "today" || tab === "exercises")}<div class="body-navigation"><TrainingBody bind:selected={bodyGroup} counts={bodyCounts} exercises={tab === "today" && session ? session.items : training.exercises} metric={tab === "today" && session ? "Рабочие подходы этой тренировки" : "Рабочие подходы завершённых тренировок"} caption="Только записанные рабочие подходы, без разминки." onSelect={chooseBody} onExercise={chooseExercise}/></div>{/if}
     {#if tab === "today"}
         {#if !session}<div class="panel intro"><p class="kicker">ГОТОВ К ТРЕНИРОВКЕ</p><h3>Выбери план на сегодня</h3><p>Записывай реальные подходы. JARVIS сохранит результаты и покажет прошлую тренировку.</p><select bind:value={planId} on:change={()=>suggested=null} aria-label="Программа тренировки">{#each training.plans as plan}<option value={plan.id}>{plan.name}</option>{/each}</select><label>Настроение перед тренировкой<select bind:value={mood} on:change={()=>suggested=null}><option value={null}>Не указано</option>{#each [1,2,3,4,5] as value}<option value={value}>{value} · {moodLabels[value]}</option>{/each}</select></label><small>Рост и вес можно записать во вкладке «Статистика». Они сохранятся вместе с новой тренировкой.</small><button class="primary" disabled={locked || suggested?.rest} on:click={begin}>Начать тренировку</button><small>Шаблоны — примеры, а не персональное назначение. Подстройте упражнения, цели и отдых под свой план.</small></div>
         {:else}<div class="session-header"><div><h3>{session.name}</h3><small>{sessionState(session.status)} · {date(session.startedAt)}</small></div><div class="session-actions">{#if !viewId}<button disabled={locked} on:click={() => status(session?.status === "active" ? "paused" : "active")}>{session.status === "active" ? "Пауза" : "Продолжить"}</button><button disabled={locked} on:click={() => status("completed")}>Завершить</button><button disabled={locked} on:click={() => status("cancelled")}>Отменить</button>{:else}<button on:click={() => { viewId = ""; exerciseIndex = 0 }}>{active ? "К текущей" : "Новая тренировка"}</button>{/if}</div></div>

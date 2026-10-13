@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "build:mobile": "node mobile/build.mjs",
     "dev": "vite",
     "build": "routify build && svelte-check --ignore '.routify' --no-tsconfig && vite build",
     "preview": "vite preview",

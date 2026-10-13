@@ -8,21 +8,21 @@ import java.util.*;
 /** Same allowlisted Center schema as desktop. No API keys or plaintext vault here. */
 final class MobileStore {
     private static final Map<Object,SyncJournal.Edit> EDITS=new WeakHashMap<>();
-    static final String[] LISTS={"notes","reminders","birthdays","habits"};
+    static final String[] LISTS={"notes","reminders","birthdays","habits","tasks"};
     static String id(){return UUID.randomUUID().toString();}
     static String now(){return Instant.now().toString();}
     static SharedPreferences prefs(Context c){return c.getSharedPreferences("jarvis-mobile",Context.MODE_PRIVATE);}
     static JSONObject empty() throws JSONException {JSONObject d=new JSONObject();for(String k:LISTS)d.put(k,new JSONArray());return d;}
     static synchronized JSONObject center(Context c) throws JSONException {
-        try{SyncJournal.Edit edit=SyncJournal.editState(c);JSONObject center=new JSONObject(edit.snapshot.getString("center_data"));EDITS.put(center,edit);for(String list:LISTS){JSONArray items=center.getJSONArray(list);for(int i=0;i<items.length();i++)EDITS.put(items.getJSONObject(i),edit);}return center;}catch(Exception e){throw new JSONException(e.getMessage());}
+        try{SyncJournal.Edit edit=SyncJournal.editState(c);JSONObject center=new JSONObject(edit.snapshot.getString("center_data"));if(!center.has("tasks"))center.put("tasks",new JSONArray());EDITS.put(center,edit);for(String list:LISTS){JSONArray items=center.getJSONArray(list);for(int i=0;i<items.length();i++)EDITS.put(items.getJSONObject(i),edit);}return center;}catch(Exception e){throw new JSONException(e.getMessage());}
     }
     static synchronized void save(Context c,JSONObject data) throws JSONException {
-        validate(data);if(data.toString().length()>4_000_000)throw new JSONException("Данные больше 4 МБ");
+        validate(data);if(data.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>16*1024*1024)throw new JSONException("Данные больше 16 МБ");
         try{SyncJournal.saveEdit(c,"center_data",data.toString(),EDITS.get(data));}catch(Exception e){throw new JSONException(e.getMessage());}ReminderReceiver.schedule(c);
     }
-    static synchronized JSONObject editCenter(Context c,JSONObject record)throws JSONException{SyncJournal.Edit edit=EDITS.get(record);if(edit==null)return center(c);JSONObject center=new JSONObject(edit.snapshot.getString("center_data"));EDITS.put(center,edit);return center;}
-    static void validate(JSONObject data) throws JSONException {for(String k:LISTS)records(data.getJSONArray(k));JSONObject t=data.optJSONObject("training");if(t!=null)for(String k:new String[]{"exercises","plans","sessions"})records(t.getJSONArray(k));}
-    static void records(JSONArray array)throws JSONException {if(array.length()>10000)throw new JSONException("Слишком много записей");Set<String> ids=new HashSet<>();for(int i=0;i<array.length();i++){String id=array.getJSONObject(i).getString("id");if(id.isEmpty()||id.length()>128||!ids.add(id))throw new JSONException("Некорректный или повторный ID");}}
+    static synchronized JSONObject editCenter(Context c,JSONObject record)throws JSONException{SyncJournal.Edit edit=EDITS.get(record);if(edit==null)return center(c);JSONObject center=new JSONObject(edit.snapshot.getString("center_data"));if(!center.has("tasks"))center.put("tasks",new JSONArray());EDITS.put(center,edit);return center;}
+    static void validate(JSONObject data) throws JSONException {if(!data.has("tasks"))data.put("tasks",new JSONArray());for(String k:LISTS)records(data.getJSONArray(k));JSONArray tasks=data.getJSONArray("tasks");for(int n=0;n<tasks.length();n++){JSONObject task=tasks.getJSONObject(n);if(task.getString("text").trim().isEmpty()||task.getString("text").length()>1000||!(task.get("done") instanceof Boolean))throw new JSONException("Некорректная задача");}JSONObject t=data.optJSONObject("training");if(t!=null)for(String k:new String[]{"exercises","plans","sessions"})records(t.getJSONArray(k));}
+    static void records(JSONArray array)throws JSONException {if(array.length()>10000)throw new JSONException("Слишком много записей");Set<String> ids=new HashSet<>();for(int i=0;i<array.length();i++){if(array.getJSONObject(i).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>4*1024*1024)throw new JSONException("Запись больше 4 МБ. Уменьшите картинки или объём записи.");String id=array.getJSONObject(i).getString("id");if(id.isEmpty()||id.length()>128||!ids.add(id))throw new JSONException("Некорректный или повторный ID");}}
     static boolean same(Object a,Object b){return canonical(a).equals(canonical(b));}
     static String canonical(Object value){
         if(value==null||value==JSONObject.NULL)return "null";

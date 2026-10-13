@@ -1,0 +1,25 @@
+:root{color-scheme:dark;font:16px/1.5 system-ui,sans-serif;background:#101315;color:#f1f4f5}
+*{box-sizing:border-box}body{margin:0;padding:2px 0 18px;overflow-wrap:anywhere}#app{max-width:100%;overflow-x:hidden}
+html body #app .training,html body #app .notes-panel{padding:0;border:0;background:none;font-family:inherit;color:#f1f4f5}
+html body #app button,html body #app input,html body #app select,html body #app textarea{font-family:inherit;font-size:16px;min-height:46px;border-radius:12px;color:#f1f4f5;background:#1b2023;border:1px solid #313a3e;padding:10px 12px}
+html body #app button{cursor:pointer}html body #app button.primary,html body #app button.active{background:#a0e4ce;color:#101315;border-color:#a0e4ce}
+html body #app h2{font-size:25px}html body #app h3{font-size:21px}html body #app h4{font-size:18px}html body #app p,html body #app label{font-size:16px;line-height:1.5}
+html body #app small{font-size:13px;line-height:1.5;color:#a7b2b8}html body #app .kicker,html body #app .eyebrow{font-size:11px;color:#a0e4ce}
+html body #app .panel,html body #app .preferences,html body #app .training-stats{background:#1b2023;border-color:#313a3e;border-radius:18px;padding:15px}
+html body #app .tabs{display:flex;overflow-x:auto;flex-wrap:nowrap;gap:7px;padding:8px 0 14px}html body #app .tabs button{white-space:nowrap;flex-shrink:0}
+html body #app .training-grid,html body #app .notes-panel .layout{display:flex;flex-direction:column;gap:12px}
+html body #app .note-list{flex-direction:row;max-height:100px;overflow:auto}html body #app .note-list button{min-width:140px;max-width:190px}
+html body #app .toolbar{display:flex;flex-wrap:wrap;gap:6px}html body #app .toolbar button{font-size:14px;padding:8px 10px}
+html body #app .rich-editor .ProseMirror{min-height:230px;background:#1b2023;color:#f1f4f5;font:16px/1.65 system-ui;padding:14px;border-radius:14px}
+html body #app .ProseMirror p{margin:6px 0}html body #app .ProseMirror img{max-width:100%;height:auto}
+html body #app .check-row{gap:8px}html body #app input[type=checkbox]{width:24px;height:24px;min-height:24px;flex:none;accent-color:#a0e4ce}
+html body #app .inputs{display:grid;grid-template-columns:1fr 1fr;gap:9px}html body #app .inputs label{min-width:0}
+html body #app input,html body #app select{max-width:100%}html body #app .body-navigation{margin:12px 0}
+html body #app .body-map{max-width:100%}.error{color:#ffaaaa;border:1px solid #724848;padding:12px;border-radius:12px}.notice{color:#a0e4ce;font-size:13px}
+@media(max-width:390px){html body #app .form-row{flex-wrap:wrap}html body #app .form-row>*{min-width:0}html body #app .session-context{flex-wrap:wrap}html body #app .inputs{grid-template-columns:1fr 1fr}}
+
+html body #app .training,html body #app .notes-panel,html body #app .rich-editor{--accent:#a0e4ce;--line:#313a3e;--muted:#a7b2b8}
+html body #app .document .ProseMirror{font:16px/1.65 system-ui,sans-serif;color:#f1f4f5}
+html body #app .habits-panel{background:none;border:0;padding:0;color:#f1f4f5}html body #app .habits-panel .top{flex-wrap:wrap}html body #app .habits-panel .summary{grid-template-columns:1fr 1fr}html body #app .habits-panel .controls{flex-wrap:wrap}html body #app .habits-panel svg{max-width:100%;height:auto}html body #app .mobile-compact .toolbar{gap:6px;padding:8px;background:#161e21}html body #app .mobile-compact .toolbar button{min-height:40px;padding:8px 10px;font-size:14px}html body #app .mobile-compact .format-toggle{background:transparent;border:0;color:#a0e4ce;min-height:38px;font-size:13px}
+html body #app .habits{--accent:#a0e4ce;--muted:#a7b2b8;font-family:inherit}html body #app .habits header{flex-wrap:wrap}html body #app .habits .layout{grid-template-columns:1fr}html body #app .habits .overview{background:#1b2023;border-color:#313a3e}html body #app .habits .day-label{display:none}html body #app .habits .copy h3{font-size:17px}html body #app .habits .filters{flex-wrap:wrap}html body #app .habits .graph{min-width:0}
+html body #app .notes-panel.mobile-empty>header,html body #app .notes-panel.mobile-empty .note-list{display:none}html body #app .mobile-compact .document .ProseMirror{min-height:180px}html body #app .habits .list{max-height:none;overflow:visible}html body #app .habits .overview .mini-ring:before{background:#1b2023}

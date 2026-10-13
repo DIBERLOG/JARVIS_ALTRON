@@ -10,9 +10,22 @@
     export let html = ""
     export let plainText = ""
     export let disabled = false
+    export let mobile = false
+    let expanded = false
     let host: HTMLDivElement, picker: HTMLInputElement, editor: Editor | undefined
     let revision = 0, imageBusy = false, error = ""
     const dispatch = createEventDispatcher()
+    function chooseImage(){
+        if(mobile && (window as any).NativeCenter?.pickImage){imageBusy=true;error='';(window as any).NativeCenter.pickImage();}
+        else picker.click();
+    }
+    function nativeImage(event:Event){
+        imageBusy=false;
+        const result=(event as CustomEvent).detail;
+        if(result?.error){error=result.error;return;}
+        if(result?.src && /^data:image\/jpeg;base64,[a-zA-Z0-9+/=]+$/.test(result.src))editor?.chain().focus().setImage({src:result.src}).run();
+    }
+    onMount(()=>{if(mobile)window.addEventListener('jarvis-image',nativeImage);return()=>window.removeEventListener('jarvis-image',nativeImage);});
     const buttons = [
         { name: "Жирный текст", label: "B", mark: "bold", action: "toggleBold" },
         { name: "Курсив", label: "I", mark: "italic", action: "toggleItalic" },
@@ -91,7 +104,8 @@
     onDestroy(() => editor?.destroy())
 </script>
 
-<div class="rich-editor" data-revision={revision}>
+<div class="rich-editor" class:mobile-compact={mobile} class:expanded data-revision={revision}>
+    {#if mobile}<button class="format-toggle" type="button" aria-expanded={expanded} on:click={() => expanded = !expanded}>{expanded ? 'Скрыть оформление' : 'Ещё оформление'}</button>{/if}
     <div class="toolbar" aria-label="Форматирование заметки">
         <select aria-label="Стиль абзаца" disabled={disabled} on:change={setHeading}><option value="0">Абзац</option><option value="1">Заголовок 1</option><option value="2">Заголовок 2</option><option value="3">Заголовок 3</option></select>
         <select aria-label="Размер текста" disabled={disabled} on:change={(event) => editor?.chain().focus().setFontSize(event.currentTarget.value).run()}>{#each [12, 14, 16, 18, 20, 24, 28, 32] as size}<option value={`${size}px`} selected={size === 16}>{size}</option>{/each}</select>
@@ -100,18 +114,20 @@
         {#each [{ id: "left", label: "≡←", name: "По левому краю" }, { id: "center", label: "≡", name: "По центру" }, { id: "right", label: "→≡", name: "По правому краю" }, { id: "justify", label: "↔", name: "По ширине" }] as alignment}<button type="button" aria-label={alignment.name} title={alignment.name} disabled={disabled} on:mousedown|preventDefault on:click={() => editor?.chain().focus().setTextAlign(alignment.id).run()}>{alignment.label}</button>{/each}
         <button type="button" title="Ссылка" aria-label="Добавить ссылку" disabled={disabled} on:mousedown|preventDefault on:click={link}>↗ Ссылка</button>
         <button type="button" title="Разделитель" aria-label="Вставить разделитель" disabled={disabled} on:mousedown|preventDefault on:click={() => run("setHorizontalRule")}>―</button>
-        <button type="button" aria-label="Вставить картинку" disabled={disabled || imageBusy} on:mousedown|preventDefault on:click={() => picker.click()}>▧ Картинка</button>
+        <button type="button" aria-label="Вставить картинку" disabled={disabled || imageBusy} on:mousedown|preventDefault on:click={chooseImage}>▧ Картинка</button>
         <button type="button" aria-label="Отменить действие" title="Отмена · Ctrl+Z" disabled={disabled || (revision >= 0 && !editor?.can().undo())} on:mousedown|preventDefault on:click={() => run("undo")}>↶</button>
         <button type="button" aria-label="Повторить действие" title="Повтор · Ctrl+Shift+Z" disabled={disabled || (revision >= 0 && !editor?.can().redo())} on:mousedown|preventDefault on:click={() => run("redo")}>↷</button>
         <button type="button" aria-label="Очистить форматирование" disabled={disabled} on:mousedown|preventDefault on:click={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}>Tx</button>
     </div>
     <input class="file-picker" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" multiple bind:this={picker} on:change={(event) => { void insertImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = "" }} />
     <div class="document" bind:this={host}></div>
-    <small>{imageBusy ? "Подготавливаю картинку…" : "Оформление видно сразу · Ctrl+B / I / U · Ctrl+V — текст или картинка"}</small>
+    <small>{imageBusy ? "Подготавливаю картинку…" : mobile ? "Пишите текст. Оформление и картинка — кнопками выше." : "Оформление видно сразу · Ctrl+B / I / U · Ctrl+V — текст или картинка"}</small>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 </div>
 
 <style lang="scss">
+    .mobile-compact:not(.expanded) .toolbar select,.mobile-compact:not(.expanded) .toolbar .color,.mobile-compact:not(.expanded) .toolbar button:not([aria-label="Жирный текст"]):not([aria-label="Курсив"]):not([aria-label="Маркированный список"]):not([aria-label="Вставить картинку"]):not([aria-label="Отменить действие"]) { display:none; }
+    .format-toggle { border:0; background:transparent; color:var(--accent); padding:8px 0; font:inherit; font-size:13px; }
     .rich-editor {--accent:#60f3e9;min-width:0}.toolbar {display:flex;flex-wrap:wrap;gap:.35rem;padding:.5rem;border:1px solid #31555b;border-radius:8px 8px 0 0;background:#10292f}
     button,select,.color {min-height:35px;padding:.45rem .6rem;border:1px solid #376268;border-radius:6px;background:#15373d;color:#defafa;font:600 .78rem "Manrope Variable",sans-serif;cursor:pointer}button[aria-pressed="true"] {border-color:var(--accent);background:#21636a;color:#fff}button:hover:not(:disabled) {border-color:var(--accent)}button:disabled {opacity:.4;cursor:default}button:focus-visible,select:focus-visible {outline:2px solid var(--accent);outline-offset:2px}.color {display:flex;align-items:center;gap:.35rem}.color input {width:20px;height:20px;border:0;padding:0;background:none;cursor:pointer}.file-picker {display:none}
     .document {padding:.85rem;min-height:280px;max-height:540px;overflow:auto;border:1px solid #31555b;border-top:0;border-radius:0 0 8px 8px;background:#09171b;color:#e7ffff;font:400 16px/1.6 "Manrope Variable",sans-serif;overflow-wrap:anywhere}

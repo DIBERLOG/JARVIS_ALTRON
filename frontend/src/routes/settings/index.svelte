@@ -540,8 +540,10 @@
     </Tabs.Tab>
     <Tabs.Tab label="Данные и резервные копии" icon={Gear}>
         <CenterDataTransfer />
-        <LanSync />
         <p class="settings-hint">История бесед экспортируется отдельно: «Чат → Экспорт текущего чата / Экспорт всех чатов».</p>
+    </Tabs.Tab>
+    <Tabs.Tab label="Синхронизация устройств" icon={Gear}>
+        <LanSync />
     </Tabs.Tab>
     <Tabs.Tab label="Сайты и команды" icon={Gear}>
         <ScheduleWebsite />

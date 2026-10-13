@@ -16,7 +16,7 @@ impl Operation{
     pub fn validate(&self)->Result<(),String>{
         let valid_id=|s:&str|s.len()==64&&s.bytes().all(|b|b.is_ascii_hexdigit());
         if self.version!=2||self.key_version==0||!valid_id(&self.op_id)||!valid_id(&self.device_id)||self.entity_id.is_empty()||self.entity_id.len()>128||self.entity_id.chars().any(char::is_control)||self.parents.len()>32||self.parents.iter().any(|s|!valid_id(s))||self.parents.iter().collect::<std::collections::BTreeSet<_>>().len()!=self.parents.len(){return Err("Некорректная операция Sync v2".into());}
-        if !matches!(self.collection.as_str(),"notes"|"reminders"|"birthdays"|"habits"|"training.exercises"|"training.plans"|"training.sessions"|"training.profile"|"training.morningExercise"|"training.chargeSettings"|"training.chargeLevels"|"chats"|"vault"){return Err("Коллекция не разрешена для синхронизации".into());}
+        if !matches!(self.collection.as_str(),"notes"|"reminders"|"birthdays"|"habits"|"tasks"|"training.exercises"|"training.plans"|"training.sessions"|"training.profile"|"training.morningExercise"|"training.chargeSettings"|"training.chargeLevels"|"chats"|"vault"){return Err("Коллекция не разрешена для синхронизации".into());}
         if self.sealed.to_string().len()>6*1024*1024{return Err("Операция синхронизации слишком большая".into());}Ok(())
     }
 }
