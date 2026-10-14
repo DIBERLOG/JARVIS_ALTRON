@@ -40,6 +40,17 @@ public class NavigationTests {
         assertEquals("Отправить сообщение",activity.send.getContentDescription().toString());
     }catch(Exception e){throw new AssertionError(e);}});}finally{instrumentation.runOnMainSync(activity::finish);}}
     boolean isInside(View child,View ancestor){for(android.view.ViewParent parent=child.getParent();parent!=null;parent=parent.getParent())if(parent==ancestor)return true;return false;}
+    @Test public void syncGuideAndRemoteCommandsHaveSeparateScreens()throws Exception{
+        MainActivity a=open();JSONObject old=PrivateStorage.pairing(a);boolean auto=a.prefs.getBoolean("autoSync",false);
+        try{a.prefs.edit().putBoolean("autoSync",false).commit();PrivateStorage.pairing(a,null);
+            instrumentation.runOnMainSync(()->{a.show(14);for(int n=0;n<3;n++)assertNotNull(a.page.findViewWithTag("sync-guide-"+n));assertEquals("Проверка синхронизации",MainActivity.SECTIONS[14]);a.show(15);assertNull(a.page.findViewWithTag("remote-command-fixture"));assertNull(a.remoteCommands);assertEquals("Команды компьютеру",MainActivity.SECTIONS[15]);});
+            PrivateStorage.pairing(a,new JSONObject().put("host","192.168.1.42").put("port",47832).put("token","fictional-token"));
+            JSONArray commands=new JSONArray().put(new JSONObject().put("id","fixture").put("title","Тестовая разрешённая команда"));
+            instrumentation.runOnMainSync(()->{a.remoteCommands=commands;a.show(15);assertNotNull(a.page.findViewWithTag("remote-command-fixture"));});
+            PolishTests.shot(instrumentation,a,"preview-commands-section.png");
+            instrumentation.runOnMainSync(()->{a.show(14);assertNull(a.remoteCommands);});PolishTests.shot(instrumentation,a,"preview-sync-guide.png");
+        }finally{PrivateStorage.pairing(a,old);a.prefs.edit().putBoolean("autoSync",auto).commit();instrumentation.runOnMainSync(a::finish);}
+    }
     @Test public void keyboardLeavesMessageAndSendButtonVisible()throws Exception{MainActivity activity=open();try{
         for(int n=0;n<30;n++){java.util.concurrent.atomic.AtomicBoolean focused=new java.util.concurrent.atomic.AtomicBoolean();instrumentation.runOnMainSync(()->focused.set(activity.hasWindowFocus()));if(focused.get())break;Thread.sleep(100);}
         instrumentation.runOnMainSync(()->{activity.show(1);activity.input.requestFocus();((android.view.inputmethod.InputMethodManager)activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)).showSoftInput(activity.input,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);});
