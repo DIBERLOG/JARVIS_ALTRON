@@ -28,6 +28,9 @@ final class SyncClient {
             JSONObject result=new JSONObject(bytes.toString("UTF-8"));if(status>=400)throw new IOException(result.optString("error","Ошибка компьютера: HTTP "+status));result.put("httpStatus",status);return result;
         }finally{connection.disconnect();}
     }
+    static void validateDirection(String mode)throws IOException{if(!mode.equals("both")&&!mode.equals("from_pc")&&!mode.equals("to_pc"))throw new IOException("Выберите направление синхронизации заново");}
+    static String directionTitle(String mode){return mode.equals("from_pc")?"ПК → телефон":mode.equals("to_pc")?"Телефон → ПК":mode.equals("both")?"В обе стороны":"Не выбрано";}
+    static JSONObject packet(Context c,String mode)throws Exception{validateDirection(mode);JSONObject out=SyncJournal.outbound(c);if(mode.equals("from_pc"))out.put("operations",new JSONArray()).put("recovering",false);return out;}
     static boolean supportsTasks(JSONObject keys){JSONArray features=keys.optJSONArray("features");if(features!=null)for(int n=0;n<features.length();n++)if(features.optString(n).equals("tasks"))return true;return false;}
     static android.net.Network wifi(Context c){android.net.ConnectivityManager manager=c.getSystemService(android.net.ConnectivityManager.class);for(android.net.Network network:manager.getAllNetworks()){android.net.NetworkCapabilities caps=manager.getNetworkCapabilities(network);if(caps!=null&&caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI))return network;}return null;}
     static void begin(Context c,String qr,String name)throws Exception{JSONObject p=parseQr(qr);JSONObject response=request(c,p,"/pair",p.getString("secret"),new JSONObject().put("version",2).put("name",name));p.put("pendingId",response.getString("id")).put("code",response.getString("code"));PrivateStorage.pairing(c,p);}
@@ -39,14 +42,15 @@ final class SyncClient {
         p.put("token",r.getString("token")).put("deviceId",r.getString("deviceId"));for(String key:new String[]{"secret","pendingId","code","approved"})p.remove(key);PrivateStorage.pairing(c,p);if(!MobileStore.prefs(c).contains("autoSync"))MobileStore.prefs(c).edit().putBoolean("autoSync",true).apply();SyncWorker.configure(c);return true;
     }
     static synchronized void sync(Context c)throws Exception{
+        String mode=MobileStore.prefs(c).getString("syncDirection","both");validateDirection(mode);boolean pull=!mode.equals("to_pc");
         JSONObject p=PrivateStorage.pairing(c);if(p==null||!p.has("token"))throw new IOException("Сначала подтвердите сопряжение на компьютере");
         JSONObject keys=request(c,p,"/v2/keys",p.getString("token"),new JSONObject().put("version",2));
         SyncJournal.provision(c,keys.getJSONObject("group"),p.getString("deviceId"));SyncJournal.relay(c,keys.getString("relay_id"));
         android.content.SharedPreferences prefs=MobileStore.prefs(c);SyncJournal.sharing(c,prefs.getBoolean("syncChats",false),prefs.getBoolean("syncVault",false));
         for(int i=0;i<100;i++){
-            JSONObject outgoing=SyncJournal.outbound(c);JSONArray ops=outgoing.getJSONArray("operations");for(int n=0;n<ops.length();n++)if(ops.getJSONObject(n).getString("collection").equals("tasks")&&!supportsTasks(keys))throw new IOException("Для общих задач обновите Windows Sync v2 LAB до 1.1.2");JSONObject incoming=request(c,p,outgoing.optBoolean("recovering")?"/v2/recover":"/v2/sync",p.getString("token"),outgoing);if(incoming.optJSONArray("rekey")!=null&&incoming.getJSONArray("rekey").length()>0){SyncJournal.rewrap(c,incoming.getJSONArray("rekey"));continue;}SyncJournal.receive(c,incoming);ReminderReceiver.schedule(c);
-            if(outgoing.getJSONArray("operations").length()==0&&incoming.getJSONArray("items").length()==0){
-                prefs.edit().putString("lastSync",MobileStore.now()).putString("lastSyncError","").commit();return;
+            JSONObject outgoing=packet(c,mode);JSONArray ops=outgoing.getJSONArray("operations");for(int n=0;n<ops.length();n++)if(ops.getJSONObject(n).getString("collection").equals("tasks")&&!supportsTasks(keys))throw new IOException("Для общих задач обновите Windows Sync v2 LAB до 1.1.2");JSONObject incoming=request(c,p,outgoing.optBoolean("recovering")?"/v2/recover":"/v2/sync",p.getString("token"),outgoing);if(incoming.optJSONArray("rekey")!=null&&incoming.getJSONArray("rekey").length()>0){SyncJournal.rewrap(c,incoming.getJSONArray("rekey"));continue;}SyncJournal.receive(c,incoming,pull);if(pull)ReminderReceiver.schedule(c);
+            if(outgoing.getJSONArray("operations").length()==0&&(!pull||incoming.getJSONArray("items").length()==0)){
+                prefs.edit().putString("lastSync",directionTitle(mode)+" · "+MobileStore.now()).putString("lastSyncError","").commit();return;
             }
         }throw new IOException("Журнал большой; повторите обмен для продолжения. Очередь сохранена.");
     }
