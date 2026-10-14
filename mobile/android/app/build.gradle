@@ -6,8 +6,8 @@ android {
         applicationId 'com.diberlog.jarvis.mobile.syncv2lab'
         minSdk 26
         targetSdk 35
-        versionCode 15
-        versionName '1.1.12-sync-v2-lab'
+        versionCode 16
+        versionName '1.1.13-sync-v2-lab'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     signingConfigs {

@@ -6,9 +6,10 @@
     import {writeTextFile,readTextFile} from '@tauri-apps/plugin-fs'
     let ips:string[]=[],ip='',port=47832,error='',busy=false,qr='',password='',peerQr='',pairCode='',message='',shareChats=false
     let status:any={running:false,pending:[],devices:[],conflicts:[],allowVault:false,prepared:false,v2Conflicts:[],client:false}
-    async function refresh(){try{status=await invoke('lan_sync_status');shareChats=!!status.shareChats;qr=status.qr?await QRCode.toDataURL(status.qr,{width:280,margin:2,errorCorrectionLevel:'M'}):''}catch(e){error=String(e)}}
+    let pairingVisible=true,initialized=false,qrSource='',refreshTask:Promise<void>|null=null
+    function refresh():Promise<void>{if(refreshTask)return refreshTask;refreshTask=(async()=>{try{const next:any=await invoke('lan_sync_status');const source=next.qr||'';if(source!==qrSource){qr=source?await QRCode.toDataURL(source,{width:280,margin:2,errorCorrectionLevel:'M'}):'';qrSource=source}status=next;shareChats=!!status.shareChats;if(!initialized){pairingVisible=!status.devices.length;initialized=true}if(status.pending.length)pairingVisible=true}catch(e){error=String(e)}})().finally(()=>refreshTask=null);return refreshTask}
     async function copyPairing(){error='';try{await navigator.clipboard.writeText(status.qr);message='Строка сопряжения скопирована. Вставьте её в JARVIS на телефоне или втором ПК.'}catch(e){error='Не удалось скопировать автоматически. Выделите и скопируйте строку в поле ниже.'}}
-    async function action(command:string,args:any={}){busy=true;error='';try{await invoke(command,args);await refresh()}catch(e){error=String(e)}finally{busy=false}}
+    async function action(command:string,args:any={}){busy=true;error='';try{await refresh();await invoke(command,args);await refresh();if(command==='lan_sync_approve'){pairingVisible=false;message='Разрешение выдано. Нажмите «Подтвердить сопряжение» на телефоне.'}else if(command==='lan_sync_qr'||command==='lan_sync_start')pairingVisible=true}catch(e){error=String(e)}finally{busy=false}}
     async function vaultChange(event:Event){const input=event.target as HTMLInputElement,enabled=input.checked;if(enabled&&!confirm('Разрешить обмен зашифрованным сейфом с подтверждёнными устройствами? Сначала сделайте резервную копию. Мастер-пароль по сети не передаётся.')){input.checked=false;await refresh();return}await action('lan_sync_vault_enabled',{enabled});input.checked=status.allowVault}
     function parentIds(conflict:any):string[]{return conflict.versions.map((v:any)=>v.op_id)}
     async function prepare(){busy=true;error='';try{message='Копия восстановления: '+await invoke('sync_v2_prepare',{password});password='';await refresh()}catch(e){error=String(e)}finally{busy=false}}
@@ -16,7 +17,7 @@
     async function pairFinish(){busy=true;error='';try{const result:any=await invoke('sync_v2_pair_finish',{password});if(result.pending)message='Подтверждение ещё ожидается на хабе';else{message='Подключено. Копия восстановления: '+result.recovery;password='';peerQr='';pairCode=''}await refresh()}catch(e){error=String(e)}finally{busy=false}}
     async function recoveryExport(){busy=true;error='';try{const path=await save({defaultPath:'JARVIS-Sync-v2-recovery.json',filters:[{name:'Защищённая копия',extensions:['json']}]});if(path){const data:string=await invoke('sync_v2_export',{password});await writeTextFile(path,data);message='Копия сохранена: '+path;password=''}}catch(e){error=String(e)}finally{busy=false}}
     async function recoveryRestore(){busy=true;error='';try{const path=await open({multiple:false,filters:[{name:'Защищённая копия',extensions:['json']}]});if(typeof path==='string'){const backup=await readTextFile(path);await invoke('sync_v2_restore',{backup,password});password='';message='Восстановлено в новом профиле. Перезапустите LAB.';await refresh()}}catch(e){error=String(e)}finally{busy=false}}
-    onMount(()=>{invoke<string[]>('lan_sync_addresses').then(v=>{ips=v;ip=v[0]||''}).catch(e=>error=String(e));refresh();const timer=setInterval(refresh,2500);return()=>clearInterval(timer)})
+    onMount(()=>{invoke<string[]>('lan_sync_addresses').then(v=>{ips=v;ip=v[0]||''}).catch(e=>error=String(e));refresh();const timer=setInterval(()=>{if(!busy)refresh()},2500);return()=>clearInterval(timer)})
 </script>
 <section aria-label="Синхронизация с телефоном" class="sync">
     <p class="eyebrow">JARVIS / LOCAL LINK · EXPERIMENTAL</p>
@@ -65,8 +66,10 @@
         {#if !ips.length}<p>Локальная сеть не найдена. Подключите компьютер и телефон к одному роутеру, затем откройте раздел снова.</p>{/if}
     {:else}
         <p class="connected">Обмен включён: {status.address}</p>
+        {#if pairingVisible}
         {#if qr}<img src={qr} width="280" height="280" alt="QR-код сопряжения телефона"><label>Строка сопряжения для телефона или второго ПК<textarea readonly value={status.qr} rows="4" spellcheck="false"></textarea></label><button disabled={busy} on:click={copyPairing}>Скопировать строку сопряжения</button><p>Код действует 2 минуты. Не публикуйте его и не отправляйте посторонним.</p>{:else}<p>QR-код истёк. Уже подключённые устройства продолжают работать.</p>{/if}
-        <button disabled={busy} on:click={()=>action('lan_sync_qr')}>Новый QR-код</button>
+        {/if}
+        <button disabled={busy} on:click={()=>action('lan_sync_qr')}>{pairingVisible?'Новый QR-код':'Подключить ещё устройство'}</button>
         <button disabled={busy} on:click={()=>action('lan_sync_stop')}>Остановить обмен</button>
     {/if}
     {/if}

@@ -41,12 +41,20 @@ final class SyncClient {
     static boolean physicalWifi(android.net.NetworkCapabilities caps){return caps!=null&&caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)&&!caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN);}
     static android.net.Network wifi(Context c){android.net.ConnectivityManager manager=c.getSystemService(android.net.ConnectivityManager.class);for(android.net.Network network:manager.getAllNetworks()){android.net.NetworkCapabilities caps=manager.getNetworkCapabilities(network);if(physicalWifi(caps))return network;}return null;}
     static void begin(Context c,String qr,String name)throws Exception{JSONObject p=parseQr(qr);JSONObject response=request(c,p,"/pair",p.getString("secret"),new JSONObject().put("version",2).put("name",name));p.put("pendingId",response.getString("id")).put("code",response.getString("code"));PrivateStorage.pairing(c,p);}
-    static boolean finish(Context c)throws Exception{
+    static boolean checkApproval(Context c)throws Exception{
         JSONObject p=PrivateStorage.pairing(c);if(p==null)throw new IOException("Сначала отсканируйте QR-код");
-        JSONObject r=p.optJSONObject("approved");if(r==null){r=request(c,p,"/pair/status",p.getString("secret"),new JSONObject().put("id",p.getString("pendingId")));if(r.optInt("httpStatus")==202)return false;p.put("approved",r);PrivateStorage.pairing(c,p);}
-        if(r.getInt("version")!=2)throw new IOException("Требуется Sync v2");
+        if(p.has("token"))return true;JSONObject r=p.optJSONObject("approved");if(r==null){r=request(c,p,"/pair/status",p.getString("secret"),new JSONObject().put("id",p.getString("pendingId")));if(r.optInt("httpStatus")==202)return false;completedPairing(p,r);p.put("approved",r);PrivateStorage.pairing(c,p);}return true;
+    }
+    static boolean finish(Context c)throws Exception{
+        if(!checkApproval(c))return false;
+        JSONObject p=PrivateStorage.pairing(c);if(p.has("token"))return true;JSONObject r=p.getJSONObject("approved");
+        JSONObject completed=completedPairing(p,r);
         SyncJournal.provision(c,r.getJSONObject("group"),r.getString("deviceId"));
-        p.put("token",r.getString("token")).put("deviceId",r.getString("deviceId"));for(String key:new String[]{"secret","pendingId","code","approved"})p.remove(key);PrivateStorage.pairing(c,p);if(!MobileStore.prefs(c).contains("autoSync"))MobileStore.prefs(c).edit().putBoolean("autoSync",true).apply();SyncWorker.configure(c);return true;
+        PrivateStorage.pairing(c,completed);if(!MobileStore.prefs(c).contains("autoSync"))MobileStore.prefs(c).edit().putBoolean("autoSync",true).apply();SyncWorker.configure(c);return true;
+    }
+    static JSONObject completedPairing(JSONObject pending,JSONObject approved)throws Exception{
+        if(approved.optInt("version")!=2||approved.optString("token").isEmpty()||approved.optString("deviceId").isEmpty())throw new IOException("Компьютер не выдал полное подтверждение. Подключение пока не завершено.");
+        JSONObject completed=new JSONObject(pending.toString()).put("token",approved.getString("token")).put("deviceId",approved.getString("deviceId"));for(String key:new String[]{"secret","pendingId","code","approved"})completed.remove(key);return completed;
     }
     static synchronized void sync(Context c)throws Exception{
         String mode=MobileStore.prefs(c).getString("syncDirection","both");validateDirection(mode);boolean pull=!mode.equals("to_pc");

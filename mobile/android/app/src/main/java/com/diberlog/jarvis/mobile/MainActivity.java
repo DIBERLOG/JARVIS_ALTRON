@@ -122,8 +122,8 @@ public final class MainActivity extends FragmentActivity {
             action("Команды компьютеру",()->show(15));
             action("Отключить этот компьютер",()->confirm("Отключить синхронизацию? Данные останутся на телефоне. Для отзыва доступа отключите телефон также на ПК.",()->job(()->{PrivateStorage.pairing(this,null);prefs.edit().putBoolean("autoSync",false).apply();SyncWorker.configure(this);},()->show(12))));
         }else if(p!=null&&p.has("pendingId")){
-            syncDeviceCard(p,false);text("Сравните код и нажмите на ПК «Код совпадает — разрешить». Телефон проверит подтверждение автоматически, пока этот экран открыт.");
-            Button finish=button("Завершить подключение",()->checkPairing(true));finish.setTag("pair-finish");finish.setBackground(surface(TEAL,18,false));finish.setTextColor(BG);page.addView(finish);text(pairError);
+            syncDeviceCard(p,false);text(p.has("approved")?"Компьютер разрешил подключение. Проверьте совпадение кода и подтвердите сопряжение на этом телефоне.":"Сравните код и нажмите на ПК «Код совпадает — разрешить». Затем здесь появится кнопка подтверждения телефона.");
+            Button finish=button(p.has("approved")?"Подтвердить сопряжение":"Проверить разрешение ПК",()->checkPairing(true));finish.setTag(p.has("approved")?"pair-confirm":"pair-finish");finish.setBackground(surface(TEAL,18,false));finish.setTextColor(BG);page.addView(finish);
             action("Сканировать новый QR-код",this::scanComputer);
         }else{
             text("Подключите телефон и компьютер к одной Wi-Fi сети. На ПК включите обмен в настройках синхронизации.");
@@ -141,10 +141,10 @@ public final class MainActivity extends FragmentActivity {
     void pairingRequested(){pairChecks=0;pairNextCheck=0;pairError="";show(12);}
     void syncDeviceCard(JSONObject pairing,boolean approved){
         LinearLayout card=column();card.setTag("paired-computer");card.setPadding(dp(18),dp(16),dp(18),dp(16));card.setBackground(shape(PANEL,20,true));
-        TextView heading=label(approved?"Подключённые устройства":"Подтверждение подключения",13);heading.setTextColor(TEAL);card.addView(heading);
+        TextView heading=label(approved?"Подключённые устройства":pairing.has("approved")?"Осталось подтверждение телефона":"Ожидаем разрешение компьютера",13);heading.setTextColor(TEAL);card.addView(heading);
         card.addView(label("Компьютер JARVIS",21));TextView address=label(pairing.optString("host")+":"+pairing.optInt("port"),14);address.setTextColor(MUTED);card.addView(address);
         if(approved){card.addView(label("✓ Сопряжение подтверждено",15));TextView status=label("Последний обмен: "+prefs.getString("lastSync","ещё не выполнялся"),13);status.setTextColor(MUTED);card.addView(status);card.addView(label("Направление: "+SyncClient.directionTitle(prefs.getString("syncDirection","both")),13));}
-        else{TextView code=label(pairing.optString("code"),32);code.setGravity(Gravity.CENTER);code.setTextColor(TEAL);code.setLetterSpacing(.12f);card.addView(code);}
+        else{if(!pairError.isEmpty()){TextView error=label(pairError,14);error.setTextColor(Color.red(BG)>128?Color.rgb(165,43,56):Color.rgb(255,170,170));card.addView(error);}TextView code=label(pairing.optString("code"),32);code.setGravity(Gravity.CENTER);code.setTextColor(TEAL);code.setLetterSpacing(.12f);card.addView(code);}
         LinearLayout.LayoutParams space=new LinearLayout.LayoutParams(-1,-2);space.setMargins(0,dp(8),0,dp(12));page.addView(card,space);
     }
     void pairingSuccess(){
@@ -152,11 +152,13 @@ public final class MainActivity extends FragmentActivity {
         AlertDialog dialog=new AlertDialog.Builder(this).setView(content).setPositiveButton("Начать обмен",(d,w)->chooseSyncDirection()).setNegativeButton("Позже",null).create();dialog.show();dialog.getWindow().setBackgroundDrawable(shape(PANEL,24,true));
     }
     void checkPairing(boolean manual){
-        if(tab!=12||!foreground||busy||pairChecking||foregroundSyncing||isDestroyed()||isFinishing())return;
-        if(!manual&&(pairChecks>=40||!pairError.isEmpty()||System.currentTimeMillis()<pairNextCheck))return;
-        try{JSONObject pairing=PrivateStorage.pairing(this);if(pairing==null||!pairing.has("pendingId")||pairing.has("token")||SyncClient.wifi(this)==null)return;}catch(Exception error){return;}
+        if(tab!=12||!foreground||isDestroyed()||isFinishing())return;
+        if(busy||pairChecking||foregroundSyncing){if(manual)Toast.makeText(this,"Дождитесь текущей проверки",Toast.LENGTH_SHORT).show();return;}
+        final boolean confirm;
+        try{JSONObject pairing=PrivateStorage.pairing(this);if(pairing==null||!pairing.has("pendingId")||pairing.has("token"))return;confirm=manual&&pairing.has("approved");if(!manual&&pairing.has("approved"))return;if(SyncClient.wifi(this)==null){if(manual){pairError="Подключите телефон к одной Wi-Fi сети с ПК и повторите.";show(12);}return;}}catch(Exception error){if(manual)error(error.getMessage());return;}
+        if(!manual&&pairChecks>=40){if(pairError.isEmpty()){pairError="Ожидание остановлено. Нажмите «Проверить разрешение ПК», а если QR истёк — сканируйте новый код ПК.";show(12);}return;}if(!manual&&(!pairError.isEmpty()||System.currentTimeMillis()<pairNextCheck))return;
         pairChecking=true;pairChecks++;pairNextCheck=System.currentTimeMillis()+3000;pairError="";updateLoading();
-        worker.execute(()->{try{boolean approved=SyncClient.finish(this);runOnUiThread(()->{pairChecking=false;updateLoading();if(tab==12&&foreground&&!isDestroyed()&&!isFinishing()){if(approved){show(12);pairingSuccess();}else if(manual)Toast.makeText(this,"На ПК ещё нужно разрешить подключение",Toast.LENGTH_LONG).show();}});}catch(Exception error){runOnUiThread(()->{pairChecking=false;pairError=error.getMessage()==null?"Не удалось проверить подтверждение. Повторите вручную.":error.getMessage();updateLoading();if(tab==12&&foreground&&!isDestroyed()&&!isFinishing())show(12);});}});
+        worker.execute(()->{try{boolean approved=confirm?SyncClient.finish(this):SyncClient.checkApproval(this);runOnUiThread(()->{pairChecking=false;updateLoading();if(tab==12&&foreground&&!isDestroyed()&&!isFinishing()){if(approved){show(12);if(confirm)pairingSuccess();}else if(manual)Toast.makeText(this,"На ПК ещё нужно разрешить подключение",Toast.LENGTH_LONG).show();}});}catch(Exception error){runOnUiThread(()->{pairChecking=false;pairError=error.getMessage()==null?"Не удалось проверить подтверждение. Повторите вручную.":error.getMessage();updateLoading();if(tab==12&&foreground&&!isDestroyed()&&!isFinishing())show(12);});}});
     }
     void syncGuide(){
         text("Проверьте три режима на двух тестовых заметках. Телефон и ПК должны быть в одной Wi-Fi сети, сопряжение подтверждено, обмен на ПК включён.");
