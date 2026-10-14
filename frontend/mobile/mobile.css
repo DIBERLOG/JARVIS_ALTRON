@@ -1,4 +1,7 @@
-:root{color-scheme:dark;font:16px/1.5 system-ui,sans-serif;background:#101315;color:#f1f4f5}
+:root{color-scheme:dark;font:16px/1.5 system-ui,sans-serif;background:#101315;color:#f1f4f5;--scroll-thumb:#70ab99;--scroll-track:rgba(160,228,206,.09)}
+html[data-theme=light]{--scroll-thumb:#428777;--scroll-track:rgba(23,109,96,.08)}
+*{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) var(--scroll-track)}
+::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:var(--scroll-track);border-radius:999px}::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:999px}
 *{box-sizing:border-box}body{margin:0;padding:2px 0 18px;overflow-wrap:anywhere}#app{max-width:100%;overflow-x:hidden}
 html body #app .training,html body #app .notes-panel{padding:0;border:0;background:none;font-family:inherit;color:#f1f4f5}
 html body #app button,html body #app input,html body #app select,html body #app textarea{font-family:inherit;font-size:16px;min-height:46px;border-radius:12px;color:#f1f4f5;background:#1b2023;border:1px solid #313a3e;padding:10px 12px}
