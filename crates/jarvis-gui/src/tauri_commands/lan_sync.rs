@@ -148,9 +148,12 @@ pub fn lan_sync_vault_enabled(state:tauri::State<'_,LanSync>,enabled:bool)->Resu
 
 fn connection(socket:TcpStream,config:Arc<rustls::ServerConfig>,inner:Arc<Mutex<Inner>>,settings:jarvis_core::SettingsManager,dir:PathBuf)->Result<(),()> {
     let deadline=Instant::now()+Duration::from_secs(20);
+    // Windows accepted sockets inherit the listener's nonblocking mode. TLS here
+    // uses blocking reads with deadlines; otherwise the first read can abort it.
+    socket.set_nonblocking(false).map_err(|_|())?;
     socket.set_read_timeout(Some(Duration::from_secs(8))).map_err(|_|())?;socket.set_write_timeout(Some(Duration::from_secs(8))).map_err(|_|())?;
     let session=rustls::ServerConnection::new(config).map_err(|_|())?;let mut stream=rustls::StreamOwned::new(session,socket);
-    let mut header=Vec::new();while !header.ends_with(b"\r\n\r\n"){if Instant::now()>deadline{return Err(());}let mut b=[0];if stream.read_exact(&mut b).is_err(){return Err(());}header.push(b[0]);if header.len()>8192{return Err(());}}
+    let mut header=Vec::new();while !header.ends_with(b"\r\n\r\n"){if Instant::now()>deadline{return Err(());}let mut b=[0];if let Err(_error)=stream.read_exact(&mut b){#[cfg(test)] eprintln!("fixture header/TLS failure after {} bytes: {_error}",header.len());return Err(());}header.push(b[0]);if header.len()>8192{return Err(());}}
     let text=std::str::from_utf8(&header).map_err(|_|())?;let mut lines=text.split("\r\n");let first=lines.next().ok_or(())?;
     let mut parts=first.split_whitespace();if parts.next()!=Some("POST"){return Err(());}let route=parts.next().ok_or(())?;
     if parts.next()!=Some("HTTP/1.1")||parts.next().is_some(){return Err(());}
@@ -346,6 +349,20 @@ pub fn lan_sync_resolve(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,id:S
 }
 #[cfg(test)]
 mod tests {use super::*;
+    #[test]
+    #[ignore = "Explicit Android emulator wire test; fictional profile only"]
+    fn android_tls_pairing_wire_fixture(){
+        let output=std::env::var_os("JARVIS_ANDROID_WIRE_FIXTURE").expect("fixture output path");
+        let directory=tempfile::tempdir().unwrap();
+        let rcgen::CertifiedKey{cert,key_pair}=rcgen::generate_simple_self_signed(vec!["10.0.2.2".into()]).unwrap();
+        let config=rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider())).with_safe_default_protocol_versions().unwrap().with_no_client_auth().with_single_cert(vec![cert.der().clone()],rustls::pki_types::PrivatePkcs8KeyDer::from(key_pair.serialize_der()).into()).unwrap();
+        let listener=TcpListener::bind((Ipv4Addr::LOCALHOST,0)).unwrap();listener.set_nonblocking(true).unwrap();let port=listener.local_addr().unwrap().port();let secret=random();
+        let state=LanSync::default();state.inner.lock().runtime=Some(Runtime{stop:Arc::new(AtomicBool::new(false)),address:format!("10.0.2.2:{port}"),fingerprint:hex(&Sha256::digest(cert.der())),secret:secret.clone(),expires:Instant::now()+Duration::from_secs(180),pending:vec![]});
+        std::fs::write(output,serde_json::to_vec(&json!({"host":"10.0.2.2","port":port,"fingerprint":hex(&Sha256::digest(cert.der())),"secret":secret})).unwrap()).unwrap();
+        let config=Arc::new(config);let settings=jarvis_core::SettingsManager::new(jarvis_core::Settings::default());let deadline=Instant::now()+Duration::from_secs(180);let mut accepted=0;
+        while accepted<6 && Instant::now()<deadline{match listener.accept(){Ok((socket,_))=>{accepted+=1;let result=connection(socket,config.clone(),state.inner.clone(),settings.clone(),directory.path().to_owned());println!("fixture connection {accepted}: {}",if result.is_ok(){"HTTP response sent"}else{"TLS or HTTP rejected"});},Err(e) if e.kind()==std::io::ErrorKind::WouldBlock=>std::thread::sleep(Duration::from_millis(50)),Err(e)=>panic!("{e}"),}}
+        assert_eq!(accepted,6);assert_eq!(state.inner.lock().runtime.as_ref().unwrap().pending.len(),2,"Exactly one successful pairing POST");
+    }
     #[test] fn remote_commands_deduplicate_and_reject_changed_expired_or_unsafe_requests(){
         let mut saved=Saved::default();let body=json!({"id":"12345678-1234-1234-1234-123456789abc","command_id":"calculator_open","expires_at":1060});
         for _ in 0..10 {assert_eq!(enqueue_remote(&mut saved,"phone-a",&body,1000).unwrap()["status"],"queued");}assert_eq!(saved.remote_requests.len(),1);
