@@ -46,6 +46,31 @@ try{
  await page.getByRole('button',{name:'Заметка',exact:true}).click();await page.getByLabel('Название карточки',{exact:true}).fill('Удаляемая карточка');page.once('dialog',d=>d.accept());await page.locator('.inspector').getByRole('button',{name:'Удалить',exact:true}).click();await page.getByRole('button',{name:'Сохранить изменения',exact:true}).click();assert.equal((await page.evaluate(()=>window.fixture.saved.at(-1))).mindMap.nodes.length,7);await page.getByRole('button',{name:'Показать всю карту',exact:true}).click();
  await page.screenshot({path:path.join(root,'target/mindmap-desktop-edited.png'),fullPage:true});
  await page.getByRole('button',{name:'Карточка: План запуска',exact:true}).click();await page.getByLabel('Текст карточки',{exact:true}).fill('Проверка сохранения');await page.getByRole('button',{name:'Закрыть карточку',exact:true}).click();await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();await page.evaluate(()=>window.fixture.failSave=true);await page.getByRole('button',{name:'Сохранить карту',exact:true}).click();await page.locator('.mind-map .map-error').waitFor();assert.equal(await page.locator('.mind-map .map-error').isVisible(),true);await page.evaluate(()=>window.fixture.failSave=false);await page.getByRole('button',{name:'Сохранить карту',exact:true}).click();await page.getByRole('button',{name:'Сохранено',exact:true}).waitFor();assert.equal(await page.locator('.mind-map .map-error').count(),0);await page.getByRole('button',{name:'Свернуть карту',exact:true}).click();
+ // Desktop window dimensions and nested scrolling match the real center pane.
+ await page.setViewportSize({width:1040,height:800});
+ await page.addStyleTag({content:'html,body{height:100%;overflow:hidden}.fixture-shell{height:calc(100vh - 82px);overflow-y:auto;margin-top:82px}'});
+ for(let cycle=0;cycle<4;cycle++){
+  await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
+  await page.getByRole('button',{name:'Свернуть карту',exact:true}).click();
+  assert.equal(await page.locator('.mind-map.expanded').count(),0);
+  await page.getByRole('button',{name:'Карточка: План запуска',exact:true}).click();
+  await page.getByLabel('Название карточки',{exact:true}).fill('План запуска');
+  await page.getByRole('button',{name:'Закрыть карточку',exact:true}).click();
+  await page.getByRole('button',{name:'Сохранить изменения',exact:true}).click();
+ }
+ // Leaving and reopening the map must destroy its overlay and remain interactive.
+ await page.getByRole('button',{name:'+ Новая',exact:true}).click();
+ await page.locator('.note-list button').filter({hasText:'Мой проект'}).click();
+ await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
+ await page.reload();
+ await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
+ await page.getByRole('button',{name:'Свернуть карту',exact:true}).click();
+ await page.getByRole('button',{name:'Показать всю карту',exact:true}).click();
+ await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
+ await page.evaluate(()=>window.fixture.unmount());assert.equal(await page.locator('.mind-map').count(),0);
+ await page.evaluate(()=>window.fixture.remount());
+ await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
+ await page.getByRole('button',{name:'Свернуть карту',exact:true}).click();
  // Both mobile pickers reuse native, user-selected attachments.
  await page.setViewportSize({width:390,height:950});await page.goto(url+'?mobile');await page.getByRole('button',{name:'Карточка: План запуска',exact:true}).waitFor();
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -59,5 +84,13 @@ try{
  await page.getByRole('button',{name:'Карточка: План запуска',exact:true}).click();await page.screenshot({path:path.join(root,'target/mindmap-mobile-editor.png'),fullPage:true});
  await page.getByRole('button',{name:'Закрыть карточку',exact:true}).click();
  await page.goto(url+'?mobile&light');await page.getByRole('button',{name:'Карточка: План запуска',exact:true}).waitFor();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:path.join(root,'target/mindmap-mobile-light.png'),fullPage:true});
- assert.deepEqual(errors,[]);fs.writeFileSync(path.join(root,'target/mindmap-ui-tests.log'),'PASS: create/edit, images and file bytes, download, drag persistence, undo/redo, checklist, reload, native callbacks, mobile geometry and light theme.\n');console.log('PASS: shared mind-map editor, fictional notes only.');
+ for(let cycle=0;cycle<3;cycle++){
+  await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
+  await page.getByRole('button',{name:'Свернуть карту',exact:true}).click();
+  assert.equal(await page.locator('.mind-map.expanded').count(),0);
+ }
+ await page.evaluate(()=>window.fixture.unmount());await page.evaluate(()=>window.fixture.remount());
+ await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
+ await page.getByRole('button',{name:'Свернуть карту',exact:true}).click();
+ assert.deepEqual(errors,[]);fs.writeFileSync(path.join(root,'target/mindmap-ui-tests.log'),'PASS: create/edit, images and file bytes, download, drag persistence, undo/redo, checklist, reload, native callbacks, mobile geometry, light theme, repeated collapse, nested desktop scrolling, editor unmount/remount and restart.\n');console.log('PASS: shared mind-map editor, fictional notes only.');
 }catch(e){await page.screenshot({path:path.join(root,'target/mindmap-test-failure.png'),fullPage:true});console.error('Browser errors:',errors);throw e}finally{await browser.close();await server.close()}

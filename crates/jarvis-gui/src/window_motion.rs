@@ -53,6 +53,8 @@ fn slide_window(window: &Window, reduced_motion: bool) -> Result<(), String> {
     if reduced_motion {
         window.set_position(PhysicalPosition::new(target_x, target_y)).map_err(|e| e.to_string())?;
         window.show().map_err(|e| e.to_string())?;
+        // Windows can consume the first ShowWindow call using a launcher's SW_HIDE.
+        window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
@@ -81,6 +83,9 @@ fn slide_window(window: &Window, reduced_motion: bool) -> Result<(), String> {
     }
     window.set_position(PhysicalPosition::new(target_x, target_y)).map_err(|e| e.to_string())?;
     log::info!("Window entrance finished at y={} in {:?} ({frames} frames)", window.outer_position().map_err(|e| e.to_string())?.y, started.elapsed());
+    // Repeat after the initial ShowWindow: SW_HIDE from the launcher must not leave
+    // a running application invisible, even though the entrance was requested.
+    window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     Ok(())
 }
