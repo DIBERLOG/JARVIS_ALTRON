@@ -14,9 +14,17 @@
 [![Linux — экспериментальная сборка](https://img.shields.io/badge/Linux-EXPERIMENTAL-f5bc42?style=for-the-badge&logo=linux&logoColor=white)](#platforms)
 [![macOS — Intel и Apple Silicon](https://img.shields.io/badge/macOS-INTEL_/_APPLE_SILICON-f5bc42?style=for-the-badge&logo=apple)](#platforms)
 [![Android — Mobile LAB](https://img.shields.io/badge/Android-MOBILE_LAB-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0-mobile-lab)
+
+<br>
+
 [![Rust](https://img.shields.io/badge/Rust-181b20?style=for-the-badge&logo=rust&logoColor=white)](Cargo.toml)
 [![Tauri](https://img.shields.io/badge/Tauri-181b20?style=for-the-badge&logo=tauri&logoColor=35d4cf)](crates/jarvis-gui/tauri.conf.json)
 [![Svelte](https://img.shields.io/badge/Svelte-181b20?style=for-the-badge&logo=svelte&logoColor=ff6b46)](frontend/package.json)
+[![Лицензия — JARVIS ALTRON Community](https://img.shields.io/badge/LICENSE-Community-218c99?style=for-the-badge)](LICENSE.txt)
+
+[![Сборки Linux и macOS](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/desktop-unix.yml/badge.svg?branch=master)](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/desktop-unix.yml)
+[![Сборка Android](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml/badge.svg?branch=master)](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml)
+[![Последний коммит](https://img.shields.io/github/last-commit/DIBERLOG/JARVIS_ALTRON/master?style=flat-square&label=LAST%20COMMIT&color=35d4cf)](https://github.com/DIBERLOG/JARVIS_ALTRON/commits/master/)
 
 **[Скачать Windows-релиз](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0) · [Linux / macOS](#platforms) · [Установка](docs/INSTALL.md) · [Документация](#documentation) · [Лицензия](LICENSE.txt)**
 
@@ -58,7 +66,7 @@
 - [Как устроен JARVIS](#как-устроен-jarvis)
 - [Первый запуск](#первый-запуск)
 - [Установка по шагам](docs/INSTALL.md)
-- [История версий](#история-развития--010--090)
+- [История версий](#история-развития--010--100)
 - [Почта Outlook и Kerio](#почта-outlook-и-kerio)
 - [Агенты · LAB](#агенты--lab)
 - [Данные и безопасность](#данные-и-безопасность)
@@ -443,7 +451,7 @@ cargo test -p jarvis-gui
 | Intel · x86_64 | [Скачать DMG в ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593/artifacts/11716410932) |
 | Apple Silicon · M-серия · arm64 | [Скачать DMG в ZIP, с обменом по Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679/artifacts/11742660250) |
 
-Пакет Intel по ссылке выше — предыдущая сборка, без нового обмена с телефоном. [Новая Intel-сборка с Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679) появится в артефактах после успешного завершения соответствующего задания.
+Пакет Intel по ссылке выше не поддерживает обмен с телефоном. Для синхронизации требуется пакет с разделом «Синхронизация с телефоном». Дополнительные пакеты доступны в артефактах успешных [сборок Linux и macOS](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/desktop-unix.yml).
 
 Серверные проверки macOS выполняются на macOS 15 и проверяют сборку, ресурсы и загрузку исполняемых файлов внутри `.app`, не микрофон и не работу интерфейса с оборудованием. [Журнал нативных проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593).
 
@@ -474,9 +482,9 @@ bash tools/package-desktop.sh
 > [!NOTE]
 > **Experimental ≠ проверенный релиз.** Голос, микрофон, установка, уведомления и сохранение данных после обновления требуют проверки на настоящих устройствах. Kerio / классический Outlook и AutoHotkey не переносятся на Linux/macOS. Microsoft 365 — отдельная экспериментальная интеграция.
 
-## История развития · 0.1.0 → 0.9.0
+## История развития · 0.1.0 → 1.0.0
 
-Краткая ретроспектива. Этапы 0.1.0, 0.3.0, 0.7.0 и 0.8.0 — редакционные вехи развития, а не подтверждённые отдельные релизы. По просьбе автора доработки перед 0.9.0 распределены между промежуточными этапами; существующие коммиты и теги не изменены.
+Основные этапы развития проекта. Версии 0.1.0, 0.3.0, 0.7.0 и 0.8.0 обозначают этапы разработки, а не отдельные опубликованные релизы.
 
 | Версия / этап | Главное |
 | --- | --- |
@@ -501,11 +509,11 @@ bash tools/package-desktop.sh
 
 ## Авторство и лицензия
 
-Автор доработок — **Егор Ангелов (DIBERLOG)**. Проект является рабочим форком [Priler/jarvis](https://github.com/Priler/jarvis), созданного **Abraham Tugalov**. Авторство и сторонние уведомления сохранены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Я — **Егор Ангелов (DIBERLOG)**, развиваю JARVIS · ALTRON на основе [Priler/jarvis](https://github.com/Priler/jarvis), созданного **Abraham Tugalov**. Сведения об исходном проекте и сторонних компонентах сохраняю в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Оригинальные доработки Егора Ангелова предоставляются по **JARVIS ALTRON Community License 1.0**, в пределах принадлежащих ему прав: [LICENSE.txt](LICENSE.txt). Личное некоммерческое использование бесплатно. Коммерческое использование требует отдельного письменного лицензионного соглашения; при распространении сохраняются уведомления и лицензия. [Порядок согласования](COMMERCIAL_USE.md).
+Мои оригинальные доработки предоставляю по **JARVIS ALTRON Community License 1.0**, в пределах принадлежащих мне прав: [LICENSE.txt](LICENSE.txt). Личное некоммерческое использование бесплатно. Для коммерческого использования необходимо отдельное письменное лицензионное соглашение со мной; при распространении сохраняются уведомления и лицензия. [Порядок согласования](COMMERCIAL_USE.md).
 
-По сообщению владельца форка, отдельные разрешения на исходный код и голоса получены; их точные условия в репозитории не опубликованы. Лицензия на доработки не заменяет лицензии сторонних компонентов и не расширяет эти разрешения. [Публичная лицензия исходного проекта](third_party/licenses/Priler-jarvis-CC-BY-NC-SA-4.0.txt) сохранена без изменения. Новые условия не отзывают ранее действительно предоставленные права на ранее полученные копии.
+Я получил отдельные разрешения на исходный код и голоса; их точные условия в репозитории не публикую. Моя лицензия на доработки не заменяет лицензии сторонних компонентов и не расширяет эти разрешения. [Публичную лицензию исходного проекта](third_party/licenses/Priler-jarvis-CC-BY-NC-SA-4.0.txt) сохраняю без изменения. Новые условия не отзывают ранее действительно предоставленные права на ранее полученные копии.
 
 ---
 
