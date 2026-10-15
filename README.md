@@ -46,8 +46,8 @@
 | Платформа | Версия и статус | Установка и особенности |
 | --- | --- | --- |
 | 🪟 Windows x64 | **1.1.17 · Release** | [Установщик](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.17). Классический Outlook / Kerio доступны только здесь |
-| 🐧 Linux x64 | **1.0.0 · экспериментальная** | Пакеты и инструкция — [Linux](#platforms). Голос и системные действия требуют проверки на реальном устройстве |
-| 🍎 macOS | **1.0.0 · экспериментальная** | Отдельные сборки Intel и Apple Silicon — [macOS](#platforms). Потребуются разрешения микрофона; Kerio не переносится |
+| 🐧 Linux x64 | **1.1.17 · экспериментальная** | Пакеты и инструкция — [Linux](#platforms). Голос и системные действия требуют проверки на реальном устройстве |
+| 🍎 macOS | **1.1.17 · экспериментальная** | Отдельные сборки Intel и Apple Silicon — [macOS](#platforms). Потребуются разрешения микрофона; Kerio не переносится |
 | 📱 Android 8+ | **1.1.17 · Release** | [Скачать APK и Windows](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.17); [мобильная инструкция](mobile/android/README.md). Личный центр и чат; без почты и агентов |
 
 > [!IMPORTANT]
@@ -420,9 +420,9 @@ cargo test -p jarvis-gui
 | Система | Версия / статус | Архитектура | Пакет |
 | --- | --- | --- | --- |
 | 🖥️ Windows | **1.1.17 · Release** | x64 | Установщик `.exe` — опубликован |
-| 🐧 Linux | **1.0.0 · Experimental** | x64 | `.deb` / AppImage — сборка, установка `.deb` и проверки CI пройдены |
-| 🍎 macOS · Intel | **1.0.0 · Experimental** | x86_64 | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
-| 🍎 macOS · Apple Silicon | **1.0.0 · Experimental** | arm64 · M-серия | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
+| 🐧 Linux | **1.1.17 · Experimental** | x64 | `.deb` / AppImage — сборка, установка `.deb` и проверки CI пройдены |
+| 🍎 macOS · Intel | **1.1.17 · Experimental** | x86_64 | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
+| 🍎 macOS · Apple Silicon | **1.1.17 · Experimental** | arm64 · M-серия | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
 | 📱 Android | **1.1.17 · Release** | Android 8+ | Подписанный APK в Releases; обновление поверх прежнего приложения |
 
 > [!NOTE]
@@ -436,9 +436,9 @@ cargo test -p jarvis-gui
 
 ### 🐧 Linux — отдельная настольная версия
 
-[![Linux Experimental](https://img.shields.io/badge/Linux-1.0.0_Experimental-e7ad49?style=for-the-badge&logo=linux&logoColor=white)](docs/CROSS_PLATFORM.md#установочные-пакеты-linux-и-macos)
+[![Linux Experimental](https://img.shields.io/badge/Linux-1.1.17_Experimental-e7ad49?style=for-the-badge&logo=linux&logoColor=white)](docs/CROSS_PLATFORM.md#установочные-пакеты-linux-и-macos)
 
-**Скачать:** [Linux x64 — `.deb` и AppImage в одном ZIP, с обменом по Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679/artifacts/11741414511). [Журнал сборки и проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679).
+**Скачать:** [Linux x64 — `.deb` и AppImage в одном ZIP, с обменом по Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38779634205/artifacts/11995348411). [Журнал сборки и проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38779634205).
 
 **База пакетов: Ubuntu 24.04 x64.** Для Debian-подобных совместимых систем собран `.deb`, для других совместимых дистрибутивов — AppImage. Требуется glibc не ниже 2.39; Ubuntu 22.04, Debian 12 и другие старые дистрибутивы не поддерживаются этим рецептом.
 
@@ -448,18 +448,18 @@ cargo test -p jarvis-gui
 
 ### 🍎 macOS — Intel и Apple Silicon
 
-[![macOS Experimental](https://img.shields.io/badge/macOS-1.0.0_Experimental-e7ad49?style=for-the-badge&logo=apple&logoColor=white)](docs/CROSS_PLATFORM.md#установочные-пакеты-linux-и-macos)
+[![macOS Experimental](https://img.shields.io/badge/macOS-1.1.17_Experimental-e7ad49?style=for-the-badge&logo=apple&logoColor=white)](docs/CROSS_PLATFORM.md#установочные-пакеты-linux-и-macos)
 
 **Две отдельные сборки:** Intel (`x86_64`) и Apple Silicon (`arm64`, M-серия). Не выбирайте пакет по одному лишь номеру версии — архитектура должна соответствовать вашему Mac. В рецепте указан минимум macOS 13; работу на разных версиях macOS ещё нужно подтвердить.
 
 | Ваш Mac | Экспериментальный пакет |
 | --- | --- |
-| Intel · x86_64 | [Скачать DMG в ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593/artifacts/11716410932) |
-| Apple Silicon · M-серия · arm64 | [Скачать DMG в ZIP, с обменом по Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38237476679/artifacts/11742660250) |
+| Intel · x86_64 | [Скачать DMG в ZIP](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38779634205/artifacts/11997826775) |
+| Apple Silicon · M-серия · arm64 | [Скачать DMG в ZIP, с обменом по Wi-Fi](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38779634205/artifacts/11996232207) |
 
-Пакет Intel по ссылке выше не поддерживает обмен с телефоном. Для синхронизации требуется пакет с разделом «Синхронизация с телефоном». Дополнительные пакеты доступны в артефактах успешных [сборок Linux и macOS](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/desktop-unix.yml).
+Обе Mac-сборки включают актуальный интерфейс и синхронизацию с телефоном по Wi-Fi, включая сопряжение по QR-коду. Дополнительные пакеты доступны в артефактах успешных [сборок Linux и macOS](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/desktop-unix.yml).
 
-Серверные проверки macOS выполняются на macOS 15 и проверяют сборку, ресурсы и загрузку исполняемых файлов внутри `.app`, не микрофон и не работу интерфейса с оборудованием. [Журнал нативных проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38174692593).
+Серверные проверки macOS выполняются на macOS 15 и проверяют сборку, ресурсы и загрузку исполняемых файлов внутри `.app`, не микрофон и не работу интерфейса с оборудованием. [Журнал нативных проверок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/runs/38779634205).
 
 Приложения запускаются через `open`, резервная озвучка — встроенным `say`; ядро и библиотеки входят в `.app`. Для установки откройте `.dmg` и перенесите приложение в Applications. Разрешите микрофон в настройках конфиденциальности.
 
