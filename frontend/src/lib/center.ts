@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { TrainingData } from "./training"
 
-export type Reminder = { id: string, title: string, dueAt: string, done: boolean, advanceDays?: number[], announced?: string[], createdAt?: string, silentPast?:boolean }
+export type Reminder = { id: string, title: string, dueAt: string, done: boolean, advanceDays?: number[], announced?: string[], createdAt?: string, silentPast?:boolean, repeat?: 'daily' | 'none' }
 export type Birthday = { id: string, name: string, month: number, day: number, year?: number }
 export type ChecklistItem = { id: string, text: string, done: boolean }
 export type QuickTask = { id: string, text: string, done: boolean, createdAt?: string, updatedAt?: string }

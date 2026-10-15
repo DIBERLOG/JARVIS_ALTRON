@@ -19,9 +19,20 @@ async function main(){
  assert.equal(reminders.reminderAlert({...r,announced:[first.key]},Date.parse('2026-10-06T12:01:00')),null)
  assert.match(reminders.reminderAlert(r,Date.parse('2026-10-08T12:00:00')).text,/пришло время/)
  assert.equal(reminders.reminderAlert({...r,done:true},Date.parse('2026-10-09T12:00:00')),null)
+ const daily={...r,repeat:'daily',dueAt:'2026-10-05T09:00:00',createdAt:'2026-10-05T08:00:00',advanceDays:[1]}
+ const alert=reminders.reminderAlert(daily,Date.parse('2026-10-05T09:00:01'))
+ assert.match(alert.detail,/Ежедневно/)
+ assert.equal(reminders.reminderAlert({...daily,announced:[alert.key]},Date.parse('2026-10-05T10:00:00')),null)
+ assert.equal(reminders.reminderAlert(daily,Date.parse('2026-10-06T08:59:59')),null)
+ assert.notEqual(reminders.reminderAlert({...daily,announced:[alert.key]},Date.parse('2026-10-06T09:00:00')).key,alert.key)
+ assert.equal(reminders.reminderAlert({...daily,done:true},Date.parse('2026-10-06T09:00:00')),null)
+ assert.equal(reminders.reminderAlert({...daily,createdAt:'2026-10-05T10:00:00'},Date.parse('2026-10-05T11:00:00')),null)
+ assert.equal(reminders.reminderAlert({...daily,dueAt:'bad'},Date.now()),null)
  const rich=load('src/lib/richNotes.ts',{'dompurify':{default:require('dompurify')}}),training=load('src/lib/training.ts'),data={reminders:[r],birthdays:[{id:'b',name:'Друг',month:2,day:29}],notes:[{id:'n',title:'Запись',text:'Привет',updatedAt:now.toISOString(),html:'<p>Привет</p><script>evil()</script>'}],habits:[],training:training.defaultTraining()}
  const api={invoke:async()=> '{}'},backup=load('src/lib/centerBackup.ts',{'@tauri-apps/api/core':api,'./center':{loadCenterData:async()=>structuredClone(data)},'./weather':{getWeatherCity:async()=> 'Москва'},'./richNotes':rich})
  const snapshot=await backup.createCenterBackup(),parsed=backup.parseCenterBackup(JSON.stringify(snapshot))
+ assert.equal(backup.parseCenterBackup(JSON.stringify({...snapshot,data:{...data,reminders:[daily]}})).data.reminders[0].repeat,'daily');
+ assert.throws(()=>backup.parseCenterBackup(JSON.stringify({...snapshot,data:{...data,reminders:[{...r,repeat:'invalid'}]}})));
  assert.equal(parsed.city,'Москва');assert.equal(parsed.data.training.plans.length,4);assert.ok(!parsed.data.notes[0].html.includes('script'))
  assert.throws(()=>backup.parseCenterBackup(JSON.stringify({...snapshot,version:999})))
  assert.throws(()=>backup.parseCenterBackup(JSON.stringify({...snapshot,data:{...data,reminders:[{...r,dueAt:'bad'}]}})))

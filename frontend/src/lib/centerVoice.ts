@@ -117,7 +117,7 @@ export async function handleCenterVoice(raw: string) {
         }
         if(step.kind==='reminder-confirm') {
             if(!/^(да|давай|ага|угу|конечно|хорошо|ладно|окей|ок|согласен|верно|все верно|подтверждаю|подтверди|сохрани|сохранить|да сохрани|да подтверждаю)$/.test(text)){reply('Скажите да для сохранения либо отмена.','confirm_again',true);return}
-            const reminder={id:step.editId||makeId(),title:step.title!,dueAt:step.id!,done:false,advanceDays:step.advanceDays||[],announced:[],createdAt:new Date().toISOString(),silentPast:Date.parse(step.id!)<=Date.now()}
+            const reminder={id:step.editId||makeId(),title:step.title!,dueAt:step.id!,done:false,repeat:step.editId?data.reminders.find(item=>item.id===step.editId)?.repeat:undefined,advanceDays:step.advanceDays||[],announced:[],createdAt:new Date().toISOString(),silentPast:Date.parse(step.id!)<=Date.now()}
             if(step.editId){const index=data.reminders.findIndex(item=>item.id===step.editId);if(index<0)throw new Error('Напоминание уже удалено.');data.reminders[index]=reminder}
             else data.reminders.push(reminder)
             await save(data);pending=null;reply(step.editId?'Напоминание изменено, сэр. Новые текст и время сохранены.':'Напоминание сохранено, сэр.',step.editId?'':'reminder_saved');return

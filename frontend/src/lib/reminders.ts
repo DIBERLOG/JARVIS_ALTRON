@@ -41,7 +41,17 @@ export function parseReminderDate(raw: string, now = new Date(), allowPast=false
 
 export function reminderAlert(item: Reminder, now = Date.now()): {key:string;text:string;detail:string} | null {
     if (item.done) return null
-    const due=Date.parse(item.dueAt)
+    let due=Date.parse(item.dueAt)
+    if (!Number.isFinite(due)) return null
+    if(item.repeat==='daily') {
+        const anchor=new Date(due), today=new Date(now)
+        today.setHours(anchor.getHours(),anchor.getMinutes(),anchor.getSeconds(),anchor.getMilliseconds())
+        due=today.getTime()
+        if(due<Date.parse(item.dueAt) || due<Date.parse(item.createdAt || item.dueAt) || due>now)return null
+        const key=`${today.toISOString()}:daily`
+        if(item.announced?.includes(key))return null
+        return {key,text:`Сэр, пришло время: ${item.title}.`,detail:`Ежедневно · ${today.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}`}
+    }
     if (!Number.isFinite(due)) return null
     if(item.silentPast && due<=Date.parse(item.createdAt || item.dueAt))return null
     const offsets=[0,...new Set(item.advanceDays || [])].filter(n=>Number.isInteger(n)&&n>=0&&n<=365).sort((a,b)=>a-b)

@@ -20,7 +20,7 @@
                 if (due?.alert && get(ipcConnected)) {
                     const {item,alert}=due
                     const nextLedger=Object.fromEntries(data.reminders.filter(r=>ledger[r.id]).map(r=>[r.id,ledger[r.id]]))
-                    nextLedger[item.id]=[...(ledger[item.id] || []),alert.key]
+                    nextLedger[item.id]=[...(ledger[item.id] || []).slice(-30),alert.key]
                     if(!await invoke<boolean>('db_write',{key:'center_reminder_announcements',val:JSON.stringify(nextLedger)}))throw new Error('Не удалось сохранить отметку уведомления')
                     activeNotification.set({ id: Date.now(), title: "Напоминание", primary: item.title, detail: alert.detail })
                     sendAction('center_reply',{text:alert.text,reply_id:'reminder_notice',follow_up:false})

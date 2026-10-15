@@ -28,11 +28,13 @@
     let disposed = false
     onDestroy(() => { remoteCenterEditing.set(false); disposed = true; clearTimeout(noticeTimer) })
     let reminderTitle = "", reminderDue = defaultDue(selectedDay)
+    let reminderDaily = false
     let reminderAdvance: number[] = [], editingReminder: string | null = null
     function editReminder(item: Reminder) {
         editingReminder=item.id;reminderTitle=item.title
         const due=new Date(item.dueAt)
         reminderDue=`${dayKey(due)}T${String(due.getHours()).padStart(2,'0')}:${String(due.getMinutes()).padStart(2,'0')}`
+        reminderDaily=item.repeat==='daily'
         reminderAdvance=[...(item.advanceDays || [])]
     }
     let birthdayName = "", birthdayInput = ""
@@ -62,7 +64,7 @@
     $: reminders = [...data.reminders].sort((a, b) => a.dueAt.localeCompare(b.dueAt))
     $: birthdays = [...data.birthdays].sort((a, b) => nextBirthday(a).getTime() - nextBirthday(b).getTime())
     $: currentSection = sections.find(section => section.id === selectedSection) ?? sections[0]
-    $: selectedReminders = reminders.filter(item => dayKey(new Date(item.dueAt)) === selectedDay)
+    $: selectedReminders = reminders.filter(item => (item.repeat==='daily' ? selectedDay>=dayKey(new Date(item.dueAt)) : dayKey(new Date(item.dueAt)) === selectedDay))
     $: selectedBirthdays = data.birthdays.filter(item => birthdayOccursInYear(item, Number(selectedDay.slice(0, 4))) && dayKey(birthdayDate(item, Number(selectedDay.slice(0, 4)))) === selectedDay)
     $: pendingCount = data.reminders.filter(item => !item.done).length
 
@@ -90,7 +92,7 @@
     }
     function shiftMonth(delta: number) { month = new Date(month.getFullYear(), month.getMonth() + delta, 1) }
     function cellKey(day: number) { return dayKey(new Date(month.getFullYear(), month.getMonth(), day)) }
-    function hasReminder(day: number) { return data.reminders.some(item => !item.done && dayKey(new Date(item.dueAt)) === cellKey(day)) }
+    function hasReminder(day: number) { return data.reminders.some(item => !item.done && (item.repeat==='daily' ? cellKey(day)>=dayKey(new Date(item.dueAt)) : dayKey(new Date(item.dueAt)) === cellKey(day))) }
     function hasBirthday(day: number) { return data.birthdays.some(item => birthdayOccursInYear(item, month.getFullYear()) && dayKey(birthdayDate(item, month.getFullYear())) === cellKey(day)) }
     function formatDue(value: string) { return new Date(value).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }
     function birthdayCaption(item: CenterData["birthdays"][number]) {
@@ -114,14 +116,14 @@
         const title = reminderTitle.trim()
         if (!title || !reminderDue || saving) return
         if (Number.isNaN(new Date(reminderDue).getTime())) { error = "Укажите корректную дату напоминания"; return }
-        const item:Reminder={id:editingReminder||makeId(),title,dueAt:new Date(reminderDue).toISOString(),done:false,advanceDays:reminderAdvance,announced:[],createdAt:new Date().toISOString(),silentPast:new Date(reminderDue).getTime()<=Date.now()}
+        const item:Reminder={id:editingReminder||makeId(),title,dueAt:new Date(reminderDue).toISOString(),done:false,repeat:reminderDaily?'daily':'none',advanceDays:reminderDaily?[]:reminderAdvance,announced:[],createdAt:new Date().toISOString(),silentPast:new Date(reminderDue).getTime()<=Date.now()}
         const edited=!!editingReminder
         if(edited&&!data.reminders.some(existing=>existing.id===editingReminder)){error='Напоминание уже удалено';return}
         await persist({ ...data, reminders: edited?data.reminders.map(existing=>existing.id===editingReminder?item:existing):[...data.reminders,item] }, edited?'Напоминание изменено':'Напоминание сохранено')
         if (!error) {reminderTitle = '';editingReminder=null;sendAction('center_reply',{text:edited?'Напоминание изменено, сэр.':'Напоминание сохранено, сэр.',reply_id:edited?'':'reminder_saved',follow_up:false})}
     }
     async function toggleReminder(item: Reminder) {
-        await persist({ ...data, reminders: data.reminders.map(reminder => reminder.id === item.id ? { ...reminder, done: !reminder.done } : reminder) }, item.done ? "Напоминание возвращено" : "Готово")
+        await persist({ ...data, reminders: data.reminders.map(reminder => reminder.id === item.id ? { ...reminder, done: !reminder.done } : reminder) }, item.repeat==='daily' ? (item.done?'Ежедневный повтор включён':'Ежедневный повтор отключён') : item.done ? 'Напоминание возвращено' : 'Готово')
     }
     async function deleteReminder(id: string) { await persist({ ...data, reminders: data.reminders.filter(item => item.id !== id) }, "Напоминание удалено") }
     async function addBirthday() {
@@ -170,7 +172,7 @@
                 <div class="panel-top"><div><p class="section-index">КАЛЕНДАРЬ</p><h2>{monthLabel}</h2></div><div class="month-controls"><button aria-label="Предыдущий месяц" on:click={() => shiftMonth(-1)}>‹</button><button aria-label="Следующий месяц" on:click={() => shiftMonth(1)}>›</button></div></div>
                 <div class="calendar-grid">{#each weekdays as name}<span class="weekday">{name}</span>{/each}{#each calendarDays as day}{#if day}<button class="day" class:today={cellKey(day) === dayKey(today)} class:selected={cellKey(day) === selectedDay} aria-pressed={cellKey(day) === selectedDay} on:click={() => selectDay(day)}><span>{day}</span><i class="dots">{#if hasReminder(day)}<em class="reminder-dot"></em>{/if}{#if hasBirthday(day)}<em class="birthday-dot"></em>{/if}</i></button>{:else}<span class="day-spacer"></span>{/if}{/each}</div>
                 <div class="calendar-legend"><span><i class="reminder-dot"></i> Напоминание</span><span><i class="birthday-dot"></i> День рождения</span></div>
-                <div class="day-agenda"><div class="agenda-label">{new Date(`${selectedDay}T12:00`).toLocaleDateString("ru-RU", { day: "numeric", month: "long", weekday: "long" })}</div>{#if selectedReminders.length === 0 && selectedBirthdays.length === 0}<p>На этот день ничего не запланировано.</p>{/if}{#each selectedReminders as item}<p>◉ {item.title} · {formatDue(item.dueAt)}</p>{/each}{#each selectedBirthdays as item}<p>◆ День рождения: {item.name}</p>{/each}</div>
+                <div class="day-agenda"><div class="agenda-label">{new Date(`${selectedDay}T12:00`).toLocaleDateString("ru-RU", { day: "numeric", month: "long", weekday: "long" })}</div>{#if selectedReminders.length === 0 && selectedBirthdays.length === 0}<p>На этот день ничего не запланировано.</p>{/if}{#each selectedReminders as item}<p>◉ {item.title} · {item.repeat==='daily' ? 'Ежедневно · '+new Date(item.dueAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+(item.done?' · отключено':'') : formatDue(item.dueAt)}</p>{/each}{#each selectedBirthdays as item}<p>◆ День рождения: {item.name}</p>{/each}</div>
             </section>
             {:else if selectedSection === "news"}
                 <CenterNews />
@@ -187,12 +189,13 @@
                     <div class="panel-top"><div><p class="section-index">НЕ ЗАБЫТЬ</p><h2>Напоминания</h2></div><span class="panel-count">{pendingCount} активных</span></div>
                     <form class="entry-form" on:submit|preventDefault={addReminder}>
                         <input aria-label="Текст напоминания" maxlength="140" placeholder="Что нужно сделать?" bind:value={reminderTitle} required />
-                        <ReminderSchedule bind:value={reminderDue}/>
+                        <ReminderSchedule bind:value={reminderDue} daily={reminderDaily}/>
+                        <label class="daily-repeat"><input type="checkbox" bind:checked={reminderDaily}/> Ежедневно в выбранное время</label>
                         <button class="add-btn reminder-submit" disabled={saving || loading}>{editingReminder?'Сохранить изменения':'+ Создать напоминание'}</button>
-                        <fieldset class="advance-options"><legend>Предупредить заранее</legend><label><input type="checkbox" bind:group={reminderAdvance} value={1}/> За день</label><label><input type="checkbox" bind:group={reminderAdvance} value={2}/> За два дня</label><small>В назначенное время — всегда. Озвучка работает, пока JARVIS запущен.</small></fieldset>
-                        {#if editingReminder}<button type="button" class="edit-reminder" on:click={()=>{editingReminder=null;reminderTitle='';reminderAdvance=[]}}>Отменить редактирование</button>{/if}
+                        <fieldset class="advance-options" disabled={reminderDaily}><legend>Предупредить заранее</legend><label><input type="checkbox" bind:group={reminderAdvance} value={1}/> За день</label><label><input type="checkbox" bind:group={reminderAdvance} value={2}/> За два дня</label><small>В назначенное время — всегда. Озвучка работает, пока JARVIS запущен.</small></fieldset>
+                        {#if editingReminder}<button type="button" class="edit-reminder" on:click={()=>{editingReminder=null;reminderTitle='';reminderAdvance=[];reminderDaily=false}}>Отменить редактирование</button>{/if}
                     </form>
-                    <div class="entry-list">{#if loading}<p class="empty">Загружаю…</p>{:else if reminders.length === 0}<p class="empty">Пока пусто. Добавьте первое напоминание.</p>{:else}{#each reminders as item,index}<div class="entry" class:done={item.done}><button class="check" aria-label={item.done ? "Вернуть напоминание" : "Отметить выполненным"} aria-pressed={item.done} on:click={() => toggleReminder(item)} disabled={saving}>{item.done ? "✓" : ""}</button><div class="entry-copy"><strong>{index+1}. {item.title}</strong><small>{formatDue(item.dueAt)}{item.advanceDays?.length?' · заранее за '+item.advanceDays.join(' и ')+' дн.':''}</small></div><button class="edit-reminder" aria-label={`Изменить напоминание ${item.title}`} on:click={()=>editReminder(item)} disabled={saving}>✎</button><button class="remove" aria-label="Удалить напоминание {item.title}" title="Удалить" on:click={() => deleteReminder(item.id)} disabled={saving}>×</button></div>{/each}{/if}</div>
+                    <div class="entry-list">{#if loading}<p class="empty">Загружаю…</p>{:else if reminders.length === 0}<p class="empty">Пока пусто. Добавьте первое напоминание.</p>{:else}{#each reminders as item,index}<div class="entry" class:done={item.done}><button class="check" aria-label={item.repeat==='daily' ? (item.done?'Включить ежедневное напоминание':'Отключить ежедневное напоминание') : item.done ? 'Вернуть напоминание' : 'Отметить выполненным'} aria-pressed={item.done} on:click={() => toggleReminder(item)} disabled={saving}>{item.done ? "✓" : ""}</button><div class="entry-copy"><strong>{index+1}. {item.title}</strong><small>{item.repeat==='daily' ? 'Ежедневно · '+new Date(item.dueAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+(item.done?' · отключено':'') : formatDue(item.dueAt)}{item.advanceDays?.length?' · заранее за '+item.advanceDays.join(' и ')+' дн.':''}</small></div><button class="edit-reminder" aria-label={`Изменить напоминание ${item.title}`} on:click={()=>editReminder(item)} disabled={saving}>✎</button><button class="remove" aria-label="Удалить напоминание {item.title}" title="Удалить" on:click={() => deleteReminder(item.id)} disabled={saving}>×</button></div>{/each}{/if}</div>
                 </section>
             {:else if selectedSection === "birthdays"}
                 <section class="panel birthdays-panel" aria-label="Дни рождения">
