@@ -76,11 +76,32 @@ fn status(inner:&Inner)->Value{
 }
 #[tauri::command]
 pub fn lan_sync_status(app:tauri::AppHandle,state:tauri::State<'_,LanSync>)->Result<Value,String>{let mut i=state.inner.lock();init(&mut i,&app)?;Ok(status(&i))}
-#[tauri::command]
-pub fn lan_sync_addresses()->Vec<String>{if_addrs::get_if_addrs().unwrap_or_default().into_iter().filter_map(|a|match a.ip(){std::net::IpAddr::V4(ip) if private(ip)=>Some(ip.to_string()),_=>None}).collect::<BTreeSet<_>>().into_iter().collect()}
+#[tauri::command(async)]
+pub fn lan_sync_addresses()->Vec<String>{
+    #[cfg(windows)] { windows_lan_addresses() }
+    #[cfg(not(windows))] { if_addrs::get_if_addrs().unwrap_or_default().into_iter().filter_map(|a|match a.ip(){std::net::IpAddr::V4(ip) if private(ip)=>Some(ip.to_string()),_=>None}).collect::<BTreeSet<_>>().into_iter().collect() }
+}
+fn physical_addresses(bytes:&[u8])->Vec<String>{
+    #[derive(Deserialize)] struct Address {address:String,physical:bool,up:bool,gateway:bool,metric:u32}
+    let mut rows:Vec<Address>=serde_json::from_slice(bytes).unwrap_or_default();
+    rows.retain(|row|row.physical&&row.up&&row.address.parse::<Ipv4Addr>().is_ok_and(private));
+    rows.sort_by_key(|row|(!row.gateway,row.metric,row.address.clone()));
+    let mut seen=BTreeSet::new();rows.into_iter().filter_map(|row|seen.insert(row.address.clone()).then_some(row.address)).collect()
+}
+#[cfg(windows)]
+fn windows_lan_addresses()->Vec<String>{
+    use std::{os::windows::process::CommandExt,process::{Command,Stdio}};
+    let mut command=Command::new("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    command.args(["-NoProfile","-NonInteractive","-Command",include_str!("lan_addresses.ps1")]).creation_flags(0x08000000).stdout(Stdio::piped()).stderr(Stdio::null());
+    let Ok(mut child)=command.spawn() else{return vec![]};
+    let Some(mut stdout)=child.stdout.take() else{return vec![]};
+    let reader=std::thread::spawn(move||{let mut bytes=vec![];stdout.by_ref().take(256*1024).read_to_end(&mut bytes).map(|_|bytes)});
+    let deadline=Instant::now()+Duration::from_secs(20);
+    loop{match child.try_wait(){Ok(Some(exit))=>{let result=reader.join();return if exit.success(){result.ok().and_then(Result::ok).map(|bytes|physical_addresses(&bytes)).unwrap_or_default()}else{vec![]}},Ok(None) if Instant::now()<deadline=>std::thread::sleep(Duration::from_millis(30)),_=>{let _=child.kill();let _=child.wait();return vec![]}}}
+}
 #[derive(Serialize,Deserialize)]
 struct Certificate {cert:String,key:String}
-#[tauri::command]
+#[tauri::command(async)]
 pub fn lan_sync_start(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,ip:String,port:u16)->Result<Value,String>{
     if !jarvis_core::sync_profile::enabled(){return Err("Сначала создайте проверенную копию восстановления Sync v2".into());}
     let root=jarvis_core::sync_profile::root()?;let mut group=jarvis_core::sync_profile::load_at(&root)?;
@@ -90,7 +111,7 @@ pub fn lan_sync_start(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,ip:Str
         group.epoch=group.epoch.checked_add(1).ok_or("Исчерпаны версии ключей")?;group.keys.insert(group.epoch,jarvis_core::sync_profile::random_key());jarvis_core::sync_profile::save_at(&root,&group)?;journal.queue_recovery_history()?;journal.mark_hub_restore_rotated()?;
     }
     let ip:Ipv4Addr=ip.parse().map_err(|_|"Укажите локальный IPv4-адрес")?;
-    if !private(ip)||port<1024||!lan_sync_addresses().contains(&ip.to_string()){return Err("Выберите IPv4 этой машины в локальной сети и порт 1024–65535".into());}
+    if !private(ip)||port<1024||!lan_sync_addresses().contains(&ip.to_string()){return Err("Выберите подключение домашней сети и повторите. Виртуальные адаптеры не подходят для телефона.".into());}
     let mut i=state.inner.lock();init(&mut i,&app)?;
     if i.saved.rotation_pending{finish_pending_rotation(&mut i)?;}
     if i.runtime.as_ref().is_some_and(|r|!r.stop.load(Ordering::Relaxed)){return Err("Сначала остановите текущий обмен".into());}
@@ -349,6 +370,25 @@ pub fn lan_sync_resolve(app:tauri::AppHandle,state:tauri::State<'_,LanSync>,id:S
 }
 #[cfg(test)]
 mod tests {use super::*;
+    #[test] fn phone_addresses_exclude_virtual_and_disconnected_adapters(){
+        let rows=json!([
+            {"address":"172.29.48.1","physical":false,"up":true,"gateway":false,"metric":0},
+            {"address":"192.168.8.1","physical":false,"up":true,"gateway":true,"metric":1},
+            {"address":"10.0.0.2","physical":true,"up":false,"gateway":true,"metric":1},
+            {"address":"8.8.8.8","physical":true,"up":true,"gateway":true,"metric":1},
+            {"address":"192.168.4.2","physical":true,"up":true,"gateway":false,"metric":1},
+            {"address":"192.168.1.77","physical":true,"up":true,"gateway":true,"metric":45},
+            {"address":"192.168.1.77","physical":true,"up":true,"gateway":true,"metric":45}
+        ]);
+        assert_eq!(physical_addresses(&serde_json::to_vec(&rows).unwrap()),vec!["192.168.1.77","192.168.4.2"]);
+        assert!(physical_addresses(b"bad response").is_empty());
+    }
+    #[cfg(windows)] #[test] fn windows_address_discovery_returns_only_physical_candidates(){
+        let addresses=windows_lan_addresses();
+        if let Ok(expected)=std::env::var("JARVIS_EXPECT_LAN_ADDRESS"){assert!(addresses.contains(&expected),"Expected active home interface missing: {addresses:?}");}
+        let all=if_addrs::get_if_addrs().unwrap();
+        for address in addresses{assert!(all.iter().any(|adapter|adapter.ip().to_string()==address));assert!(private(address.parse().unwrap()));}
+    }
     #[test]
     #[ignore = "Explicit Android emulator wire test; fictional profile only"]
     fn android_tls_pairing_wire_fixture(){

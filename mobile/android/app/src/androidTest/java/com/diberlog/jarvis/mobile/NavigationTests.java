@@ -43,7 +43,7 @@ public class NavigationTests {
     @Test public void syncGuideAndRemoteCommandsHaveSeparateScreens()throws Exception{
         MainActivity a=open();JSONObject old=PrivateStorage.pairing(a);boolean auto=a.prefs.getBoolean("autoSync",false);
         try{a.prefs.edit().putBoolean("autoSync",false).commit();PrivateStorage.pairing(a,null);
-            instrumentation.runOnMainSync(()->{a.show(14);for(int n=0;n<3;n++)assertNotNull(a.page.findViewWithTag("sync-guide-"+n));assertEquals("Проверка синхронизации",MainActivity.SECTIONS[14]);a.show(15);assertNull(a.page.findViewWithTag("remote-command-fixture"));assertNull(a.remoteCommands);assertEquals("Команды компьютеру",MainActivity.SECTIONS[15]);});
+            instrumentation.runOnMainSync(()->{a.show(14);for(int n=0;n<3;n++)assertNotNull(a.page.findViewWithTag("sync-guide-"+n));assertEquals("Как работает синхронизация",MainActivity.SECTIONS[14]);a.show(15);assertNull(a.page.findViewWithTag("remote-command-fixture"));assertNull(a.remoteCommands);assertEquals("Команды компьютеру",MainActivity.SECTIONS[15]);});
             PrivateStorage.pairing(a,new JSONObject().put("host","192.168.1.42").put("port",47832).put("token","fictional-token"));
             JSONArray commands=new JSONArray().put(new JSONObject().put("id","fixture").put("title","Тестовая разрешённая команда"));
             instrumentation.runOnMainSync(()->{a.remoteCommands=commands;a.show(15);assertNotNull(a.page.findViewWithTag("remote-command-fixture"));});
