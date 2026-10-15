@@ -1,5 +1,5 @@
 {
-  "productName": "jarvis-altron-sync-v2-lab",
+  "productName": "jarvis-altron",
   "bundle": {
     "targets": ["deb", "appimage"],
     "externalBin": ["../../target/release/jarvis-app-sync-v2-lab"],
