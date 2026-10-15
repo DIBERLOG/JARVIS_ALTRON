@@ -1,4 +1,4 @@
-name: Android Sync v2 LAB Debug APK
+name: Android build and tests
 on:
   workflow_dispatch:
   pull_request:
@@ -32,10 +32,10 @@ jobs:
       - name: Verify testing signature and prepare APK
         run: |
           mkdir -p mobile/android/dist
-          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/JARVIS-Mobile-1.1.0-Sync-v2-LAB-debug.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose mobile/android/dist/JARVIS-Mobile-1.1.0-Sync-v2-LAB-debug.apk
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/JARVIS-Mobile-1.1.15-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose mobile/android/dist/JARVIS-Mobile-1.1.15-debug.apk
           cd mobile/android/dist
-          sha256sum JARVIS-Mobile-1.1.0-Sync-v2-LAB-debug.apk > SHA256SUMS.txt
+          sha256sum JARVIS-Mobile-1.1.15-debug.apk > SHA256SUMS.txt
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -52,7 +52,7 @@ jobs:
           script: gradle --no-daemon connectedDebugAndroidTest
       - uses: actions/upload-artifact@v4
         with:
-          name: jarvis-android-1.1.0-sync-v2-lab-debug
+          name: jarvis-android-1.1.15-debug
           path: mobile/android/dist/*
           if-no-files-found: error
       - uses: actions/upload-artifact@v4

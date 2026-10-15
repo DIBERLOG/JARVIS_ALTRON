@@ -75,7 +75,7 @@
             </a>
             <div class="logo-text">
                 <span class="logo-title"><a href="/" id="jarvis-logo">&nbsp;</a></span>
-                <span class="logo-version"><small>v</small>{appVersion.split('-')[0]} <span class="v-badge" title="Тестовая сборка синхронизации устройств">Sync · LAB</span></span>
+                <span class="logo-version"><small>v</small>{appVersion.split('-')[0]} <span class="v-badge" title="Синхронизация устройств">Sync</span></span>
             </div>
         </div>
     </div>

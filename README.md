@@ -9,11 +9,11 @@
 Настольный помощник для повседневных дел и офисных задач.<br>
 Локальные инструменты, подключаемые модели и контроль пользователя.
 
-[![Версия 1.0.0 — Release](https://img.shields.io/badge/1.0.0-RELEASE-35d4cf?style=for-the-badge)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0)
+[![Версия 1.1.15 — Release](https://img.shields.io/badge/1.1.15-RELEASE-35d4cf?style=for-the-badge)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15)
 [![Основная платформа — Windows](https://img.shields.io/badge/PLATFORM-WINDOWS-35d4cf?style=for-the-badge)](#platforms)
 [![Linux — экспериментальная сборка](https://img.shields.io/badge/Linux-EXPERIMENTAL-f5bc42?style=for-the-badge&logo=linux&logoColor=white)](#platforms)
 [![macOS — Intel и Apple Silicon](https://img.shields.io/badge/macOS-INTEL_/_APPLE_SILICON-f5bc42?style=for-the-badge&logo=apple)](#platforms)
-[![Android — Mobile LAB](https://img.shields.io/badge/Android-MOBILE_LAB-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0-mobile-lab)
+[![Android — Release](https://img.shields.io/badge/Android-RELEASE-3ddc84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15)
 
 <br>
 
@@ -26,7 +26,7 @@
 [![Сборка Android](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml/badge.svg?branch=master)](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml)
 [![Последний коммит](https://img.shields.io/github/last-commit/DIBERLOG/JARVIS_ALTRON/master?style=flat-square&label=LAST%20COMMIT&color=35d4cf)](https://github.com/DIBERLOG/JARVIS_ALTRON/commits/master/)
 
-**[Скачать Windows-релиз](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0) · [Linux / macOS](#platforms) · [Установка](docs/INSTALL.md) · [Документация](#documentation) · [Лицензия](LICENSE.txt)**
+**[Скачать Windows-релиз](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15) · [Linux / macOS](#platforms) · [Установка](docs/INSTALL.md) · [Документация](#documentation) · [Лицензия](LICENSE.txt)**
 
 [![Сообщить об ошибке по почте](https://img.shields.io/badge/FEEDBACK-workspace34t%40gmail.com-218c99?style=flat-square&logo=gmail&logoColor=white)](mailto:workspace34t@gmail.com)
 
@@ -35,21 +35,21 @@
 ---
 
 > [!WARNING]
-> **Release 1.0.0:** экспериментальные разделы «Агенты · LAB», Microsoft 365 и перенос на другие ОС могут работать некорректно. Сообщайте об ошибках на [workspace34t@gmail.com](mailto:workspace34t@gmail.com). Не прикладывайте ключи и личные данные.
+> **Release 1.1.15:** экспериментальные разделы «Агенты · LAB», Microsoft 365 и перенос на другие ОС могут работать некорректно. Сообщайте об ошибках на [workspace34t@gmail.com](mailto:workspace34t@gmail.com). Не прикладывайте ключи и личные данные.
 
-В [релизе v1.0.0](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0) опубликован Windows x64 установщик. Статус экспериментальных сборок Linux/macOS и мобильного проекта указан [отдельно для каждой платформы](#platforms). Старый пререлиз v0.9.0 остаётся без установщика и не содержит последующих доработок автоматически.
+В [релизе v1.1.15](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15) опубликованы актуальные Windows-установщик и Android APK. Android и синхронизация устройств теперь распространяются как обычный релиз. Старые версии сохранены в истории выпусков.
 
 ## Версии и поддержка устройств
 
 | Платформа | Версия и статус | Установка и особенности |
 | --- | --- | --- |
-| 🪟 Windows x64 | **1.0.0 · Release** | [Установщик](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0). Классический Outlook / Kerio доступны только здесь |
+| 🪟 Windows x64 | **1.1.15 · Release** | [Установщик](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15). Классический Outlook / Kerio доступны только здесь |
 | 🐧 Linux x64 | **1.0.0 · экспериментальная** | Пакеты и инструкция — [Linux](#platforms). Голос и системные действия требуют проверки на реальном устройстве |
 | 🍎 macOS | **1.0.0 · экспериментальная** | Отдельные сборки Intel и Apple Silicon — [macOS](#platforms). Потребуются разрешения микрофона; Kerio не переносится |
-| 📱 Android 8+ | **1.0.0 · Mobile LAB** | [Скачать APK и Windows-компаньон](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0-mobile-lab); [мобильная инструкция](mobile/android/README.md). Личный центр и чат; без почты и агентов |
+| 📱 Android 8+ | **1.1.15 · Release** | [Скачать APK и Windows](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15); [мобильная инструкция](mobile/android/README.md). Личный центр и чат; без почты и агентов |
 
 > [!IMPORTANT]
-> Сборка без ошибок не заменяет тестирование на устройстве. Обмен по Wi-Fi требует новой компьютерной сборки с разделом «Синхронизация с телефоном»: ранее выпущенный Windows-установщик не обновляется автоматически. Для первого теста сейфа используйте вымышленные пароли.
+> Сборка без ошибок не заменяет тестирование на устройстве. Обмен по Wi-Fi требует новой компьютерной сборки с разделом «Синхронизация с телефоном»: ранее выпущенный Windows-установщик не обновляется автоматически. Перед обновлением сохраните резервную копию важных данных.
 
 ### Телефон ↔ компьютер: без облачного хранилища
 
@@ -162,7 +162,7 @@ flowchart TB
 
 ## Первый запуск
 
-**Начните здесь: [пошаговая установка для всех платформ](docs/INSTALL.md).** На Windows используйте установщик из Releases; Linux/macOS доступны как экспериментальные пакеты, Android — как тестовый APK из Actions. Для разработчиков есть инструкции сборки.
+**Начните здесь: [пошаговая установка для всех платформ](docs/INSTALL.md).** На Windows используйте установщик из Releases; Linux/macOS доступны как экспериментальные пакеты, Android — как подписанный APK из Releases. Для разработчиков есть инструкции сборки.
 
 У приложения два процесса:
 
@@ -413,20 +413,20 @@ cargo test -p jarvis-gui
 
 | Система | Версия / статус | Архитектура | Пакет |
 | --- | --- | --- | --- |
-| 🖥️ Windows | **1.0.0 · Release** | x64 | Установщик `.exe` — опубликован |
+| 🖥️ Windows | **1.1.15 · Release** | x64 | Установщик `.exe` — опубликован |
 | 🐧 Linux | **1.0.0 · Experimental** | x64 | `.deb` / AppImage — сборка, установка `.deb` и проверки CI пройдены |
 | 🍎 macOS · Intel | **1.0.0 · Experimental** | x86_64 | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
 | 🍎 macOS · Apple Silicon | **1.0.0 · Experimental** | arm64 · M-серия | `.dmg` — сборка и проверки ресурсов / загрузчика пройдены |
-| 📱 Android | **1.0.0 · Mobile LAB** | Отдельный мобильный проект | Тестовый APK в Actions; проверка на реальном телефоне ещё нужна |
+| 📱 Android | **1.1.15 · Release** | Android 8+ | Подписанный APK в Releases; обновление поверх прежнего приложения |
 
 > [!NOTE]
 > Экспериментальные пакеты доступны как **ZIP-артефакты GitHub Actions**, отдельно от Windows Releases. Распакуйте ZIP и выберите `.deb`, AppImage или `.dmg`. GitHub может запросить вход; артефакты хранятся ограниченное время. Успешная сборка не подтверждает работу микрофона и всех функций на реальном устройстве.
 
 ### 🖥️ Windows — готовый релиз
 
-[![Windows 1.0.0](https://img.shields.io/badge/Windows-1.0.0_Release-35d4cf?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0)
+[![Windows 1.1.15](https://img.shields.io/badge/Windows-1.1.15_Release-35d4cf?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15)
 
-Скачайте установщик x64 из [Releases](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.0.0), закройте старый JARVIS и выполните установку. Классический Outlook / Kerio и Windows-сценарии доступны только здесь. Установщик неподписан; проверка на чистой Windows ещё предстоит.
+Скачайте установщик x64 из [Releases](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15), закройте старый JARVIS и выполните установку. Классический Outlook / Kerio и Windows-сценарии доступны только здесь. Установщик неподписан; проверка на чистой Windows ещё предстоит.
 
 ### 🐧 Linux — отдельная настольная версия
 
@@ -460,27 +460,11 @@ cargo test -p jarvis-gui
 > [!IMPORTANT]
 > Mac-пакеты пока без Developer ID и нотариализации. Gatekeeper может блокировать запуск. Не отключайте защиту системы глобально. [Установка и разрешения macOS](docs/CROSS_PLATFORM.md#для-пользователей).
 
-### 📱 Android — сокращённый Mobile LAB
+### 📱 Android — JARVIS Mobile
 
-Личный центр, чат DeepSeek/OpenAI, заметки, таймер, напоминания, дни рождения, погода, привычки, тренировки и зашифрованный сейф — отдельное облегчённое приложение. Почта и агенты исключены. [APK из успешных сборок](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/android.yml), [установка и обмен по Wi-Fi](mobile/android/README.md). Тесты на эмуляторе не заменяют проверку на вашем телефоне.
+[Скачать JARVIS Mobile 1.1.15](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.15). Обычный выпуск для Android 8+. Устанавливается поверх прежнего приложения: подпись и данные сохраняются.
 
-<details>
-<summary><strong>🛠️ Для разработчиков: собрать Linux/macOS самостоятельно</strong></summary>
-
-Установите Rust, Node.js и системные зависимости по [инструкции сборки](docs/CROSS_PLATFORM.md#для-разработчиков), затем в корне проекта выполните:
-
-```bash
-bash tools/package-desktop.sh
-```
-
-Собирайте на нужной ОС и архитектуре. Скрипт подготавливает нативный Vosk, голосовое ядро и установочные пакеты. Выходные файлы находятся в `target/release/bundle/`. Для обычного запуска готового пакета инструменты разработчика не нужны.
-
-[GitHub Actions: сборки Linux и двух архитектур Mac](https://github.com/DIBERLOG/JARVIS_ALTRON/actions/workflows/desktop-unix.yml) сохраняет пакеты как артефакты успешного запуска, но не заменяет релиз автоматически.
-
-</details>
-
-> [!NOTE]
-> **Experimental ≠ проверенный релиз.** Голос, микрофон, установка, уведомления и сохранение данных после обновления требуют проверки на настоящих устройствах. Kerio / классический Outlook и AutoHotkey не переносятся на Linux/macOS. Microsoft 365 — отдельная экспериментальная интеграция.
+Заметки, задачи, напоминания, привычки, тренировки, новости, погода, чат с документами и синхронизация с компьютером. [Установка и подключение](docs/ANDROID.md).
 
 ## История развития · 0.1.0 → 1.0.0
 
@@ -499,13 +483,13 @@ bash tools/package-desktop.sh
 | 0.9.0 · Pre-release | Итоговое объединение доработок почты и Центра, документация и обратная связь по email. |
 | 1.0.0 · Release | Windows-установщик, автоматический запуск ядра, OpenAI, история чатов и экспорт, «Агенты · LAB», документы и форматирование результатов, обновлённый логотип. |
 
-Исходники содержат экспериментальную адаптацию Linux/macOS/Android — это не заявление о готовой поддержке. Доработки переноса после Windows-релиза доступны в ветке `master` и тестовых сборках Actions; старые теги и уже скачанные установщики не обновляются автоматически.
+Исходники содержат экспериментальную адаптацию Linux/macOS — это не заявление о готовой поддержке. Доработки переноса после Windows-релиза доступны в ветке `master` и тестовых сборках Actions; старые теги и уже скачанные установщики не обновляются автоматически.
 
 Напоминания и сигналы таймера зависят от запущенного GUI; они не будят выключенный компьютер. Будущие дни рождения отображаются начиная с указанного года.
 
 Тренировки — дневник и вспомогательные правила, не медицинская диагностика или гарантия безопасных рабочих весов. Нагрузка задаётся пользователем.
 
-Не заявляются полное голосовое управление каждым действием Центра, автономное выполнение офисных процессов, облачная синхронизация, восстановление несохранённых старых диалогов и гарантированная доступность внешних источников. Прямой обмен по Wi-Fi — отдельная экспериментальная функция новых сборок.
+Не заявляются полное голосовое управление каждым действием Центра, автономное выполнение офисных процессов, облачная синхронизация, восстановление несохранённых старых диалогов и гарантированная доступность внешних источников. Прямой обмен по Wi-Fi доступен между актуальными Windows и Android.
 
 ## Авторство и лицензия
 
