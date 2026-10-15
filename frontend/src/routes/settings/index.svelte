@@ -1,27 +1,25 @@
 <script lang="ts">
     import {appearance} from "@/lib/appearance"
-    import { onMount } from "svelte"
+    import { onMount, onDestroy } from "svelte"
     import { invoke } from "@tauri-apps/api/core"
-    import { goto } from "@roxi/routify"
     import { setTimeout } from "worker-timers"
 
     import { showInExplorer } from "@/functions"
     import { appInfo, assistantVoice, translations, translate } from "@/stores"
     import { ipcConnected, microphoneMuted, microphoneMuteKnown, setMicrophoneMuted } from "@/lib/ipc"
 
-    import HDivider from "@/components/elements/HDivider.svelte"
     import Footer from "@/components/Footer.svelte"
     import ListeningShortcut from "@/components/ListeningShortcut.svelte"
     import CenterDataTransfer from '@/components/CenterDataTransfer.svelte'
     import LanSync from '@/components/LanSync.svelte'
     import ChatProviderSettings from '@/components/ChatProviderSettings.svelte'
     import ScheduleWebsite from '@/components/ScheduleWebsite.svelte'
+    import {recordingShortcut} from '@/lib/listeningShortcut'
 
     import {
         Notification,
-        Button,
         Text,
-        Tabs,
+
         Space,
         Alert,
         Input,
@@ -31,12 +29,12 @@
     } from "@svelteuidev/core"
 
     import {
+        Link2, Archive, Globe, MixerHorizontal, InfoCircled,
         Check,
         Mix,
         Cube,
         Code,
         Gear,
-        QuestionMarkCircled,
         CrossCircled
     } from "radix-icons-svelte"
 
@@ -75,6 +73,23 @@
     let availableMicrophones: MicrophoneOption[] = []
     let availableVoskModels: { label: string; value: string }[] = []
     let availableGlinerModels: { label: string; value: string }[] = []
+    type Section = 'general'|'voice'|'models'|'devices'|'data'|'automation'|'advanced'|'about'
+    const sections: {id:Section,title:string,description:string,icon:any,group:string}[] = [
+        {id:'general',title:'Основные',description:'Оформление, микрофон и управление слушанием.',icon:Gear,group:'Ассистент'},
+        {id:'voice',title:'Голос и звук',description:'Голос, характер ответов и вывод звука.',icon:Mix,group:'Ассистент'},
+        {id:'models',title:'Нейросеть',description:'Модель для общения и ключи доступа.',icon:Cube,group:'Ассистент'},
+        {id:'devices',title:'Устройства',description:'Подключение телефона и обмен данными.',icon:Link2,group:'Ваши данные'},
+        {id:'data',title:'Данные и копии',description:'Перенос записей и резервное копирование.',icon:Archive,group:'Ваши данные'},
+        {id:'automation',title:'Сайты и команды',description:'Ваши ссылки для голосовых команд.',icon:Globe,group:'Ещё'},
+        {id:'advanced',title:'Дополнительно',description:'Распознавание речи и обработка микрофона.',icon:MixerHorizontal,group:'Ещё'},
+        {id:'about',title:'О приложении',description:'Версия JARVIS, поддержка и диагностика.',icon:InfoCircled,group:'Ещё'}
+    ]
+    let active:Section='general', loaded=false, loadError='', savedSnapshot='', appVersion=''
+    function chooseSection(section:Section){recordingShortcut.set(false);active=section}
+    $: selectedSection=sections.find(section=>section.id===active)!
+    $: settingsValues={voiceVal,selectedMicrophone,selectedWakeWordEngine,selectedIntentRecognitionEngine,selectedSlotExtractionEngine,selectedGlinerModel,selectedVoskModel,selectedNoiseSuppression,selectedVad,gainNormalizerEnabled,voiceDialoguePersonality,ttsMode,audioOutputMode,monitorSelf,apiKeyPicovoice}
+    $: dirty=loaded&&JSON.stringify(settingsValues)!==savedSnapshot
+    function discard(){if(!loaded||saveButtonDisabled)return;({voiceVal,selectedMicrophone,selectedWakeWordEngine,selectedIntentRecognitionEngine,selectedSlotExtractionEngine,selectedGlinerModel,selectedVoskModel,selectedNoiseSuppression,selectedVad,gainNormalizerEnabled,voiceDialoguePersonality,ttsMode,audioOutputMode,monitorSelf,apiKeyPicovoice}=JSON.parse(savedSnapshot));saveError='';settingsSaved=false}
     let settingsSaved = false
     let saveError = ""
     let saveButtonDisabled = false
@@ -97,19 +112,22 @@
     let apiKeyPicovoice = ""
 
     // subscribe to stores
-    assistantVoice.subscribe(value => {
+    const stopVoiceSubscription=assistantVoice.subscribe(value => {
         voiceVal = value
     })
 
     let feedbackLink = ""
     let logFilePath = ""
-    appInfo.subscribe(info => {
+    const stopInfoSubscription=appInfo.subscribe(info => {
         feedbackLink = info.feedbackLink
         logFilePath = info.logFilePath
     })
+    onDestroy(()=>{stopVoiceSubscription();stopInfoSubscription()})
 
     // ### FUNCTIONS
     async function saveSettings() {
+        if(!loaded||saveButtonDisabled||!dirty)return
+        const submitted=JSON.stringify(settingsValues)
         saveButtonDisabled = true
         settingsSaved = false
         saveError = ""
@@ -135,6 +153,7 @@
 
             // update shared store
             assistantVoice.set(voiceVal)
+            savedSnapshot = submitted
             settingsSaved = true
 
             // hide alert after 5 seconds
@@ -154,6 +173,7 @@
 
     // ### INIT
     onMount(async () => {
+        try{appVersion=await invoke<string>("get_app_version")}catch{}
         // load voices
         try {
             const voices = await invoke<VoiceConfig[]>("list_voices")
@@ -232,80 +252,47 @@
             monitorSelf = savedMonitorSelf === "true"
             audioOutputMode = await invoke<string>("db_read", { key: "audio_output_mode" }) === "voicemod" ? "voicemod" : "direct"
             apiKeyPicovoice = pico
+            voiceVal = await invoke<string>("db_read", {key:"assistant_voice"})
+            savedSnapshot = JSON.stringify({voiceVal,selectedMicrophone,selectedWakeWordEngine,selectedIntentRecognitionEngine,selectedSlotExtractionEngine,selectedGlinerModel,selectedVoskModel,selectedNoiseSuppression,selectedVad,gainNormalizerEnabled,voiceDialoguePersonality,ttsMode,audioOutputMode,monitorSelf,apiKeyPicovoice})
+            loaded = true
         } catch (err) {
+            loadError = "Не удалось загрузить настройки. Повторите открытие страницы."
             console.error("failed to load settings:", err)
         }
     })
 </script>
 
-<Space h="xl" />
-
-<header class="settings-heading"><p>КОНТРОЛЬНЫЙ ЦЕНТР</p><h1>Настройки</h1><span>Слушание, голос, модели и перенос данных — каждый в своём разделе.</span></header>
-<section class="appearance-picker"><label for="app-appearance">Тема приложения</label><select id="app-appearance" bind:value={$appearance}><option value="dark">Тёмная</option><option value="light">Светлая</option><option value="system">Как в системе</option></select><p>Применяется ко всем разделам и сохраняется автоматически.</p></section>
-<Notification
-    title={t('settings-beta-title')}
-    icon={QuestionMarkCircled}
-    color="blue"
-    withCloseButton={false}
->
-    {t('settings-beta-desc')}<br />
-    {t('settings-beta-feedback')} <a href={feedbackLink} target="_blank">{t('settings-beta-bot')}</a>.
-    <Space h="sm" />
-    <Button
-        color="gray"
-        radius="md"
-        size="xs"
-        uppercase
-        on:click={() => showInExplorer(logFilePath)}
-    >
-        {t('settings-open-logs')}
-    </Button>
-</Notification>
-
-<Space h="xl" />
-
-{#if settingsSaved}
-    <Notification
-        title={t('notification-saved')}
-        icon={Check}
-        color="teal"
-        on:close={() => { settingsSaved = false }}
-    />
-    <Space h="xl" />
-{/if}
-{#if saveError}
-    <Notification title="Ошибка сохранения" color="red" on:close={() => { saveError = "" }}>
-        {saveError}
-    </Notification>
-    <Space h="xl" />
-{/if}
-
-<Tabs class="form" color="#52fefe" position="left">
-    <Tabs.Tab label="Слушание и диалог" icon={Gear}>
+<div class="settings-workspace">
+    <header class="settings-heading"><div><p class="kicker">JARVIS / ПРЕДПОЧТЕНИЯ</p><h1>Настройки</h1><p class="intro">Ваш ассистент. Ваш привычный ритм.</p></div><span class="connection" class:connected={$ipcConnected}><i></i>{$ipcConnected?'Голосовой модуль подключён':'Голосовой модуль не подключён'}</span></header>
+    <div class="settings-layout">
+        <aside class="settings-sidebar"><nav aria-label="Разделы настроек">{#each ['Ассистент','Ваши данные','Ещё'] as group}<p class="nav-group">{group}</p>{#each sections.filter(section=>section.group===group) as section}<button type="button" class:chosen={active===section.id} aria-current={active===section.id?'page':undefined} aria-controls={'settings-'+section.id} on:click={()=>chooseSection(section.id)}><span class="nav-icon"><svelte:component this={section.icon} width="18" height="18"/></span><span>{section.title}</span>{#if dirty&&['general','voice','advanced'].includes(section.id)}<span class="unsaved-dot" aria-hidden="true" title="Несохранённые изменения"></span>{/if}</button>{/each}{/each}</nav><div class="sidebar-note"><span>JARVIS</span><small>Всё важное — на своём месте.</small></div></aside>
+        <div class="settings-content">
+            <header class="section-heading"><div class="section-icon"><svelte:component this={selectedSection.icon} width="24" height="24"/></div><div><h2>{selectedSection.title}</h2><p>{selectedSection.description}</p></div></header>
+            {#if !loaded&&!loadError}<p class="load-state" role="status">Загружаем настройки…</p>{/if}
+            {#if loadError}<div class="status-message error" role="alert">{loadError}<button type="button" on:click={()=>window.location.reload()}>Повторить</button></div>{/if}
+            <section id="settings-general" hidden={active!=='general'} aria-label="Основные">
+                <article class="settings-card"><div class="card-heading"><h3>Оформление</h3><span class="autosave">Сохраняется сразу</span></div><label class="field-label" for="app-appearance">Тема приложения</label><select id="app-appearance" bind:value={$appearance}><option value="dark">Тёмная</option><option value="light">Светлая</option><option value="system">Как в системе</option></select><p class="hint">Одна тема для всех разделов JARVIS.</p></article>
+                <article class="settings-card"><div class="card-heading"><h3>Слушание и микрофон</h3><span class="autosave">Слушание — сразу</span></div>
         <Space h="sm" />
         <section class="global-listening" class:muted={$microphoneMuted} aria-label="Глобальное прослушивание микрофона">
-            <div><p class="module-label">МИКРОФОН JARVIS</p><h3>{$microphoneMuted ? "Прослушивание на паузе" : "JARVIS слушает"}</h3><p>Выключает распознавание слова «Джарвис» и голосовых команд. Текстовый чат продолжает работать.</p></div>
-            <button type="button" on:click={() => setMicrophoneMuted(!$microphoneMuted)} disabled={!$ipcConnected || !$microphoneMuteKnown} aria-pressed={$microphoneMuted} aria-label={$microphoneMuted ? "Включить глобальное прослушивание микрофона" : "Остановить глобальное прослушивание микрофона"}>{$microphoneMuted ? "Не слушать" : "Слушать"}</button>
+            <div><p class="module-label">МИКРОФОН JARVIS</p><h3>{!$ipcConnected ? "Голосовой модуль не подключён" : !$microphoneMuteKnown ? "Проверяем состояние…" : $microphoneMuted ? "Прослушивание на паузе" : "JARVIS слушает"}</h3><p>Выключает распознавание слова «Джарвис» и голосовых команд. Текстовый чат продолжает работать.</p></div>
+            <button type="button" on:click={() => setMicrophoneMuted(!$microphoneMuted)} disabled={!$ipcConnected || !$microphoneMuteKnown} aria-pressed={$microphoneMuted} aria-label={$microphoneMuted ? "Включить глобальное прослушивание микрофона" : "Остановить глобальное прослушивание микрофона"}>{$microphoneMuted ? "Включить" : "Приостановить"}</button>
         </section>
         <Space h="xl" />
         <ListeningShortcut />
         <Space h="xl" />
-        <section class="dialogue-personality" class:altron={voiceDialoguePersonality === "altron"} aria-labelledby="dialogue-personality-title">
-            <p class="module-label">ГОЛОСОВОЙ ДИАЛОГ</p>
-            <h3 id="dialogue-personality-title">Характер ответов</h3>
-            <p>Используется только после команды «Джарвис, давай пообщаемся». Текстовый чат настраивается отдельно.</p>
-            <div class="personality-options">
-                <button type="button" class:active={voiceDialoguePersonality === "jarvis"} on:click={() => voiceDialoguePersonality = "jarvis"}>
-                    <strong>JARVIS</strong><span>Дружелюбный оптимист-реалист: честно оценивает риски и помогает действовать.</span>
-                </button>
-                <button type="button" class:active={voiceDialoguePersonality === "altron"} on:click={() => voiceDialoguePersonality = "altron"}>
-                    <strong>ALTRON</strong><span>Презирает слабости человечества, но холодно и реалистично помогает тебе.</span>
-                </button>
-            </div>
-        </section>
-        <Space h="xl" />
-    </Tabs.Tab>
-    <Tabs.Tab label="Голос и звук" icon={Mix}>
+<fieldset disabled={!loaded||saveButtonDisabled}><div class="field-block">
+        <Space h="sm" />
+        <NativeSelect
+            data={availableMicrophones}
+            label={t('settings-microphone')}
+            description={t('settings-microphone-desc')}
+            variant="filled"
+            bind:value={selectedMicrophone}
+        />
+    </div></fieldset></article>
+            </section>
+            <section id="settings-voice" hidden={active!=='voice'} aria-label="Голос и звук"><fieldset disabled={!loaded||saveButtonDisabled}><article class="settings-card">
         <section class="tts-mode" aria-labelledby="tts-mode-title">
             <p class="module-label">ОЗВУЧКА ОТВЕТОВ</p>
             <h3 id="tts-mode-title">Как будет говорить ассистент</h3>
@@ -369,20 +356,26 @@
                 {/if}
             </div>
         </div>
-    </Tabs.Tab>
-
-    <Tabs.Tab label="Микрофон" icon={Mix}>
-        <Space h="sm" />
-        <NativeSelect
-            data={availableMicrophones}
-            label={t('settings-microphone')}
-            description={t('settings-microphone-desc')}
-            variant="filled"
-            bind:value={selectedMicrophone}
-        />
-    </Tabs.Tab>
-
-    <Tabs.Tab label="Распознавание речи" icon={Cube}>
+    </article><article class="settings-card">        <section class="dialogue-personality" class:altron={voiceDialoguePersonality === "altron"} aria-labelledby="dialogue-personality-title">
+            <p class="module-label">ГОЛОСОВОЙ ДИАЛОГ</p>
+            <h3 id="dialogue-personality-title">Характер ответов</h3>
+            <p>Используется только после команды «Джарвис, давай пообщаемся». Текстовый чат настраивается отдельно.</p>
+            <div class="personality-options">
+                <button type="button" class:active={voiceDialoguePersonality === "jarvis"} on:click={() => voiceDialoguePersonality = "jarvis"}>
+                    <strong>JARVIS</strong><span>Дружелюбный оптимист-реалист: честно оценивает риски и помогает действовать.</span>
+                </button>
+                <button type="button" class:active={voiceDialoguePersonality === "altron"} on:click={() => voiceDialoguePersonality = "altron"}>
+                    <strong>ALTRON</strong><span>Презирает слабости человечества, но холодно и реалистично помогает тебе.</span>
+                </button>
+            </div>
+        </section>
+        <Space h="xl" />
+    </article></fieldset></section>
+            <section id="settings-models" hidden={active!=='models'} aria-label="Нейросеть"><ChatProviderSettings /></section>
+            <section id="settings-devices" hidden={active!=='devices'} aria-label="Устройства"><LanSync /></section>
+            <section id="settings-data" hidden={active!=='data'} aria-label="Данные и копии"><CenterDataTransfer /><p class="hint">Беседы можно сохранить в разделе «Чат» через меню экспорта.</p></section>
+            <section id="settings-automation" hidden={active!=='automation'} aria-label="Сайты и команды"><ScheduleWebsite /></section>
+            <section id="settings-advanced" hidden={active!=='advanced'} aria-label="Дополнительно"><article class="settings-card"><h3>Распознавание и обработка речи</h3><p class="hint">Если ассистент слышит вас правильно, эти параметры можно оставить без изменений.</p><fieldset disabled={!loaded||saveButtonDisabled}>
         <Space h="sm" />
         <NativeSelect
             data={[
@@ -396,7 +389,7 @@
             bind:value={selectedWakeWordEngine}
         />
 
-        {#if selectedWakeWordEngine === "picovoice"}
+        {#if selectedWakeWordEngine === "Picovoice"}
             <Space h="sm" />
             <Alert title={t('settings-attention')} color="#868E96" variant="outline">
                 <Notification
@@ -414,7 +407,7 @@
                 </Text>
                 <Space h="sm" />
                 <Input
-                    icon={Code}
+                    type="password" icon={Code}
                     placeholder={t('settings-picovoice-key')}
                     variant="filled"
                     autocomplete="off"
@@ -536,208 +529,27 @@
 
         <Space h="xl" />
 
-    </Tabs.Tab>
-    <Tabs.Tab label="Модели и ответы" icon={Cube}>
-        <ChatProviderSettings />
-    </Tabs.Tab>
-    <Tabs.Tab label="Данные и резервные копии" icon={Gear}>
-        <CenterDataTransfer />
-        <p class="settings-hint">История бесед экспортируется отдельно: «Чат → Экспорт текущего чата / Экспорт всех чатов».</p>
-    </Tabs.Tab>
-    <Tabs.Tab label="Синхронизация устройств" icon={Gear}>
-        <LanSync />
-    </Tabs.Tab>
-    <Tabs.Tab label="Сайты и команды" icon={Gear}>
-        <ScheduleWebsite />
-    </Tabs.Tab>
-</Tabs>
+    </fieldset></article></section>
+            <section id="settings-about" hidden={active!=='about'} aria-label="О приложении"><article class="settings-card about-card"><p class="kicker">ВАШ ЛИЧНЫЙ АССИСТЕНТ</p><h3>JARVIS</h3>{#if appVersion}<p class="hint">Версия {appVersion.split('-')[0]}</p>{/if}<p class="hint">Голосовое управление, общение и личные данные в одном месте.</p><div class="support-actions"><button type="button" on:click={()=>showInExplorer(logFilePath)} disabled={!logFilePath}>Открыть журнал приложения</button>{#if feedbackLink}<a href={feedbackLink} target="_blank" rel="noreferrer">Связаться с поддержкой ↗</a>{/if}</div><p class="hint">Журнал поможет разобраться, если что-то работает не так.</p></article><Footer showOriginal={true}/></section>
+            {#if ['general','voice','advanced'].includes(active)}<div class="save-bar"><div aria-live="polite">{#if !loaded}<strong>{loadError?'Настройки не загружены':'Загружаем настройки…'}</strong>{:else if saveError}<span class="save-error" role="alert">{saveError}</span>{:else if settingsSaved&&!dirty}<strong class="saved">✓ Изменения сохранены</strong>{:else if dirty}<strong>Есть несохранённые изменения</strong><small>Примените их, когда всё настроите.</small>{:else}<strong>Все изменения сохранены</strong><small>Настройки готовы к работе.</small>{/if}</div><div class="save-actions"><button type="button" class="secondary" on:click={discard} disabled={!dirty||saveButtonDisabled}>Отменить</button><button type="button" class="primary" on:click={saveSettings} disabled={!loaded||!dirty||saveButtonDisabled}>{saveButtonDisabled?'Сохраняем…':'Сохранить изменения'}</button></div></div>{/if}
+        </div>
+    </div>
+</div>
 
-<Space h="xl" />
-
-<p class="settings-hint">Кнопка ниже сохраняет слушание, голос и распознавание. В разделе «Модели и ответы» и при переносе данных используются отдельные кнопки.</p>
-<Button
-    color="lime"
-    radius="md"
-    size="sm"
-    uppercase
-    ripple
-    fullSize
-    on:click={saveSettings}
-    disabled={saveButtonDisabled}
->
-    {t('settings-save')}
-</Button>
-
-<Space h="sm" />
-
-<Button
-    color="gray"
-    radius="md"
-    size="sm"
-    uppercase
-    fullSize
-    on:click={() => $goto("/")}
->
-    {t('settings-back')}
-</Button>
-
-<HDivider />
-<Footer showOriginal={true} />
-
-<style lang="scss">
-.settings-heading{font-family:'Manrope Variable',sans-serif;margin-bottom:1.4rem;color:#eaf8fa}.settings-heading p{font-size:.7rem;letter-spacing:.16em;color:#52fefe}.settings-heading h1{margin:.3rem 0;font-size:1.8rem}.settings-heading span,.settings-hint{color:#96b5bc;line-height:1.6;font-size:.85rem}
-.dialogue-personality {
-    --persona-line: rgba(82, 254, 254, .38);
-    --persona-glow: rgba(82, 254, 254, .12);
-    padding: 1rem;
-    border: 1px solid var(--persona-line);
-    border-left: 3px solid #52fefe;
-    background: linear-gradient(110deg, var(--persona-glow), rgba(7, 12, 14, .36) 65%);
-
-    &.altron { --persona-line: rgba(255, 105, 82, .45); --persona-glow: rgba(145, 38, 28, .17); border-left-color: #ff6952; }
-    h3 { color: #edfafa; margin: .2rem 0; font: 700 1.1rem "Roboto Condensed", sans-serif; letter-spacing: .05em; }
-    > p:not(.module-label) { color: rgba(222, 241, 243, .65); font-size: .78rem; margin: 0 0 .85rem; }
-}
-
-.module-label { margin: 0; color: #52fefe; font: 700 .65rem "Roboto Condensed", sans-serif; letter-spacing: .15em; }
-.altron .module-label { color: #ff917f; }
-.personality-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
-.personality-options button { text-align: left; padding: .75rem; background: rgba(8, 28, 31, .72); border: 1px solid rgba(126, 183, 188, .26); color: #c4d6d9; cursor: pointer; transition: border-color .18s ease, transform .18s ease, background .18s ease; }
-.personality-options button:hover { transform: translateY(-1px); border-color: rgba(82, 254, 254, .55); }
-.personality-options button.active { color: #fff; background: linear-gradient(135deg, rgba(6, 102, 110, .8), rgba(15, 38, 43, .85)); border-color: #52fefe; box-shadow: 0 0 18px rgba(82, 254, 254, .12); }
-.dialogue-personality.altron .personality-options button.active:last-child { background: linear-gradient(135deg, rgba(126, 35, 25, .85), rgba(42, 14, 17, .88)); border-color: #ff6952; box-shadow: 0 0 18px rgba(255, 92, 72, .12); }
-.tts-mode { padding: 1rem; border: 1px solid rgba(82, 254, 254, .34); background: linear-gradient(120deg, rgba(8, 65, 72, .26), rgba(7, 12, 14, .36)); }
-.tts-mode h3 { color: #edfafa; margin: .2rem 0; font: 700 1.1rem "Roboto Condensed", sans-serif; letter-spacing: .05em; }
-.tts-mode > p:not(.module-label) { color: rgba(222, 241, 243, .65); font-size: .78rem; margin: 0 0 .85rem; }
-.tts-mode-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
-.tts-mode-options button { text-align: left; padding: .75rem; background: rgba(8, 28, 31, .72); border: 1px solid rgba(126, 183, 188, .26); color: #c4d6d9; cursor: pointer; transition: border-color .18s ease, background .18s ease; }
-.tts-mode-options button:hover { border-color: rgba(82, 254, 254, .55); }
-.tts-mode-options button.active { color: #fff; background: linear-gradient(135deg, rgba(6, 102, 110, .8), rgba(15, 38, 43, .85)); border-color: #52fefe; box-shadow: 0 0 18px rgba(82, 254, 254, .12); }
-.tts-mode-options strong, .tts-mode-options span { display: block; }
-.tts-mode-options strong { font: 700 .83rem "Roboto Condensed", sans-serif; letter-spacing: .04em; }
-.tts-mode-options span { margin-top: .28rem; font-size: .7rem; line-height: 1.35; opacity: .75; }
-.monitor-self-option { display: flex; align-items: flex-start; gap: .7rem; margin-top: .8rem; padding: .7rem; border: 1px solid rgba(126, 183, 188, .26); border-radius: 7px; background: rgba(8, 28, 31, .72); cursor: pointer; }
-.monitor-self-option input { margin-top: .1rem; accent-color: #52fefe; width: 17px; height: 17px; flex: none; }
-.monitor-self-option strong, .monitor-self-option small { display: block; }
-.monitor-self-option small { color: rgba(222, 241, 243, .65); font-size: .7rem; line-height: 1.35; margin-top: .25rem; }
-@media (max-width: 520px) { .tts-mode-options { grid-template-columns: 1fr; } }
-.personality-options strong, .personality-options span { display: block; }
-.personality-options strong { font: 700 .83rem "Roboto Condensed", sans-serif; letter-spacing: .08em; }
-.personality-options span { margin-top: .28rem; font-size: .7rem; line-height: 1.35; opacity: .75; }
-@media (max-width: 520px) { .personality-options { grid-template-columns: 1fr; } }
-
-.voice-select {
-    margin-bottom: 1rem;
-    
-    .voice-heading {
-        font-weight: 600;
-        font-size: 0.9rem;
-        color: #fff;
-        display: block;
-        margin-bottom: 0.25rem;
-    }
-    
-    .description {
-        font-size: 0.75rem;
-        color: rgba(255,255,255,0.5);
-        margin: 0 0 0.75rem;
-        white-space: pre-line;
-    }
-}
-
-$voice-item-height: 70px;
-$voice-item-gap: 0.5rem;
-$voice-max-visible: 3;
-
-.voice-options {
-    display: flex;
-    flex-direction: column;
-    gap: $voice-item-gap;
-    max-height: $voice-item-height * $voice-max-visible;
-    overflow-y: auto;
-    
-    &::-webkit-scrollbar {
-        width: 6px;
-    }
-    
-    &::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 3px;
-    }
-    
-    &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 3px;
-        
-        &:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-    }
-}
-
-.voice-option {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    background: rgba(30, 40, 45, 0.8);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: left;
-    width: 100%;
-    
-    &:hover {
-        background: rgba(40, 55, 60, 0.9);
-        border-color: rgba(255,255,255,0.2);
-    }
-    
-    &.selected {
-        background: rgba(82, 254, 254, 0.1);
-        border-color: rgba(82, 254, 254, 0.4);
-    }
-}
-
-.voice-info {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.15rem;
-}
-
-.voice-name {
-    font-size: 0.85rem;
-    color: #fff;
-    font-weight: 500;
-}
-
-.voice-author {
-    font-size: 0.7rem;
-    color: rgba(255,255,255,0.4);
-}
-
-.voice-languages {
-    display: flex;
-    gap: 0.35rem;
-    
-    img {
-        opacity: 0.8;
-        border-radius: 2px;
-    }
-}
-
-.no-voices {
-    font-size: 0.8rem;
-    color: rgba(255,255,255,0.4);
-    font-style: italic;
-}
-.global-listening {display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem;border:1px solid rgba(82,254,254,.3);border-radius:9px;background:linear-gradient(110deg,#10252a,#0c1519)}
-.global-listening.muted {border-color:rgba(255,134,134,.5);background:linear-gradient(110deg,#2b1b20,#101519)}
-.global-listening h3 {margin:.2rem 0;color:#e8feff;font-size:1rem}
-.global-listening p:not(.module-label) {margin:.2rem 0 0;color:#a8bdc2;font-size:.8rem;line-height:1.4}
-.global-listening button {flex:none;padding:.5rem .7rem;border:1px solid #52fefe;border-radius:6px;background:#113b40;color:#d9ffff;font-size:.75rem;font-weight:700;cursor:pointer}
-.global-listening.muted button {border-color:#ff9696;background:#532329;color:#ffe1e1}
-.global-listening button:disabled {opacity:.5;cursor:not-allowed}
-.global-listening button:focus-visible {outline:2px solid #fff;outline-offset:2px}
+<style>
+    .settings-workspace{--accent:var(--ui-accent,#a0e4ce);--line:var(--ui-line,#34474e);--muted:var(--ui-muted,#b4c2c7);--panel:var(--ui-panel,#172126);--input:var(--ui-input,#101a1f);font-family:'Manrope Variable',sans-serif;color:var(--ui-text,#edf5f5);max-width:1240px;margin:32px auto 64px;padding:0 28px;box-sizing:border-box}
+    .settings-heading{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:32px}.kicker{font-size:10px;font-weight:800;letter-spacing:.18em;color:var(--accent);margin:0 0 10px}h1{font-size:36px;font-weight:750;letter-spacing:-.045em;margin:0}.intro{font-size:14px;color:var(--muted);margin:10px 0 0}.connection{display:flex;align-items:center;gap:8px;border:1px solid var(--line);padding:10px 14px;border-radius:30px;font-size:11px;color:var(--muted);white-space:nowrap}.connection i{width:6px;height:6px;border-radius:50%;background:var(--muted)}.connection.connected i{background:var(--accent);box-shadow:0 0 10px color-mix(in srgb,var(--accent) 35%,transparent)}
+    .settings-layout{display:grid;grid-template-columns:232px minmax(0,1fr);gap:36px;align-items:start}.settings-sidebar{position:sticky;top:24px;min-width:0}.nav-group{color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin:24px 12px 10px}.nav-group:first-child{margin-top:0}.settings-sidebar nav button{width:100%;display:flex;align-items:center;gap:11px;text-align:left;font-size:12px;font-weight:600;padding:12px;border:1px solid transparent;background:transparent;color:var(--muted);border-radius:11px;margin:4px 0;cursor:pointer;transition:background .16s,border-color .16s}.settings-sidebar nav button:hover{background:var(--input);color:var(--ui-text)}.settings-sidebar nav button.chosen{color:var(--accent);background:var(--ui-selected,#163b35);border-color:color-mix(in srgb,var(--accent) 26%,transparent)}.nav-icon{display:flex;flex:none}.unsaved-dot{margin-left:auto;width:5px;height:5px;flex:none;background:var(--accent);border-radius:50%}.sidebar-note{display:grid;gap:6px;margin:28px 12px;padding-top:22px;border-top:1px solid var(--line)}.sidebar-note>span{font-size:12px;font-weight:800;letter-spacing:.12em}.sidebar-note small{font-size:10px;color:var(--muted)}
+    .settings-content{min-width:0}.section-heading{display:flex;align-items:center;gap:16px;padding:0 0 24px;margin-bottom:24px;border-bottom:1px solid var(--line)}.section-heading h2{font-size:23px;margin:0 0 5px;font-weight:700;letter-spacing:-.03em}.section-heading p{font-size:12px;color:var(--muted);margin:0;line-height:1.6}.section-icon{display:flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:14px;background:var(--ui-selected,#163b35);color:var(--accent);flex:none}.settings-content>section[hidden]{display:none!important}
+    .settings-card{padding:24px;border:1px solid var(--line);border-radius:18px;background:var(--panel);margin-bottom:18px}.settings-card h3{font:700 15px/1.5 'Manrope Variable',sans-serif;margin:0 0 12px}.card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}.card-heading h3{margin:0}.autosave{font-size:10px;color:var(--muted);border:1px solid var(--line);padding:5px 8px;border-radius:6px}.field-label{display:block;font-size:12px;margin-bottom:9px}.hint{color:var(--muted);font-size:12px;line-height:1.7;margin:12px 0 0}.field-block{border-top:1px solid var(--line);padding-top:20px}.settings-content fieldset{border:0;padding:0;margin:0;min-width:0}.settings-content fieldset:disabled{opacity:.55}
+    .settings-workspace button,.settings-workspace select{font-family:inherit}.settings-workspace select{box-sizing:border-box;max-width:100%;min-height:44px;padding:10px 14px;background:var(--input);color:var(--ui-text);border:1px solid var(--line);border-radius:10px;font-size:13px;min-width:220px}.settings-workspace button:focus-visible,.settings-workspace select:focus-visible{outline:2px solid var(--accent);outline-offset:4px}.settings-workspace button:disabled{opacity:.45;cursor:default}.load-state{font-size:13px;color:var(--muted)}
+    .settings-content :global(.global-listening),.settings-content :global(.shortcut-card){display:flex;justify-content:space-between;align-items:center;gap:20px}.settings-content :global(.global-listening),.settings-content :global(.shortcut-card),.settings-content :global(.tts-mode),.settings-content :global(.dialogue-personality){padding:0;border:0;background:none;border-radius:0;box-shadow:none}.settings-content :global(.global-listening h3),.settings-content :global(.tts-mode h3),.settings-content :global(.dialogue-personality h3){font:700 15px/1.5 'Manrope Variable',sans-serif;margin:0 0 10px;color:var(--ui-text)}.settings-content :global(.module-label),.settings-content :global(.eyebrow){display:none}.settings-content :global(p),.settings-content :global(small){line-height:1.65}.settings-content :global(.global-listening p),.settings-content :global(.shortcut-card p),.settings-content :global(.tts-mode p),.settings-content :global(.dialogue-personality p){font-size:12px;color:var(--muted)}
+    .settings-content :global(.personality-options),.settings-content :global(.tts-mode-options){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0 24px}.settings-content :global(.personality-options button),.settings-content :global(.tts-mode-options button){position:relative;padding:18px;text-align:left;min-height:106px;background:var(--input);border:1px solid var(--line);border-radius:12px;color:var(--ui-text);cursor:pointer}.settings-content :global(.personality-options button.active),.settings-content :global(.tts-mode-options button.active){border-color:var(--accent);background:var(--ui-selected,#163b35);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 15%,transparent)}.settings-content :global(.personality-options strong),.settings-content :global(.tts-mode-options strong){display:block;font-size:13px;font-weight:700}.settings-content :global(.personality-options span),.settings-content :global(.tts-mode-options span){display:block;font-size:11px;margin-top:8px;line-height:1.6;color:var(--muted)}.settings-content :global(.monitor-self-option){display:flex;align-items:flex-start;gap:12px;border:1px solid var(--line);border-radius:12px;padding:16px;margin:20px 0;background:var(--input);font-size:12px}.settings-content :global(.monitor-self-option small){display:block;color:var(--muted);font-size:11px;margin-top:5px}.settings-content :global(input[type=checkbox]){accent-color:var(--accent);width:16px;height:16px;flex:none}
+    .settings-content :global(.voice-options){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px;max-height:300px;overflow:auto}.settings-content :global(.voice-option){display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--input);color:var(--ui-text);border:1px solid var(--line);border-radius:12px;padding:16px;cursor:pointer;text-align:left}.settings-content :global(.voice-option.selected){border-color:var(--accent);background:var(--ui-selected)}.settings-content :global(.voice-info){display:grid;gap:4px}.settings-content :global(.voice-author){font-size:10px;color:var(--muted)}.settings-content :global(.voice-languages){display:flex;gap:4px}.settings-content :global(.voice-heading){font-size:14px;font-weight:700}.settings-content :global(.description),.settings-content :global(.no-voices){font-size:12px;color:var(--muted)}
+    .settings-content :global(.provider-panel),.settings-content :global(.sync),.settings-content :global(.transfer),.settings-content :global(.website){--accent:var(--ui-accent);--border:var(--ui-line);padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:18px;font-family:inherit;color:var(--ui-text)}.settings-content :global(.sync button),.settings-content :global(.transfer button),.settings-content :global(.provider-panel button),.settings-content :global(.website button),.settings-content :global(.global-listening button),.settings-content :global(.shortcut-card button){min-height:42px;padding:11px 16px;font:600 12px 'Manrope Variable',sans-serif;border-radius:10px;border:1px solid var(--line);background:var(--input);color:var(--ui-text);cursor:pointer}.settings-content :global(.sync input),.settings-content :global(.sync select),.settings-content :global(.sync textarea),.settings-content :global(.provider-panel input),.settings-content :global(.provider-panel select),.settings-content :global(.website input){border:1px solid var(--line);background:var(--input);color:var(--ui-text);border-radius:10px;min-height:42px}.settings-content :global(.sync .primary),.settings-content :global(.provider-panel button),.settings-content :global(.website button){background:var(--accent);color:var(--ui-bg);font-weight:750}.settings-content :global(.sync .guide){background:var(--input);border-color:var(--line)}.settings-content :global(.sync h2),.settings-content :global(.provider-panel h2),.settings-content :global(.transfer h2),.settings-content :global(.website h2){font-size:18px;letter-spacing:-.02em;margin:0 0 12px}.settings-content :global(.sync p),.settings-content :global(.provider-panel small){color:var(--muted)}
+    .save-bar{position:sticky;bottom:12px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:20px;background:var(--panel);border:1px solid var(--line);box-shadow:0 8px 32px #0002;border-radius:14px;padding:16px 20px;margin-top:24px}.save-bar strong{display:block;font-size:11px;font-weight:650}.save-bar small{display:block;font-size:10px;color:var(--muted);margin-top:5px}.save-bar .saved{color:var(--accent)}.save-actions{display:flex;gap:10px;flex:none}.save-actions button,.support-actions button,.support-actions a,.status-message button{padding:12px 16px;border-radius:10px;font:650 11px 'Manrope Variable',sans-serif;cursor:pointer;min-height:42px;text-decoration:none}.primary{background:var(--accent);border:1px solid var(--accent);color:var(--ui-bg)}.secondary,.support-actions button,.support-actions a{background:var(--input);border:1px solid var(--line);color:var(--ui-text)}.support-actions{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.about-card h3{font-size:26px;letter-spacing:-.04em}.status-message,.save-error{color:var(--ui-danger);font-size:12px}.status-message{padding:16px;border:1px solid var(--ui-danger);border-radius:12px;margin:16px 0}.status-message button{margin-left:12px}.settings-content :global(.svelteui-InputWrapper-root){margin-top:20px}
+    .settings-content :global(.shortcut-card){display:grid;grid-template-columns:minmax(0,1fr) auto}.settings-content :global(.shortcut-card small){grid-column:1/-1}.settings-content :global(.shortcut-card .controls){margin:0;justify-content:flex-end}.settings-content :global(.shortcut-card .capture){min-width:140px}
+    @media(max-width:960px){.settings-workspace{padding:0 20px}.settings-layout{grid-template-columns:190px minmax(0,1fr);gap:22px}.connection{font-size:10px}.settings-card{padding:20px}.save-bar{flex-wrap:wrap}.save-actions{margin-left:auto}.settings-content :global(.tts-mode-options){grid-template-columns:1fr}}
+    @media(max-width:700px){.settings-workspace{margin-top:20px;padding:0 14px}.settings-heading{align-items:flex-start;flex-direction:column;gap:16px;margin-bottom:24px}h1{font-size:30px}.settings-layout{grid-template-columns:minmax(0,1fr);gap:24px}.settings-sidebar{position:static}.settings-sidebar nav{display:flex;overflow:auto;gap:8px;padding-bottom:8px}.nav-group,.sidebar-note{display:none}.settings-sidebar nav button{width:auto;flex:none;margin:0;padding:11px 13px}.settings-content :global(.personality-options),.settings-content :global(.voice-options){grid-template-columns:1fr}.settings-content :global(.global-listening),.settings-content :global(.shortcut-card){align-items:flex-start;flex-direction:column}.save-bar{bottom:8px;padding:14px}.settings-content :global(.provider-panel),.settings-content :global(.sync),.settings-content :global(.transfer),.settings-content :global(.website){padding:18px}}
+    @media(prefers-reduced-motion:reduce){.settings-sidebar nav button{transition:none}}
 </style>
