@@ -32,7 +32,7 @@ fn parse(snapshot:&Value,key:&str,default:Value)->Result<Value,String>{
 }
 fn add_list(result:&mut BTreeMap<(String,String),Value>,collection:&str,list:&Value)->Result<(),String>{
     let items=list.as_array().ok_or("Ожидается список записей")?;if items.len()>10000{return Err("Слишком много записей".into());}
-    for item in items{let id=item["id"].as_str().ok_or("Нет ID записи")?;
+    for item in items{if collection=="notes"&&item["type"]=="mindmap"{crate::mind_map::validate(&item["mindMap"])?;}let id=item["id"].as_str().ok_or("Нет ID записи")?;
         if id.is_empty()||id.len()>128||id.chars().any(char::is_control)||result.insert((collection.into(),id.into()),item.clone()).is_some(){return Err("Некорректный или повторный ID".into());}}
     Ok(())
 }

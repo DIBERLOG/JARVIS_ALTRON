@@ -29,10 +29,14 @@ async function main(){
  assert.equal(reminders.reminderAlert({...daily,createdAt:'2026-10-05T10:00:00'},Date.parse('2026-10-05T11:00:00')),null)
  assert.equal(reminders.reminderAlert({...daily,dueAt:'bad'},Date.now()),null)
  const rich=load('src/lib/richNotes.ts',{'dompurify':{default:require('dompurify')}}),training=load('src/lib/training.ts'),data={reminders:[r],birthdays:[{id:'b',name:'Друг',month:2,day:29}],notes:[{id:'n',title:'Запись',text:'Привет',updatedAt:now.toISOString(),html:'<p>Привет</p><script>evil()</script>'}],habits:[],training:training.defaultTraining()}
- const api={invoke:async()=> '{}'},backup=load('src/lib/centerBackup.ts',{'@tauri-apps/api/core':api,'./center':{loadCenterData:async()=>structuredClone(data)},'./weather':{getWeatherCity:async()=> 'Москва'},'./richNotes':rich})
+ const api={invoke:async()=> '{}'},backup=load('src/lib/centerBackup.ts',{'@tauri-apps/api/core':api,'./center':{loadCenterData:async()=>structuredClone(data)},'./weather':{getWeatherCity:async()=> 'Москва'},'./richNotes':rich,'./mindMap':load('src/lib/mindMap.ts',{'./center':{makeId:()=>require('node:crypto').randomUUID()}})})
  const snapshot=await backup.createCenterBackup(),parsed=backup.parseCenterBackup(JSON.stringify(snapshot))
  assert.equal(backup.parseCenterBackup(JSON.stringify({...snapshot,data:{...data,reminders:[daily]}})).data.reminders[0].repeat,'daily');
  assert.throws(()=>backup.parseCenterBackup(JSON.stringify({...snapshot,data:{...data,reminders:[{...r,repeat:'invalid'}]}})));
+ const mindMap=JSON.parse(fs.readFileSync('../mobile/android/app/src/androidTest/assets/desktop-mindmap-fixture.json','utf8'))
+ const mapBackup={...snapshot,data:{...data,notes:[{...data.notes[0],type:'mindmap',mindMap}]}}
+ assert.equal(backup.parseCenterBackup(JSON.stringify(mapBackup)).data.notes[0].mindMap.nodes[0].files[0].data,'YWJj')
+ const brokenMap=structuredClone(mapBackup);brokenMap.data.notes[0].mindMap.edges[0].to='missing';assert.throws(()=>backup.parseCenterBackup(JSON.stringify(brokenMap)))
  assert.equal(parsed.city,'Москва');assert.equal(parsed.data.training.plans.length,4);assert.ok(!parsed.data.notes[0].html.includes('script'))
  assert.throws(()=>backup.parseCenterBackup(JSON.stringify({...snapshot,version:999})))
  assert.throws(()=>backup.parseCenterBackup(JSON.stringify({...snapshot,data:{...data,reminders:[{...r,dueAt:'bad'}]}})))

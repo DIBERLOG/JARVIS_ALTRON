@@ -81,3 +81,5 @@ pub use db::structs::Settings;
 pub use db::SettingsManager;
 
 // use crate::commands::{JComandsList, JCommand};
+
+pub mod mind_map;

@@ -5,7 +5,7 @@ export type Reminder = { id: string, title: string, dueAt: string, done: boolean
 export type Birthday = { id: string, name: string, month: number, day: number, year?: number }
 export type ChecklistItem = { id: string, text: string, done: boolean }
 export type QuickTask = { id: string, text: string, done: boolean, createdAt?: string, updatedAt?: string }
-export type Note = { id: string, title: string, text: string, updatedAt: string, type?: "text" | "checklist", format?: "plain" | "markdown" | "rich", html?: string, items?: ChecklistItem[] }
+export type Note = { id: string, title: string, text: string, updatedAt: string, type?: "text" | "checklist" | "mindmap", format?: "plain" | "markdown" | "rich", html?: string, items?: ChecklistItem[], mindMap?: import("./mindMap").MindMap }
 export type Habit = { id: string; title: string; caption: string; icon: string; target: number; unit: string; createdOn: string; archivedOn?: string; entries: Record<string, number> }
 export type CenterData = { reminders: Reminder[], birthdays: Birthday[], notes: Note[], habits: Habit[], tasks?: QuickTask[], training?: TrainingData }
 

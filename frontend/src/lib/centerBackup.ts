@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { loadCenterData, type CenterData } from './center'
 import { getWeatherCity } from './weather'
 import { sanitizeNoteHtml } from './richNotes'
+import {validateMindMap} from './mindMap'
 
 export type CenterBackup = {format:'jarvis-personal-data';version:1;exportedAt:string;city:string;data:CenterData}
 export async function createCenterBackup(): Promise<CenterBackup> {
@@ -27,7 +28,7 @@ export function parseCenterBackup(raw: string): CenterBackup {
     }
     for(const r of d.reminders)if(!string(r.title)||!date(r.dueAt)||typeof r.done!=='boolean'||(r.repeat!==undefined&&r.repeat!=='none'&&r.repeat!=='daily')||(r.advanceDays!==undefined&&(!array(r.advanceDays)||!r.advanceDays.every((n:number)=>Number.isInteger(n)&&n>=1&&n<=365)))||(r.announced!==undefined&&(!array(r.announced)||!r.announced.every(string)))||(r.createdAt!==undefined&&!date(r.createdAt)))fail()
     for(const b of d.birthdays){const dt=new Date(2024,b.month-1,b.day);if(!string(b.name)||!Number.isInteger(b.day)||!Number.isInteger(b.month)||dt.getMonth()!==b.month-1||dt.getDate()!==b.day||(b.year!==undefined&&(!Number.isInteger(b.year)||b.year<1||b.year>9999)))fail()}
-    for(const n of d.notes){if(!string(n.title)||!string(n.text)||!date(n.updatedAt)||(n.items!==undefined&&(!array(n.items)||!n.items.every((i:any)=>record(i)&&string(i.id)&&string(i.text)&&typeof i.done==='boolean'))))fail();if(n.html!==undefined){if(!string(n.html))fail();n.html=sanitizeNoteHtml(n.html)}}
+    for(const n of d.notes){if(!string(n.title)||!string(n.text)||!date(n.updatedAt)||(n.items!==undefined&&(!array(n.items)||!n.items.every((i:any)=>record(i)&&string(i.id)&&string(i.text)&&typeof i.done==='boolean'))))fail();if(n.type==='mindmap'){n.mindMap=validateMindMap(n.mindMap)}if(n.html!==undefined){if(!string(n.html))fail();n.html=sanitizeNoteHtml(n.html)}}
     for(const h of d.habits)if(!string(h.title)||!string(h.caption)||!string(h.icon)||!string(h.unit)||!date(h.createdOn)||!Number.isInteger(h.target)||h.target<1||!record(h.entries)||!Object.values(h.entries).every(n=>typeof n==='number'&&Number.isFinite(n)&&n>=0))fail()
     if(d.training!==undefined){
         const t=d.training

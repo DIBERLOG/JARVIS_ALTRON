@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "root",
+      "kind": "idea",
+      "title": "Проект",
+      "text": "Вымышленная заметка",
+      "x": 100,
+      "y": 200,
+      "items": [],
+      "images": [
+        {
+          "id": "image",
+          "name": "Пример.png",
+          "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII="
+        }
+      ],
+      "files": [
+        {
+          "id": "file",
+          "name": "plan.txt",
+          "mime": "text/plain",
+          "size": 3,
+          "data": "YWJj"
+        }
+      ]
+    },
+    {
+      "id": "plan",
+      "kind": "plan",
+      "title": "План действий",
+      "text": "Вымышленная заметка",
+      "x": 500,
+      "y": 200,
+      "items": [
+        {
+          "id": "step",
+          "text": "Подготовить материалы",
+          "done": true
+        }
+      ],
+      "images": [],
+      "files": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge",
+      "from": "root",
+      "to": "plan"
+    }
+  ]
+}

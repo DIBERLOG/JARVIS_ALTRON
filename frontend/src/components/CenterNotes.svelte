@@ -1,5 +1,7 @@
 <script lang="ts">
     import RichNoteEditor from "./RichNoteEditor.svelte"
+    import MindMapEditor from "./MindMapEditor.svelte"
+    import {newMindMap,mapText,validateMindMap,type MindMap} from "@/lib/mindMap"
     import { makeId, type Note, type ChecklistItem } from "@/lib/center"
     import { textToChecklist, checklistToText, renderNote } from "@/lib/noteFormatting"
     import { sanitizeNoteHtml, NOTE_HTML_LIMIT } from "@/lib/richNotes"
@@ -10,7 +12,8 @@
     export let onDelete: (id: string) => Promise<boolean>
     export let onDirty: (dirty: boolean) => void = () => {}
     let id = "", title = "", text = "", items: ChecklistItem[] = []
-    let type: "text" | "checklist" = "text"
+    let type: "text" | "checklist" | "mindmap" = "text"
+    let mindMap:MindMap|undefined
     let html = "", dirty = false, localError = "", editorKey = 0
     $: onDirty(dirty)
     $: ordered = [...notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -23,17 +26,26 @@
     function open(note?: Note) {
         if (!canLeave()) return
         id = note?.id ?? ""; title = note?.title ?? ""; text = note?.text ?? ""
-        type = note?.type === "checklist" ? "checklist" : "text"
+        type = note?.type === "mindmap" ? "mindmap" : note?.type === "checklist" ? "checklist" : "text"
+        let mapError="";mindMap=undefined
+        if(type==="mindmap"){try{mindMap=structuredClone(validateMindMap(note?.mindMap))}catch(e){mapError=String(e)}}
         html = note?.format === "rich" ? sanitizeNoteHtml(note.html ?? "") : renderNote(text, note?.format === "markdown")
         items = note?.items?.map(item => ({ ...item })) ?? (type === "checklist" ? textToChecklist(text, makeId) : [])
-        editorKey++; dirty = false; localError = ""
+        editorKey++; dirty = false; localError = mapError
     }
-    function changeType(next: "text" | "checklist") {
+    function changeType(next: "text" | "checklist" | "mindmap") {
         if (next === type) return
-        if (next === "checklist") {
+        if(type==='mindmap'){
+            if(!mindMap){localError='Повреждённую карту нельзя преобразовать. Исходная заметка сохранена.';return}
+            if(!window.confirm('Преобразовать карту в текст? Расположение карточек, связи и вложения не сохранятся.'))return
+            text=mapText(mindMap);html=renderNote(text,false)
+        }
+        if(next==='mindmap'){
+            try{const map=newMindMap(title,type==='checklist'?checklistToText(items):text);const images=Array.from(new DOMParser().parseFromString(sanitizeNoteHtml(html),'text/html').querySelectorAll('img'));map.nodes[0].images=images.map(image=>({id:makeId(),name:(image.alt||'Изображение').slice(0,160),src:image.src}));mindMap=validateMindMap(map)}catch(e){localError=String(e);return}
+        } else if (next === "checklist") {
             if (/<img\b/.test(html) && !window.confirm("Чек-лист сохраняет только текст. Картинки и оформление не попадут в него. Продолжить?")) return
             items = textToChecklist(text, makeId)
-        } else { text = checklistToText(items); html = renderNote(text, true) }
+        } else if(type==='checklist') { text = checklistToText(items); html = renderNote(text, true) }
         type = next; editorKey++; dirty = true
     }
     function addItem() {
@@ -43,7 +55,10 @@
     async function save() {
         localError = ""
         const cleanItems = items.filter(item => item.text.trim()).map(item => ({ ...item, text: item.text.trim() }))
-        if (!title.trim() || (type === "text" ? !text.trim() && !/<img\b/.test(html) : !cleanItems.length)) { localError = "Укажите заголовок и добавьте текст, картинку или хотя бы один пункт"; return }
+        if (type!=="mindmap" && (!title.trim() || (type === "text" ? !text.trim() && !/<img\b/.test(html) : !cleanItems.length))) { localError = "Укажите заголовок и добавьте текст, картинку или хотя бы один пункт"; return }
+        if(type==='mindmap'){
+            try{const map=validateMindMap(mindMap);if(!title.trim()){localError='Укажите название карты';return}const note:Note={id:id||makeId(),title:title.trim(),text:mapText(map).slice(0,100000),type:'mindmap',format:'plain',mindMap:structuredClone(map),updatedAt:new Date().toISOString()};if(await onSave(note)){id=note.id;dirty=false}else localError='Не удалось сохранить карту. Изменения остались в редакторе; повторите сохранение.';return}catch(e){localError=String(e);return}
+        }
         const safeHtml = type === "text" ? sanitizeNoteHtml(html) : undefined
         if ((safeHtml?.length ?? 0) > NOTE_HTML_LIMIT) { localError = "Максимум 8 МБ на заметку. Удалите часть картинок."; return }
         const note: Note = { id: id || makeId(), title: title.trim(), text: type === "checklist" ? checklistToText(cleanItems) : text.trim(), type, format: type === "text" ? "rich" : "plain", html: safeHtml, items: type === "checklist" ? cleanItems : undefined, updatedAt: new Date().toISOString() }
@@ -55,19 +70,21 @@
     }
 </script>
 
-<section class="notes-panel" class:mobile-empty={mobile && !notes.length} aria-label="Заметки">
+<section class="notes-panel" class:map-mode={type==='mindmap'} class:mobile-empty={mobile && !notes.length} aria-label="Заметки">
     <header><div><p class="eyebrow">МЫСЛИ И ПЛАНЫ</p><h2>Заметки</h2></div><button type="button" class="primary" disabled={disabled} on:click={() => open()}>+ Новая</button></header>
     <div class="layout">
         <div class="note-list" aria-label="Сохранённые заметки">
-            {#if !notes.length}<p class="empty">Создайте заметку или чек-лист.</p>{/if}
-            {#each ordered as note}<button type="button" class:active={note.id === id} disabled={disabled} on:click={() => open(note)}><strong>{note.title}</strong><small>{note.type === "checklist" ? `☑ Чек-лист · ${(note.items ?? []).filter(item => item.done).length}/${note.items?.length ?? 0}` : "✎ Заметка"}</small><small>{new Date(note.updatedAt).toLocaleDateString("ru-RU")}</small></button>{/each}
+            {#if !notes.length}<p class="empty">Создайте заметку, чек-лист или карту мыслей.</p>{/if}
+            {#each ordered as note}<button type="button" class:active={note.id === id} disabled={disabled} on:click={() => open(note)}><strong>{note.title}</strong><small>{note.type === "checklist" ? `☑ Чек-лист · ${(note.items ?? []).filter(item => item.done).length}/${note.items?.length ?? 0}` : note.type === "mindmap" ? `Карта мыслей · ${note.mindMap?.nodes.length??0} карточек` : "✎ Заметка"}</small><small>{new Date(note.updatedAt).toLocaleDateString("ru-RU")}</small></button>{/each}
         </div>
         <form on:submit|preventDefault={save}>
             <fieldset disabled={disabled}>
-                <div class="type-switch" aria-label="Тип заметки"><button type="button" class:active={type === "text"} aria-pressed={type === "text"} on:click={() => changeType("text")}>✎ Обычная</button><button type="button" class:active={type === "checklist"} aria-pressed={type === "checklist"} on:click={() => changeType("checklist")}>☑ Чек-лист</button></div>
+                <div class="type-switch" aria-label="Тип заметки"><button type="button" class:active={type === "text"} aria-pressed={type === "text"} on:click={() => changeType("text")}>✎ Обычная</button><button type="button" class:active={type === "checklist"} aria-pressed={type === "checklist"} on:click={() => changeType("checklist")}>☑ Чек-лист</button><button type="button" class:active={type === "mindmap"} aria-pressed={type === "mindmap"} on:click={() => changeType("mindmap")}>Карта мыслей</button></div>
                 <input aria-label="Заголовок заметки" maxlength="100" placeholder="Заголовок" bind:value={title} on:input={() => dirty = true} required />
                 {#if type === "text"}
                     {#key editorKey}<RichNoteEditor {mobile} bind:html bind:plainText={text} {disabled} on:change={() => dirty = true} />{/key}
+                {:else if type==='mindmap'}
+                    {#if mindMap}{#key editorKey}<MindMapEditor {mobile} {disabled} bind:value={mindMap} {dirty} saveError={localError} on:clearError={()=>localError=''} on:save={save} on:change={()=>dirty=true}/>{/key}{/if}
                 {:else}
                     <div class="progress"><span>Выполнено {completed} из {items.length}</span><progress value={completed} max={items.length || 1}></progress></div>
                     <div class="checklist">
@@ -85,6 +102,7 @@
 </section>
 
 <style lang="scss">
+ .map-mode .layout{grid-template-columns:1fr}.map-mode .note-list{flex-direction:row;max-height:85px;overflow:auto}.map-mode .note-list button{min-width:170px;max-width:230px;flex:none}.map-mode .note-list small:last-child{display:none}
  .note-list button.active strong{color:#09282d}.note-list button.active small{color:#204c50;font-weight:600}.note-list button strong{font-size:1rem;line-height:1.4}.note-list button small{font-size:.76rem;line-height:1.5}.note-list button{gap:.4rem}
 
     .notes-panel {--accent:#60f3e9;--line:#295056;padding:1rem;border:1px solid var(--line);border-radius:11px;background:linear-gradient(140deg,#143036aa,transparent 55%),#0d1b20;color:#eafafa;font-family:"Manrope Variable",sans-serif}
