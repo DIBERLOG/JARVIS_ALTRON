@@ -77,6 +77,7 @@ pub fn available_commands() -> Vec<JCommand> {
       ]
     }
   },
+  {"id":"center_mindmap_create","type":"center","description":"Создать карту мыслей голосом","phrases":{"ru":["создай карту мыслей","сделай карту мыслей","создай карту идей","создай ментальную карту"]}},
   {
     "id": "center_note_create",
     "type": "center",
@@ -415,7 +416,7 @@ mod tests {
         let commands=super::available_commands();
         let ids:std::collections::HashSet<_>=commands.iter().map(|c|&c.id).collect();
         assert_eq!(commands.len(),ids.len());
-        assert!(super::matches_phrase("обнови ленту"));
+        assert!(super::matches_phrase("обнови ленту"));assert!(super::matches_phrase("создай карту мыслей"));assert!(super::matches_phrase("создать карту идей"));
         assert!(!super::matches_phrase("открой браузер"));
         assert!(super::matches_phrase("Пожалуйста, открой календарь!"));
     }

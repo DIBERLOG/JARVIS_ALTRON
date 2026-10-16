@@ -15,7 +15,7 @@
     import ReminderSchedule from '@/components/ReminderSchedule.svelte'
     import { sendAction } from '@/lib/ipc'
     import type { TrainingData } from "@/lib/training"
-    import { centerSection, centerRevision, centerVoiceHint, remoteCenterEditing } from '@/lib/centerVoice'
+    import { centerNoteToOpen, centerSection, centerRevision, centerVoiceHint, remoteCenterEditing } from '@/lib/centerVoice'
     import { birthdayDate, birthdayOccursInYear, dayKey, emptyCenterData, loadCenterData, makeId, nextBirthday, saveCenterData, type CenterData, type Reminder, type Note } from "@/lib/center"
 
     const weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
@@ -181,7 +181,7 @@
             {:else if selectedSection === "tasks"}
                 <CenterTasks tasks={data.tasks||[]} disabled={saving} onSave={(tasks)=>persist({...data,tasks},"Задачи сохранены")}/>
             {:else if selectedSection === "notes"}
-                <CenterNotes onDirty={(dirty)=>remoteCenterEditing.set(dirty)} notes={data.notes} disabled={saving || loading} onSave={saveNote} onDelete={deleteNote} />
+                <CenterNotes bind:openNoteId={$centerNoteToOpen} onDirty={(dirty)=>remoteCenterEditing.set(dirty)} notes={data.notes} disabled={saving || loading} onSave={saveNote} onDelete={deleteNote} />
             {:else if selectedSection === "voice-text"}
                 <CenterVoiceText disabled={saving || loading} onSave={saveNote} />
             {:else if selectedSection === "reminders"}

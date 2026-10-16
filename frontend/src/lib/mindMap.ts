@@ -2,7 +2,7 @@ import { makeId } from './center'
 export type MapKind = 'idea' | 'goal' | 'plan' | 'images' | 'note'
 export type MapImage = {id:string;src:string;name:string}
 export type MapFile = {id:string;name:string;mime:string;data:string;size:number}
-export type MapNode = {id:string;kind:MapKind;title:string;text:string;x:number;y:number;items:{id:string;text:string;done:boolean}[];images:MapImage[];files:MapFile[]}
+export type MapNode = {id:string;kind:MapKind;title:string;text:string;x:number;y:number;width?:number;height?:number;imageHeight?:number;imageFit?:'contain'|'cover';items:{id:string;text:string;done:boolean}[];images:MapImage[];files:MapFile[]}
 export type MindMap = {version:1;nodes:MapNode[];edges:{id:string;from:string;to:string}[]}
 export const MAP_LIMIT=3_400_000, FILE_LIMIT=700_000
 export const fileTypes:Record<string,string>={pdf:'application/pdf',txt:'text/plain',md:'text/markdown',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
@@ -18,8 +18,9 @@ export function newMindMap(title='Мой проект',text=''):MindMap {
  return {version:1,nodes,edges:nodes.slice(1).map(node=>({id:makeId(),from:center.id,to:node.id}))}
 }
 export function mapText(map:MindMap):string{return map.nodes.map(node=>[node.title,node.text,...node.items.map(item=>(item.done?'☑ ':'☐ ')+item.text),...node.images.map(image=>'Изображение: '+image.name),...node.files.map(file=>'Файл: '+file.name)].filter(Boolean).join('\n')).join('\n\n')}
-export function nodeHeight(node:MapNode){return 100+(node.text?Math.min(3,Math.ceil(node.text.length/30))*22:0)+Math.min(4,node.items.length)*30+(node.images.length?110:0)+(node.files.length?38:0)}
-export function mapBounds(map:MindMap){const xs=map.nodes.map(n=>n.x),ys=map.nodes.map(n=>n.y);const x=Math.min(...xs),y=Math.min(...ys);return {x,y,width:Math.max(...xs.map(v=>v+300))-x,height:Math.max(...map.nodes.map(n=>n.y+nodeHeight(n)))-y}}
+export function nodeWidth(node:MapNode){return node.width??300}
+export function nodeHeight(node:MapNode){return node.height??(100+(node.text?Math.min(3,Math.ceil(node.text.length/30))*22:0)+Math.min(4,node.items.length)*30+(node.images.length?(node.imageHeight??110):0)+(node.files.length?38:0))}
+export function mapBounds(map:MindMap){const xs=map.nodes.map(n=>n.x),ys=map.nodes.map(n=>n.y);const x=Math.min(...xs),y=Math.min(...ys);return {x,y,width:Math.max(...map.nodes.map(n=>n.x+nodeWidth(n)))-x,height:Math.max(...map.nodes.map(n=>n.y+nodeHeight(n)))-y}}
 export function validateMindMap(value:unknown):MindMap {
  const fail=()=>{throw new Error('Карта мыслей повреждена или превышает допустимый размер. Исходная заметка сохранена.')}
  if(!value||typeof value!=='object')return fail()
@@ -29,6 +30,8 @@ export function validateMindMap(value:unknown):MindMap {
  const ids=new Set<string>()
  for(const n of map.nodes){
   if(!n||!text(n.id,128)||!n.id||ids.has(n.id)||!['idea','goal','plan','images','note'].includes(n.kind)||!text(n.title,120)||!text(n.text,4000)||!Number.isFinite(n.x)||!Number.isFinite(n.y)||Math.abs(n.x)>10000||Math.abs(n.y)>10000)return fail()
+  for(const [key,min,max] of [['width',240,1000],['height',160,1400],['imageHeight',80,800]] as const){if(n[key]!==undefined&&(!Number.isFinite(n[key])||n[key]!<min||n[key]!>max))return fail()}
+  if(n.imageFit!==undefined&&!['contain','cover'].includes(n.imageFit))return fail()
   ids.add(n.id)
   if(!Array.isArray(n.items)||n.items.length>100||!Array.isArray(n.images)||n.images.length>8||!Array.isArray(n.files)||n.files.length>8)return fail()
   for(const list of [n.items,n.images,n.files]){const keys=new Set<string>();for(const item of list){if(!item||!text(item.id,128)||!item.id||keys.has(item.id))return fail();keys.add(item.id)}}

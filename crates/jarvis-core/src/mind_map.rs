@@ -16,6 +16,8 @@ pub fn validate(map:&Value)->Result<(),String>{
             ids.insert(node["id"].as_str()?);
             if !text(&node["title"],120)||!text(&node["text"],4000)||!matches!(node["kind"].as_str(),Some("idea"|"goal"|"plan"|"images"|"note")){return None;}
             for axis in ["x","y"]{let n=node[axis].as_f64()?;if !n.is_finite()||n.abs()>10000.{return None;}}
+            for (key,min,max) in [("width",240.,1000.),("height",160.,1400.),("imageHeight",80.,800.)]{if let Some(value)=node.get(key){let n=value.as_f64()?;if !n.is_finite()||n<min||n>max{return None;}}}
+            if node.get("imageFit").is_some_and(|v|!matches!(v.as_str(),Some("contain"|"cover"))){return None;}
             let items=node["items"].as_array()?;let images=node["images"].as_array()?;let files=node["files"].as_array()?;
             if !valid_ids(items,100)||!valid_ids(images,8)||!valid_ids(files,8){return None;}
             for item in items{if !text(&item["text"],1000)||!item["done"].is_boolean(){return None;}}
@@ -37,5 +39,6 @@ pub fn validate(map:&Value)->Result<(),String>{
     #[test]fn sync_records_keep_the_entire_map(){let map:Value=serde_json::from_str(include_str!("../../../mobile/android/app/src/androidTest/assets/desktop-mindmap-fixture.json")).unwrap();let center=json!({"notes":[{"id":"mindmap","title":"Project","text":"Summary","type":"mindmap","mindMap":map}],"reminders":[],"birthdays":[],"habits":[]});let records=crate::sync_data::records(&json!({"center_data":center.to_string()})).unwrap();assert_eq!(records[&("notes".into(),"mindmap".into())]["mindMap"],map);}
     #[test]fn shared_android_fixture_is_portable(){let map:Value=serde_json::from_str(include_str!("../../../mobile/android/app/src/androidTest/assets/desktop-mindmap-fixture.json")).unwrap();validate(&map).unwrap();}
     #[test]fn map_payload_and_binary_attachment_roundtrip(){let m=fixture();validate(&m).unwrap();let m:Value=serde_json::from_str(&m.to_string()).unwrap();validate(&m).unwrap();}
+    #[test]fn card_dimensions_are_optional_and_preserved(){let mut m=fixture();m["nodes"][0]["width"]=json!(640);m["nodes"][0]["height"]=json!(500);m["nodes"][0]["imageHeight"]=json!(300);m["nodes"][0]["imageFit"]=json!("contain");validate(&m).unwrap();let copy:Value=serde_json::from_str(&m.to_string()).unwrap();assert_eq!(copy,m);m["nodes"][0]["width"]=json!(-1);assert!(validate(&m).is_err());m["nodes"][0]["width"]=json!(300);m["nodes"][0]["imageFit"]=json!("bad");assert!(validate(&m).is_err());}
     #[test]fn reject_invalid_edges_files_and_remote_images(){let mut m=fixture();m["edges"]=json!([{"id":"e","from":"a","to":"missing"}]);assert!(validate(&m).is_err());m=fixture();m["nodes"][0]["files"][0]["size"]=json!(4);assert!(validate(&m).is_err());m=fixture();m["nodes"][0]["images"]=json!([{"id":"img","name":"x","src":"https://example.invalid/x.png"}]);assert!(validate(&m).is_err());}
 }

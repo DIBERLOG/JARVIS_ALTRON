@@ -6,8 +6,10 @@ import { timerPresets, customPresets, selectTimer, startTimer, pauseTimer, reset
 import { defaultTraining } from './training'
 import { getWeekWeather, weatherPeriod } from './weather'
 import { handleMailVoice, resetMailVoice } from './outlook'
+import {newMindMap,mapText} from './mindMap'
 import { parseReminderDate } from './reminders'
 
+export const centerNoteToOpen = writable('')
 export const centerSection = writable('calendar')
 export const remoteCenterEditing = writable(false)
 export const trainingVoiceTab = writable('today')
@@ -90,6 +92,8 @@ export async function handleCenterVoice(raw: string) {
             }
             pending={kind:'append-body',id:step.ids[n-1]};reply('Что добавить в эту заметку, сэр?', 'note_ask_append_text', true);return
         }
+        if(step.kind==='map-title'){if(!raw.trim()||raw.trim().length>120){reply('Название — до 120 символов. Как назвать карту?','',true);return}pending={kind:'map-body',title:raw.trim()};reply('Продиктуйте описание карты или скажите без описания.','',true);return}
+        if(step.kind==='map-body'){const description=/^(без описания|пропустить|пустая карта)$/.test(text)?'':raw.trim();if(description.length>4000){reply('Описание слишком длинное. Продиктуйте до 4000 символов.','',true);return}const data=await loadCenterData(),map=newMindMap(step.title,description),id=makeId();data.notes.push({id,title:step.title!,text:mapText(map),type:'mindmap',format:'plain',mindMap:map,updatedAt:new Date().toISOString()});await save(data);pending=null;navigateCenter('notes');centerNoteToOpen.set(id);reply('Карта мыслей создана и сохранена, сэр.');return}
         if (step.kind === 'note-title' || step.kind === 'check-title') {
             pending={kind:step.kind==='check-title'?'check-body':'note-body',title:raw};reply('Продиктуйте содержание, сэр.', step.kind==='check-title'?'checklist_ask_items':'note_ask_content', true);return
         }
@@ -173,6 +177,10 @@ export async function handleCenterVoice(raw: string) {
         if(!habits.length){reply('Активных привычек пока нет.','habits_empty');return}
         pending={kind:'habit',ids:habits.map(item=>item.id)};const n=spokenNumber(text);if(n){await handleCenterVoice(String(n));return}
         reply('Какую привычку, сэр? '+habits.map((item,i)=>`${i+1}: ${item.title}`).join('; '),'habit_ask_number',true);return
+    }
+    if(/карт[ауы] (?:мыслей|идей)|ментальн.*карт/.test(text)&&/созда|сдела|новую|добав/.test(text)){
+        if(get(remoteCenterEditing)){reply('Сначала сохраните открытую заметку, сэр.');return}
+        navigateCenter('notes');pending={kind:'map-title'};reply('Как назвать карту мыслей, сэр?','',true);return
     }
     if(/замет|чек.?лист/.test(text)&&/созда|новую|новый|добав|допол/.test(text)) {
         navigateCenter('notes')

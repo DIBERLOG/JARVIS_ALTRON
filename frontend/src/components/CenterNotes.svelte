@@ -7,6 +7,7 @@
     import { sanitizeNoteHtml, NOTE_HTML_LIMIT } from "@/lib/richNotes"
     export let notes: Note[] = []
     export let disabled = false
+    export let openNoteId = ""
     export let mobile = false
     export let onSave: (note: Note) => Promise<boolean>
     export let onDelete: (id: string) => Promise<boolean>
@@ -16,6 +17,7 @@
     let mindMap:MindMap|undefined
     let html = "", dirty = false, localError = "", editorKey = 0
     $: onDirty(dirty)
+    $: if(openNoteId && notes.some(note=>note.id===openNoteId) && !dirty){const target=openNoteId;openNoteId="";open(notes.find(note=>note.id===target))}
     $: ordered = [...notes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     $: completed = items.filter(item => item.done).length
     function canLeave() { return !dirty || window.confirm("Есть несохранённые изменения. Перейти без сохранения?") }

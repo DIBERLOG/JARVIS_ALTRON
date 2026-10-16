@@ -8,7 +8,8 @@ async function main(){
     const timer=load('src/lib/timer.ts',{'svelte/store':store,'@/lib/ipc':ipc})
     const mail=load('src/lib/outlook.ts',{'svelte/store':store,'@tauri-apps/api/core':{invoke:async()=>({})}})
     const reminders=load('src/lib/reminders.ts',{})
-    const voice=load('src/lib/centerVoice.ts',{'./reminders':reminders,'./outlook':mail,'svelte/store':store,'@tauri-apps/api/core':{invoke:async()=>{}},'./ipc':ipc,'./center':core,'./timer':timer,'./training':{defaultTraining:()=>({})},'./weather':{getWeekWeather:async()=>({}),weatherPeriod:store.writable(7)}})
+    const maps=load('src/lib/mindMap.ts',{'./center':core})
+    const voice=load('src/lib/centerVoice.ts',{'./mindMap':maps,'./reminders':reminders,'./outlook':mail,'svelte/store':store,'@tauri-apps/api/core':{invoke:async()=>{}},'./ipc':ipc,'./center':core,'./timer':timer,'./training':{defaultTraining:()=>({})},'./weather':{getWeekWeather:async()=>({}),weatherPeriod:store.writable(7)}})
     const scheduleEvents=[];global.CustomEvent=class{constructor(type){this.type=type}};global.window.dispatchEvent=event=>scheduleEvents.push(event.type)
     await voice.handleCenterVoice('открой расписание');assert.equal(scheduleEvents.at(-1),'jarvis-schedule-open');assert.equal(calls.at(-1).follow_up,false)
     const scheduleCount=scheduleEvents.filter(type=>type==='jarvis-schedule-open').length
@@ -49,6 +50,9 @@ async function main(){
     await voice.handleCenterVoice('измени первое напоминание');await voice.handleCenterVoice('Встреча');await voice.handleCenterVoice('завтра в 23:59');await voice.handleCenterVoice('без предупреждения');await voice.handleCenterVoice('да')
     assert.equal(db.reminders.length,1);assert.equal(db.reminders[0].id,reminderId);assert.equal(db.reminders[0].title,'Встреча');assert.deepEqual(db.reminders[0].advanceDays,[])
     await voice.handleCenterVoice('измени напоминание');await voice.handleCenterVoice('первое');await voice.handleCenterVoice('отмена');assert.equal(db.reminders[0].title,'Встреча')
+    await voice.handleCenterVoice('создай карту мыслей');assert.equal(calls.at(-1).follow_up,true);await voice.handleCenterVoice('Проект голосом');await voice.handleCenterVoice('Собрать команду и сделать прототип');const mapNote=db.notes.at(-1);assert.equal(mapNote.type,'mindmap');assert.equal(mapNote.title,'Проект голосом');assert.equal(mapNote.mindMap.nodes[0].text,'Собрать команду и сделать прототип');assert.equal(store.get(voice.centerNoteToOpen),mapNote.id);assert.equal(calls.at(-1).follow_up,false);
+    const mapCount=db.notes.length;await voice.handleCenterVoice('создай карту мыслей');await voice.handleCenterVoice('отмена');assert.equal(db.notes.length,mapCount);
+    await voice.handleCenterVoice('создай карту идей');await voice.handleCenterVoice('Пустая');await voice.handleCenterVoice('без описания');assert.equal(db.notes.at(-1).mindMap.nodes[0].text,'');
     for(const call of calls.filter(call=>call.reply_id))assert.ok(fs.existsSync(path.resolve('../resources/sound/command-replies/ru',call.reply_id+'.mp3')),call.reply_id)
     console.log('Center voice: recorded replies, delayed feed refresh, named presets, duration dialog, weather periods, notes, habits and timer milestones passed')
 }
