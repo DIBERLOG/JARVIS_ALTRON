@@ -92,5 +92,12 @@ try{
  await page.evaluate(()=>window.fixture.unmount());await page.evaluate(()=>window.fixture.remount());
  await page.getByRole('button',{name:'Развернуть карту',exact:true}).click();
  await page.getByRole('button',{name:'Свернуть карту',exact:true}).click();
+ // A long list must scroll rather than compress note headings vertically.
+ await page.setViewportSize({width:1040,height:800});await page.goto(url+'?many');
+ await page.locator('.note-list button').nth(20).waitFor({state:'attached'});
+ const noteGeometry=await page.locator('.note-list').evaluate(list=>({scrolls:list.scrollHeight>list.clientHeight,headings:[...list.querySelectorAll('strong')].map(h=>({height:h.clientHeight,line:parseFloat(getComputedStyle(h).lineHeight)}))}));
+ assert.equal(noteGeometry.scrolls,true);assert.ok(noteGeometry.headings.every(h=>h.height>=h.line-1),'Note headings must retain a full line of height');
+ await page.locator('.note-list button').last().click();
+ await page.screenshot({path:path.join(root,'target/notes-list-height-fixed.png'),fullPage:true});
  assert.deepEqual(errors,[]);fs.writeFileSync(path.join(root,'target/mindmap-ui-tests.log'),'PASS: create/edit, images and file bytes, download, drag persistence, undo/redo, checklist, reload, native callbacks, mobile geometry, light theme, repeated collapse, nested desktop scrolling, editor unmount/remount and restart.\n');console.log('PASS: shared mind-map editor, fictional notes only.');
 }catch(e){await page.screenshot({path:path.join(root,'target/mindmap-test-failure.png'),fullPage:true});console.error('Browser errors:',errors);throw e}finally{await browser.close();await server.close()}
