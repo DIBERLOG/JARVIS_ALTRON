@@ -9,8 +9,9 @@ $voicemodCandidates = @(
 )
 $voicemod = $voicemodCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 $jarvisRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$jarvisApp = Join-Path $jarvisRoot 'target\debug\jarvis-app.exe'
-$jarvisGui = Join-Path $jarvisRoot 'target\debug\jarvis-gui.exe'
+$jarvisBin = Join-Path $jarvisRoot 'artifacts\release-1.1.18\windows'
+$jarvisApp = Join-Path $jarvisBin 'jarvis-app-sync-v2-lab.exe'
+$jarvisGui = Join-Path $jarvisBin 'JARVIS-Sync-v2-LAB.exe'
 $logFile = Join-Path $env:APPDATA 'com.priler.jarvis\startup.log'
 
 function Start-IfNotRunning {
@@ -28,7 +29,7 @@ function Start-IfNotRunning {
         if ($WorkingDirectory) {
             $startParams.WorkingDirectory = $WorkingDirectory
         }
-        if ($ProcessName -ne 'jarvis-gui') { $startParams.WindowStyle = 'Hidden' }
+        if ($FilePath -ne $jarvisGui) { $startParams.WindowStyle = 'Hidden' }
         Start-Process @startParams
     }
 }
@@ -42,12 +43,11 @@ try {
     }
     # Login-time audio and WebView2 initialization can outlive the Startup shortcut.
     Start-Sleep -Seconds 20
-    Start-IfNotRunning -ProcessName 'jarvis-app' -FilePath $jarvisApp -WorkingDirectory $jarvisRoot
-    Start-Sleep -Seconds 5
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        Start-IfNotRunning -ProcessName 'jarvis-gui' -FilePath $jarvisGui -WorkingDirectory $jarvisRoot
+        # The GUI owns and starts the voice process; do not create a second core here.
+        Start-IfNotRunning -ProcessName 'JARVIS-Sync-v2-LAB' -FilePath $jarvisGui -WorkingDirectory $jarvisBin
         Start-Sleep -Seconds 5
-        $gui = Get-Process -Name 'jarvis-gui' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $jarvisGui }
+        $gui = Get-Process -Name 'JARVIS-Sync-v2-LAB' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $jarvisGui }
         if ($gui) { break }
         "$(Get-Date -Format o) GUI start attempt $attempt failed" | Add-Content -LiteralPath $logFile
     }

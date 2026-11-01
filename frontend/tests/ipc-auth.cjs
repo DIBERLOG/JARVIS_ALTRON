@@ -8,11 +8,18 @@ async function main(){
  const ipc=mod.exports;
  try{
   await ipc.connectIpc();const socket=sockets[0];socket.readyState=WebSocket.OPEN;socket.onopen();
-  assert.equal(socket.url,'ws://127.0.0.1:9712');assert.deepEqual(socket.sent,[{action:'authenticate',token:'test-secret'}]);
+  assert.equal(socket.url,'ws://127.0.0.1:9713');assert.deepEqual(socket.sent,[{action:'authenticate',token:'test-secret'}]);
   assert.equal(store.get(ipc.ipcConnected),false);assert.equal(ipc.sendTextCommand('must not run yet'),false);
   socket.onmessage({data:JSON.stringify({event:'speech_recognized',text:'not authenticated'})});assert.equal(store.get(ipc.lastRecognizedText),'');
   socket.onmessage({data:'{"event":"authenticated"}'});assert.equal(store.get(ipc.ipcConnected),true);assert.equal(socket.sent.at(-1).action,'get_muted');
   assert.equal(ipc.sendTextCommand('test only'),true);assert.equal(socket.sent.at(-1).action,'text_command');
+  socket.onmessage({data:JSON.stringify({event:'error',message:'Command not found'})});
+  assert.equal(store.get(ipc.lastError),'Command not found');
+  ipc.sendTextCommand('retry');assert.equal(store.get(ipc.lastError),'');
+  socket.onmessage({data:JSON.stringify({event:'command_executed',id:'test',success:false})});
+  assert.match(store.get(ipc.lastError),/Не удалось выполнить/);
+  socket.onmessage({data:JSON.stringify({event:'speech_recognized',text:'voice retry'})});
+  assert.equal(store.get(ipc.lastError),'');assert.equal(store.get(ipc.lastRecognizedText),'voice retry');
   await ipc.connectIpc();assert.equal(sockets.length,1);
   console.log('PASS: no commands/events before authentication; native credential lookup; one connection; authenticated command');
  }finally{ipc.disableIpc();}

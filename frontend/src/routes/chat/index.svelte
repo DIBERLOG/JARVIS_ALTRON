@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from "svelte"
+    import { onMount, tick } from "svelte"
     import { invoke } from "@tauri-apps/api/core"
     import { open } from "@tauri-apps/plugin-shell"
     import LoadingSpinner from "@/components/LoadingSpinner.svelte"
@@ -55,10 +55,18 @@
         return line.startsWith("Источник: ") ? line.slice(10).trim() : line.includes(" — https://") ? line.slice(line.indexOf("https://")).trim() : ""
     }
     $: visible = messages
+    // News moved below the composer and loads only when the drawer is opened.
+    let newsOpen = false
+    $: if (newsOpen && !news.length && !newsLoading && !newsError) loadNews()
+    // Keep the newest reply in view.
+    let dialogEl: HTMLDivElement
+    // Scroll via a local reference: writing to `dialogEl.scrollTop` directly would
+    // invalidate `dialogEl` and re-run this reactive block forever.
+    async function scrollToLatest() { await tick(); const el = dialogEl; if (el) el.scrollTop = el.scrollHeight }
+    $: if (visible.length || loading) scrollToLatest()
     onMount(() => {
         invoke<typeof config>("chat_get_config").then(value => config = value).catch(e => error = String(e))
         loadChatHistory().then(value=>{chats=value;historyReady=true;const latest=[...chats].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))[0];if(latest)selectChat(latest)}).catch(e=>historyError=`История не загружена: ${String(e)}. Отправка отключена, чтобы не затереть данные.`)
-        loadNews()
         const refreshSpeech = () => invoke<boolean>("chat_is_speaking")
             .then(value => speaking = value).catch(() => speaking = false)
         refreshSpeech()
@@ -101,17 +109,18 @@
     </aside>
     <div class="chat-main">
     {#if historyError}<p class="error" role="alert">{historyError}</p>{/if}{#if exportNotice}<p role="status">{exportNotice}</p>{/if}
+    <details class="model-settings"><summary>Модель и настройки ответов · {config.provider==='openai'?'OpenAI':config.provider==='deepseek'?'DeepSeek':'Ollama'}</summary><ChatProviderSettings bind:config /></details>
+    <div class="dialog" bind:this={dialogEl}>
+        {#if speaking}<div class="speech-controls"><button class="stop-speech" type="button" on:click={stopSpeech} disabled={stoppingSpeech} aria-label="Остановить озвучку ответа"><span aria-hidden="true">■</span> Остановить звук</button></div>{/if}
+        {#if !visible.length && !loading}<p class="dialog-empty">Начните беседу — спросите что угодно.</p>{/if}{#each visible as message}<article class="msg" class:me={message.role === "user"}><b>{message.role === "user" ? "ТЫ" : "JARVIS"}</b>{#each message.content.split('\n') as line}{#if message.role === "assistant" && sourceUrl(line)}<button class="source-link" type="button" on:click={() => openNews(sourceUrl(line))}>{line}</button>{:else}<p>{line || '\u00a0'}</p>{/if}{/each}</article>{/each}{#if loading}<article class="thinking"><b>JARVIS</b><p>Думаю<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></p></article>{/if}{#if error}<p class="error">{error}</p>{/if}
+    </div>
+    <form on:submit|preventDefault={send}><textarea on:keydown={e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send() } }} aria-label="Сообщение ассистенту" maxlength="12000" bind:value={prompt} placeholder="Напиши вопрос ассистенту…" disabled={loading||!historyReady}></textarea><label class="web-search"><input type="checkbox" bind:checked={webSearch} /><span class="pulse"></span><span><b>WEB INTEL</b><small>Свежие новости и актуальные вопросы ищутся автоматически; включи для любого запроса</small></span></label><small>Ctrl+Enter — отправить. В ответах учитываются последние 20 сообщений беседы; полная переписка остаётся в истории.</small><button disabled={loading||!historyReady}>Отправить</button></form>
+    <details class="news-drawer" bind:open={newsOpen}><summary><span class="live-dot"></span><span>Живая лента новостей</span><small>{newsUpdated ? `обновлено в ${newsUpdated}` : "Интерфакс · Лента.ру · BBC News · DW"}</small><i class="drawer-chevron" aria-hidden="true"></i></summary>
     <section class="news-panel" aria-label="Лента новостей" aria-busy={newsLoading}>
         <div class="news-heading"><div><p class="news-kicker"><span class="live-dot"></span> WEB INTEL · ЖИВАЯ ЛЕНТА</p><h2>Актуальные новости</h2><small>{newsUpdated ? `Обновлено в ${newsUpdated}` : "Интерфакс · Лента.ру · BBC News · DW"}</small></div><button class="news-refresh" type="button" on:click={loadNews} disabled={newsLoading}>{#if newsLoading}<LoadingSpinner /><span>Обновление…</span>{:else}↻ Обновить{/if}</button></div>
         {#if newsError}<p class="news-error" role="alert">{newsError}</p>{/if}
         {#if news.length}<div class="news-grid">{#each news as item}<button class="news-card" type="button" on:click={() => openNews(item.url)} title="Открыть оригинал: {item.source}"><span class="news-meta"><b>{item.source}</b><time datetime={item.published_at}>{newsTime(item.published_at)}</time></span><strong>{item.title}</strong><span class="news-link">Читать источник ↗</span></button>{/each}</div>{:else if newsLoading}<div class="news-loading" role="status"><LoadingSpinner size={30}/><div><strong>Загружаю свежие новости</strong><span>Проверяю четыре источника…</span></div></div>{:else if !newsError}<p class="news-empty">Свежих публикаций пока нет.</p>{/if}
-    </section>
-    <details class="model-settings"><summary>Модель и настройки ответов · {config.provider==='openai'?'OpenAI':config.provider==='deepseek'?'DeepSeek':'Ollama'}</summary><ChatProviderSettings bind:config /></details>
-    <div class="dialog">
-        {#if speaking}<div class="speech-controls"><button class="stop-speech" type="button" on:click={stopSpeech} disabled={stoppingSpeech} aria-label="Остановить озвучку ответа"><span aria-hidden="true">■</span> Остановить звук</button></div>{/if}
-        {#each visible as message}<article class:me={message.role === "user"}><b>{message.role === "user" ? "ТЫ" : "JARVIS"}</b>{#each message.content.split('\n') as line}{#if message.role === "assistant" && sourceUrl(line)}<button class="source-link" type="button" on:click={() => openNews(sourceUrl(line))}>{line}</button>{:else}<p>{line || '\u00a0'}</p>{/if}{/each}</article>{/each}{#if loading}<article><b>JARVIS</b><p>Думаю…</p></article>{/if}{#if error}<p class="error">{error}</p>{/if}
-    </div>
-    <form on:submit|preventDefault={send}><textarea aria-label="Сообщение ассистенту" maxlength="12000" bind:value={prompt} placeholder="Напиши вопрос ассистенту…" disabled={loading||!historyReady}></textarea><label class="web-search"><input type="checkbox" bind:checked={webSearch} /><span class="pulse"></span><span><b>WEB INTEL</b><small>Свежие новости и актуальные вопросы ищутся автоматически; включи для любого запроса</small></span></label><small>В ответах учитываются последние 20 сообщений выбранной беседы. Полная переписка остаётся в истории.</small><button disabled={loading||!historyReady}>Отправить</button></form>
+    </section></details>
     </div></div>
 </section>
 
@@ -140,4 +149,37 @@
     .news-refresh{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-width:112px}
     .news-loading{display:flex;align-items:center;justify-content:center;gap:1rem;min-height:150px;border:1px solid #23444a;border-radius:9px;background:linear-gradient(135deg,#13313955,#0d1b1f);color:#d6f8f6}
     .news-loading>div{display:flex;flex-direction:column;gap:.35rem}.news-loading strong{font-size:.8rem;font-weight:600}.news-loading span{color:#89adb3;font-size:.7rem}
+
+/* ---- layout & motion refresh ---- */
+.chat-shell{margin:1.6rem auto}
+.dialog{height:clamp(280px,calc(100vh - 420px),680px);min-height:0;max-height:none;scroll-behavior:smooth}
+.dialog-empty{display:grid;place-items:center;height:100%;margin:0;color:#5f8489;font-size:.85rem;animation:msg-in .5s ease both}
+.msg{animation:msg-in .38s cubic-bezier(.22,1,.36,1) both;transform-origin:left bottom}
+.msg.me{margin-left:12%;transform-origin:right bottom}
+.msg:not(.me){margin-right:6%}
+@keyframes msg-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+.thinking{animation:msg-in .3s ease both}
+.dots{display:inline-flex;gap:3px;margin-left:4px;vertical-align:middle}
+.dots i{width:4px;height:4px;border-radius:50%;background:#52fefe;animation:dot 1.1s ease-in-out infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+form button{transition:transform .15s,filter .2s,box-shadow .2s}
+form button:hover:not(:disabled){filter:brightness(1.12);box-shadow:0 0 18px #16a8ae55}
+form button:active:not(:disabled){transform:scale(.97)}
+textarea{transition:border-color .2s,box-shadow .2s}
+textarea:focus{outline:none;border-color:#52fefe;box-shadow:0 0 0 3px #52fefe1f}
+.chat-history nav button{transition:background .2s,border-color .2s,transform .2s cubic-bezier(.22,1,.36,1)}
+.chat-history nav button:hover:not(:disabled){transform:translateX(3px)}
+.news-drawer{margin-top:1rem}
+.news-drawer summary{display:flex;align-items:center;gap:.6rem;padding:.85rem 1rem;border:1px solid #28474e;border-radius:10px;background:#0b1519;color:#dff6f6;font-size:.82rem;font-weight:700;cursor:pointer;list-style:none;transition:border-color .2s,background .2s}
+.news-drawer summary::-webkit-details-marker{display:none}
+.news-drawer summary:hover{border-color:#52fefe88;background:#0f1f24}
+.news-drawer summary small{font-weight:500;font-size:.7rem}
+.news-drawer .live-dot{animation:live 2s ease-in-out infinite}
+@keyframes live{50%{opacity:.35}}
+.drawer-chevron{margin-left:auto;width:8px;height:8px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform .3s cubic-bezier(.22,1,.36,1)}
+.news-drawer[open] .drawer-chevron{transform:rotate(225deg)}
+.news-drawer[open] .news-panel{margin-top:.6rem;animation:msg-in .4s cubic-bezier(.22,1,.36,1) both}
+.model-settings summary{transition:border-color .2s}.model-settings summary:hover{border-color:#52fefe88}
+@media(prefers-reduced-motion:reduce){.dialog{scroll-behavior:auto}.msg,.dialog-empty,.thinking,.news-drawer[open] .news-panel,.dots i,.news-drawer .live-dot{animation:none}.chat-history nav button:hover:not(:disabled){transform:none}}
 </style>

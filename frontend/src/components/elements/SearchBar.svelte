@@ -1,5 +1,6 @@
 <script lang="ts">
     import { translations, translate, isJarvisRunning, ipcConnected, sendTextCommand } from "@/stores"
+    import { lastError, lastRecognizedText, jarvisState } from "@/lib/ipc"
     
     $: t = (key: string) => translate($translations, key)
     
@@ -23,12 +24,11 @@
         statusMessage = ""
 
         try {
-            await sendTextCommand(command)
+            if (!sendTextCommand(command)) throw new Error("Voice core disconnected")
             searchQuery = ""
         } catch (err) {
             console.error("Failed to send command:", err)
             statusMessage = t('search-error-failed')
-            setTimeout(() => statusMessage = "", 3000)
         } finally {
             isProcessing = false
         }
@@ -56,9 +56,15 @@
         />
         <small>{isProcessing ? '...' : 'Enter'}</small>
     </form>
-    {#if statusMessage}
-        <div class="search-status">{statusMessage}</div>
-    {/if}
+    <div class="search-status" role="status" aria-live="polite">
+        {#if statusMessage || $lastError}
+            {statusMessage || $lastError}
+        {:else if $jarvisState === 'listening'}
+            Слушаю команду…
+        {:else if $lastRecognizedText}
+            {$jarvisState === 'processing' ? 'Обрабатываю' : 'Последняя команда'}: {$lastRecognizedText}
+        {/if}
+    </div>
 </div>
 
 <style lang="scss">
@@ -69,13 +75,14 @@
 
     .search-status {
         position: absolute;
-        bottom: -24px;
-        left: 50%;
-        transform: translateX(-50%);
+        top: 100%;
+        left: 0;
+        width: 100%;
+        text-align: center;
         font-size: 0.75rem;
         color: rgba(82, 254, 254, 0.8);
-        white-space: nowrap;
-        animation: fadeIn 0.2s ease;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 
     @keyframes fadeIn {

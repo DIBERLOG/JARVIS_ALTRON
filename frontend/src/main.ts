@@ -1,6 +1,7 @@
 // ### STYLES
 import "./css/main.scss"
 import "./css/styles.scss"
+import "./css/motion.css"
 
 // ### APP
 import "./lib/appearance"

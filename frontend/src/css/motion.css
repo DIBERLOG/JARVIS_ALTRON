@@ -1,0 +1,41 @@
+/* Shared motion layer for JARVIS ALTRON.
+   One easing curve, short durations, and a single reduced-motion switch. */
+:root {
+    --ease-out: cubic-bezier(.22, 1, .36, 1);
+    --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+    --dur-fast: .16s;
+    --dur: .3s;
+}
+
+/* Smooth state changes for buttons that don't define their own transition.
+   (No global press-scale: some buttons are positioned with transform.) */
+button {
+    transition-property: background, background-color, border-color, color, box-shadow, transform, opacity, filter;
+    transition-duration: var(--dur-fast);
+    transition-timing-function: var(--ease-out);
+}
+
+/* Visible keyboard focus everywhere, without changing mouse clicks. */
+:focus-visible {
+    outline: 2px solid #72efe6;
+    outline-offset: 2px;
+}
+
+/* Dropdown-like <details> blocks open with a short fade. */
+details[open] > :not(summary) {
+    animation: details-open .32s var(--ease-out) both;
+}
+@keyframes details-open {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* System setting "reduce motion" wins over everything above and in components. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

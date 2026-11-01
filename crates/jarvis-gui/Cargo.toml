@@ -44,6 +44,10 @@ tempfile.workspace = true
 base64 = "0.22"
 subtle = "2.6"
 
+[target.'cfg(windows)'.dependencies]
+# Window entrance: layered-window fade and vsync-paced frames.
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm"] }
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

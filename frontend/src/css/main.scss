@@ -19,19 +19,6 @@ body {
 
 }
 
-::-webkit-scrollbar {
-    width: 6px;
-}
-
-::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(82, 254, 254, 0.3);
-    border-radius: 3px;
-}
-
 .svelteui-InputWrapper-description {
     white-space: pre-line;
 }
@@ -46,28 +33,53 @@ body {
     overflow-x: hidden;
 }
 
-// ### SCROLLBAR
+// ### SCROLLBAR (slim, matches the cyan UI instead of the white system bar)
+// Current WebView2 renders the standard properties and ignores ::-webkit-scrollbar
+// wherever they apply, so set both: standard first, webkit for older runtimes.
+html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(82, 254, 254, 0.3) transparent;
+}
+
+html[data-theme=light] {
+    scrollbar-color: rgba(23, 109, 96, 0.4) transparent;
+}
+
+// scrollbar-color inherits on its own; scrollbar-width does not.
+* {
+    scrollbar-width: inherit;
+}
+
 ::-webkit-scrollbar {
-    width: 15px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-    box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: linear-gradient(to bottom, #999, #27292f);
+    background: rgba(82, 254, 254, 0.22);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+
+    &:hover {
+        background: rgba(82, 254, 254, 0.4);
+        background-clip: padding-box;
+    }
 }
 
 // ### TEXT SELECTION
 ::selection {
-    background: #ff8901 !important;
+    background: #1f8f8f !important;
     color: white !important;
     text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5) !important;
 }
 
 ::-moz-selection {
-    background: #ff8901 !important;
+    background: #1f8f8f !important;
     color: white !important;
     text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5) !important;
 }

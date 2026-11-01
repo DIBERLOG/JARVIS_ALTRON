@@ -267,7 +267,7 @@
     <div class="settings-layout">
         <aside class="settings-sidebar"><nav aria-label="Разделы настроек">{#each ['Ассистент','Ваши данные','Ещё'] as group}<p class="nav-group">{group}</p>{#each sections.filter(section=>section.group===group) as section}<button type="button" class:chosen={active===section.id} aria-current={active===section.id?'page':undefined} aria-controls={'settings-'+section.id} on:click={()=>chooseSection(section.id)}><span class="nav-icon"><svelte:component this={section.icon} width="18" height="18"/></span><span>{section.title}</span>{#if dirty&&['general','voice','advanced'].includes(section.id)}<span class="unsaved-dot" aria-hidden="true" title="Несохранённые изменения"></span>{/if}</button>{/each}{/each}</nav><div class="sidebar-note"><span>JARVIS</span><small>Всё важное — на своём месте.</small></div></aside>
         <div class="settings-content">
-            <header class="section-heading"><div class="section-icon"><svelte:component this={selectedSection.icon} width="24" height="24"/></div><div><h2>{selectedSection.title}</h2><p>{selectedSection.description}</p></div></header>
+            {#key active}<header class="section-heading"><div class="section-icon"><svelte:component this={selectedSection.icon} width="24" height="24"/></div><div><h2>{selectedSection.title}</h2><p>{selectedSection.description}</p></div></header>{/key}
             {#if !loaded&&!loadError}<p class="load-state" role="status">Загружаем настройки…</p>{/if}
             {#if loadError}<div class="status-message error" role="alert">{loadError}<button type="button" on:click={()=>window.location.reload()}>Повторить</button></div>{/if}
             <section id="settings-general" hidden={active!=='general'} aria-label="Основные">
@@ -552,4 +552,10 @@
     @media(max-width:960px){.settings-workspace{padding:0 20px}.settings-layout{grid-template-columns:190px minmax(0,1fr);gap:22px}.connection{font-size:10px}.settings-card{padding:20px}.save-bar{flex-wrap:wrap}.save-actions{margin-left:auto}.settings-content :global(.tts-mode-options){grid-template-columns:1fr}}
     @media(max-width:700px){.settings-workspace{margin-top:20px;padding:0 14px}.settings-heading{align-items:flex-start;flex-direction:column;gap:16px;margin-bottom:24px}h1{font-size:30px}.settings-layout{grid-template-columns:minmax(0,1fr);gap:24px}.settings-sidebar{position:static}.settings-sidebar nav{display:flex;overflow:auto;gap:8px;padding-bottom:8px}.nav-group,.sidebar-note{display:none}.settings-sidebar nav button{width:auto;flex:none;margin:0;padding:11px 13px}.settings-content :global(.personality-options),.settings-content :global(.voice-options){grid-template-columns:1fr}.settings-content :global(.global-listening),.settings-content :global(.shortcut-card){align-items:flex-start;flex-direction:column}.save-bar{bottom:8px;padding:14px}.settings-content :global(.provider-panel),.settings-content :global(.sync),.settings-content :global(.transfer),.settings-content :global(.website){padding:18px}}
     @media(prefers-reduced-motion:reduce){.settings-sidebar nav button{transition:none}}
+
+    /* ---- motion refresh ---- */
+    .section-heading{animation:settings-in .38s cubic-bezier(.22,1,.36,1) both}
+    .settings-content > section:not([hidden]){animation:settings-in .45s cubic-bezier(.22,1,.36,1) both}
+    @keyframes settings-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    @media(prefers-reduced-motion:reduce){.section-heading,.settings-content > section:not([hidden]){animation:none}}
 </style>

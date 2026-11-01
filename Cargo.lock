@@ -3597,6 +3597,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tempfile",
  "vosk",
+ "windows-sys 0.59.0",
  "zip",
 ]
 

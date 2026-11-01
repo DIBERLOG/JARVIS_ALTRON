@@ -34,7 +34,9 @@ body {
     font-weight: 400;
 
     color: #0f0f0f;
-    background-color: #f6f6f6;
+    // <html> is the page scroller; a light value here showed through the
+    // transparent scrollbar track as a white bar.
+    background-color: #080a0d;
 
     font-synthesis: none;
     text-rendering: optimizeLegibility;

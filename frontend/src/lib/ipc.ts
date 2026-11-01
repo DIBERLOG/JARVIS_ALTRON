@@ -134,10 +134,12 @@ function handleEvent(data: any) {
             break;
         case "wake_word_detected":
         case "listening":
+            lastError.set("")
             jarvisState.set("listening")
             break
 
         case "speech_recognized":
+            lastError.set("")
             recordRequest(data.text || '', 'voice')
             lastRecognizedText.set(data.text || "")
             jarvisState.set("processing")
@@ -145,6 +147,7 @@ function handleEvent(data: any) {
 
         case "command_executed":
             lastExecutedCommand.set(data.id || "")
+            if (data.success === false) lastError.set("Не удалось выполнить команду. Проверьте настройки и журнал.")
             break
 
         case "idle":
@@ -229,7 +232,9 @@ export function sendIpcMessage(message: object): Promise<void> {
 }
 
 export function sendTextCommand(text: string): boolean {
-    return sendAction("text_command", { text })
+    const sent = sendAction("text_command", { text })
+    if (sent) lastError.set("")
+    return sent
 }
 
 async function revealWindow() {

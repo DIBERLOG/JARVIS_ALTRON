@@ -81,9 +81,10 @@ static COMPONENTS: Lazy<Mutex<Components>> = Lazy::new(|| {
 
 /// Find jarvis-app process and return its PID
 fn find_jarvis_app_pid(sys: &System) -> Option<Pid> {
-    let expected = std::env::current_exe().ok()?.with_file_name(if cfg!(windows) { "jarvis-app-sync-v2-lab.exe" } else { "jarvis-app-sync-v2-lab" });
+    let expected = std::env::current_exe().ok()?.with_file_name(if cfg!(windows) { "jarvis-app-sync-v2-lab.exe" } else { "jarvis-app-sync-v2-lab" }).canonicalize().ok()?;
     for (pid, process) in sys.processes() {
-        if process.exe().is_some_and(|path| path == expected) {
+        // Windows can report a different path spelling for the same executable.
+        if process.exe().and_then(|path| path.canonicalize().ok()).is_some_and(|path| path == expected) {
             return Some(*pid);
         }
     }
