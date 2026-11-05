@@ -7,7 +7,7 @@ use std::{
 };
 use once_cell::sync::OnceCell;
 
-use crate::{config, APP_CONFIG_DIR, APP_DIR};
+use crate::{APP_CONFIG_DIR, APP_DIR};
 
 static PENDING_SPEECH: AtomicUsize = AtomicUsize::new(0);
 static SPEECH_GENERATION: AtomicUsize = AtomicUsize::new(0);
@@ -323,13 +323,8 @@ fn speaker_command(text: &str) -> Option<Command> {
 }
 
 fn selected_tts_mode() -> String {
-    let Some(config_dir) = APP_CONFIG_DIR.get() else {
-        return "xtts".to_string();
-    };
-    fs::read_to_string(config_dir.join(config::DB_FILE_NAME))
-        .ok()
-        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
-        .and_then(|settings| settings.get("tts_mode")?.as_str().map(str::to_owned))
+    if APP_CONFIG_DIR.get().is_none() { return "xtts".into(); }
+    crate::db::latest_settings().map(|settings| settings.tts_mode)
         .unwrap_or_else(|| "xtts".to_string())
 }
 

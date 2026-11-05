@@ -353,6 +353,19 @@ pub fn available_commands() -> Vec<JCommand> {
   , {"id":"outlook_draft","type":"center","description":"Сохранить письмо в черновиках Outlook","phrases":{"ru":["сохрани письмо в черновик","сохрани черновик"]}}
   , {"id":"outlook_reply","type":"center","description":"Новое письмо отправителю выбранного письма","phrases":{"ru":["ответь на письмо"]}}
 ]"#).expect("valid built-in Center command catalog");
+    let everyday:Vec<JCommand>=serde_json::from_str(r#"[
+      {"id":"daily_brief","type":"center","description":"Погода, дела и новости на сегодня","phrases":{"ru":["что у меня сегодня","утренний обзор"]}},
+      {"id":"weather_advice","type":"center","description":"Совет по погоде и вечерний прогноз","phrases":{"ru":["вечером нужен зонт","как одеться сегодня","завтра нужен зонт"]}},
+      {"id":"news_digest","type":"center","description":"Обзор новостей по интересам","phrases":{"ru":["что нового в технологиях за сегодня","расскажи новости","подробнее о второй новости"]}},
+      {"id":"idea_capture","type":"center","description":"Сохранить идею одной фразой","phrases":{"ru":["запомни идею добавить управление музыкой","какие идеи для проекта я записывал"]}},
+      {"id":"reminder_quick","type":"center","description":"Напоминание одной фразой","phrases":{"ru":["через сорок минут напомни выключить духовку"]}},
+      {"id":"shopping_list","type":"center","description":"Добавить, прочитать или отметить покупки","phrases":{"ru":["добавь молоко и хлеб в покупки","прочитай список покупок","отметь молоко купленным"]}},
+      {"id":"personal_file_search","type":"center","description":"Поиск личных файлов по имени и дате","phrases":{"ru":["найди документ с курсовой который я вчера редактировал","покажи файл номер один"]}},
+      {"id":"clipboard_transform","type":"center","description":"Обработать скопированный текст","phrases":{"ru":["переведи это","объясни проще","сократи это","исправь ошибки в тексте"]}},
+      {"id":"work_mode","type":"center","description":"VS Code и Яндекс Музыка в браузере","phrases":{"ru":["включи режим работы","запусти режим работы"]}},
+      {"id":"password_login","type":"center","description":"Открыть страницу входа; пароль подставляет менеджер паролей","phrases":{"ru":["открой вход в github","открой вход в google","открой вход в discord"]}}
+    ]"#).expect("valid everyday catalog");
+    commands.extend(everyday);
     for command in &mut commands {
         if let Some(phrases) = command.phrases.get_mut("ru") {
             let originals = phrases.clone();
@@ -376,7 +389,11 @@ pub fn available_commands() -> Vec<JCommand> {
     }
     commands
 }
-pub fn normalize_phrase(text: &str) -> String {
+pub fn normalize_phrase(text: &str) -> String { normalize_phrase_with(text, true) }
+
+/// `smart: false` keeps the wording literal, e.g. during a free conversation,
+/// where "объясни это" is a question to the assistant, not a clipboard request.
+pub fn normalize_phrase_with(text: &str, smart: bool) -> String {
     let mut text = text.to_lowercase().replace('ё', "е").replace("пожалуйста,", "пожалуйста").split_whitespace().collect::<Vec<_>>().join(" ");
     text = text.trim_matches(|ch: char| ch.is_ascii_punctuation() || ch == '«' || ch == '»').to_string();
     loop {
@@ -399,15 +416,41 @@ pub fn normalize_phrase(text: &str) -> String {
         ("покажи привычки", "открой привычки"), ("покажи новости", "открой новости"),
     ] {
         if let Some(rest) = text.strip_prefix(alias) {
-            if alias.ends_with(' ') || rest.is_empty() || rest.starts_with(' ') { return format!("{canonical}{rest}"); }
+            if alias.ends_with(' ') || rest.is_empty() || rest.starts_with(' ') { text = format!("{canonical}{rest}"); break; }
         }
     }
-    text
+    // Free wording of an everyday request becomes its canonical phrase; known phrases stay as said.
+    if !smart || everyday_phrase(&text) || catalog_phrase(&text) { return text; }
+    super::smart::canonicalize(&text).unwrap_or(text)
+}
+
+fn catalog_phrase(text: &str) -> bool {
+    static PHRASES: std::sync::OnceLock<std::collections::HashSet<String>> = std::sync::OnceLock::new();
+    PHRASES.get_or_init(|| available_commands().iter().flat_map(|command| command.get_all_phrases()).map(|phrase| phrase.replace('ё', "е")).collect())
+        .contains(text)
 }
 
 pub fn matches_phrase(text: &str) -> bool {
     let normalized = normalize_phrase(text);
-    available_commands().iter().any(|command|command.get_all_phrases().iter().any(|phrase|phrase.replace('ё',"е")==normalized))
+    if everyday_phrase(&normalized) { return true; }
+    catalog_phrase(&normalized)
+}
+
+// Parameterized personal commands go to the Center before approximate matching.
+// Keep prefixes narrow: a model must not reinterpret arbitrary speech as a write.
+pub fn everyday_phrase(text: &str) -> bool {
+    if super::is_negated(text) { return false; }
+    ["что у меня сегодня", "утренний обзор", "расскажи о моем дне", "доброе утро",
+     "переведи это", "объясни проще", "сократи это", "исправь ошибки в тексте",
+     "включи режим работы", "запусти режим работы"].contains(&text)
+    || ["запомни идею", "запиши идею", "какие идеи", "найди заметк", "найди иде", "что я записывал",
+        "что нового", "расскажи новости", "прочитай новости", "новости по теме", "подробнее о ", "подробнее про ",
+        "найди файл", "найди документ", "поищи файл", "поищи документ", "покажи файл номер ", "открой вход в "].iter().any(|p|text.starts_with(p))
+    || ((text.starts_with("через ") || text.starts_with("напомни ")) && text.contains("напомни"))
+    || (text.starts_with("добавь ") && (text.ends_with(" в покупки") || text.ends_with(" в список дел")))
+    || (["прочитай ", "покажи ", "что в "].iter().any(|p|text.starts_with(p)) && ["покупки", "покупок", "дел"].iter().any(|p|text.ends_with(p)))
+    || (text.starts_with("отметь ") && ["купленным", "купленной", "выполненным", "выполненной"].iter().any(|p|text.ends_with(p)))
+    || ["нужен зонт", "брать зонт", "как одеться", "что надеть", "похолодает"].iter().any(|p|text.contains(p))
 }
 #[cfg(test)]
 mod tests {
@@ -427,5 +470,14 @@ mod tests {
         assert_eq!(super::normalize_phrase("открыть заметки пожалуйста"), "открой заметки");
         assert_eq!(super::normalize_phrase("не создавай заметку"), "не создавай заметку");
         assert!(super::matches_phrase("можешь открыть календарь"));
+    }
+    #[test]
+    fn everyday_requests_reach_center_without_fuzzy_parameter_loss() {
+        for phrase in ["что у меня сегодня", "вечером нужен зонт", "запомни идею: сделать новую игру", "через сорок минут напомни выключить духовку", "добавь молоко и хлеб в покупки", "найди документ с курсовой который я вчера редактировал", "переведи это", "включи режим работы"] {
+            assert!(super::matches_phrase(phrase), "{phrase}");
+        }
+        assert!(!super::matches_phrase("не включай режим работы"));
+        assert!(!super::matches_phrase("не добавь молоко в покупки"));
+        assert!(!super::matches_phrase("обычный разговор о покупках"));
     }
 }

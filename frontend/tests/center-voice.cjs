@@ -9,7 +9,8 @@ async function main(){
     const mail=load('src/lib/outlook.ts',{'svelte/store':store,'@tauri-apps/api/core':{invoke:async()=>({})}})
     const reminders=load('src/lib/reminders.ts',{})
     const maps=load('src/lib/mindMap.ts',{'./center':core})
-    const voice=load('src/lib/centerVoice.ts',{'./mindMap':maps,'./reminders':reminders,'./outlook':mail,'svelte/store':store,'@tauri-apps/api/core':{invoke:async()=>{}},'./ipc':ipc,'./center':core,'./timer':timer,'./training':{defaultTraining:()=>({})},'./weather':{getWeekWeather:async()=>({}),weatherPeriod:store.writable(7)}})
+    const everyday=load('src/lib/everydayVoice.ts',{'@tauri-apps/api/core':{invoke:async()=>{}},'./center':core,'./weather':{},'./reminders':reminders})
+    const voice=load('src/lib/centerVoice.ts',{'./everydayVoice':everyday,'./mindMap':maps,'./reminders':reminders,'./outlook':mail,'svelte/store':store,'@tauri-apps/api/core':{invoke:async()=>{}},'./ipc':ipc,'./center':core,'./timer':timer,'./training':{defaultTraining:()=>({})},'./weather':{getWeekWeather:async()=>({}),weatherPeriod:store.writable(7)}})
     const scheduleEvents=[];global.CustomEvent=class{constructor(type){this.type=type}};global.window.dispatchEvent=event=>scheduleEvents.push(event.type)
     await voice.handleCenterVoice('открой расписание');assert.equal(scheduleEvents.at(-1),'jarvis-schedule-open');assert.equal(calls.at(-1).follow_up,false)
     const scheduleCount=scheduleEvents.filter(type=>type==='jarvis-schedule-open').length

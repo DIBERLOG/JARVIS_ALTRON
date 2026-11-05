@@ -589,7 +589,7 @@ fn process_text_command(text: &str, dispatcher: &CommandDispatcher) {
 
 // Execute command, returns true if chaining should continue
 fn execute_command(text: &str, rt: &tokio::runtime::Handle) -> bool {
-    let normalized = if center_pending() { text.to_owned() } else { commands::center::normalize_phrase(text) };
+    let normalized = if center_pending() { text.to_owned() } else { commands::center::normalize_phrase_with(text, !dialogue_active()) };
     let text = normalized.as_str();
     if text == "отмена" || text == "отмени" {
         if !center_pending() && dialogue_active() { return execute_command("закончи разговор", rt); }

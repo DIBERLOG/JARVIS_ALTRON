@@ -18,9 +18,9 @@ export function parseReminderDate(raw: string, now = new Date(), allowPast=false
             if(Number.isFinite(hour)&&Number.isFinite(minute))text=text.slice(0,spoken.index)+' в '+hour+':'+String(minute).padStart(2,'0')
         }
     }
-    const relative = text.match(/через\s+(\d+|[а-я]+)\s*(секунд|минут|час|день|дня|дней|недел)/)
+    const relative = text.match(/через\s+(\d+|[а-я]+(?:\s+[а-я]+)?)\s+(секунд\S*|минут\S*|час\S*|день|дня|дней|недел\S*)(?:\s|$)/)
     if (relative) {
-        const amount = Number(relative[1]) || numbers[relative[1]]
+        const amount = number(relative[1])
         const unit = relative[2], scale = unit.startsWith('секунд') ? 1000 : unit.startsWith('минут') ? 60000 : unit.startsWith('час') ? 3600000 : unit.startsWith('недел') ? 604800000 : 86400000
         return amount > 0 && amount <= 365 ? new Date(now.getTime() + amount * scale) : null
     }

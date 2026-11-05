@@ -18,6 +18,7 @@ SOURCE = (
     ("resources/keywords/", "resources/keywords/"),
     ("resources/rustpotter/", "resources/rustpotter/"),
     ("resources/sound/", "resources/sound/"),
+    ("resources/tts/", "resources/tts/"),
     ("resources/models/", "resources/models/"),
 
     # vosk

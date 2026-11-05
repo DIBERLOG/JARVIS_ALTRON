@@ -13,6 +13,7 @@ use std::{
 };
 
 pub mod center;
+pub mod smart;
 mod structs;
 use crate::{config, i18n, APP_DIR};
 pub use structs::*;

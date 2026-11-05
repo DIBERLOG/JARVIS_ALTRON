@@ -9,9 +9,10 @@ $voicemodCandidates = @(
 )
 $voicemod = $voicemodCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 $jarvisRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$jarvisBin = Join-Path $jarvisRoot 'artifacts\release-1.1.18\windows'
+$jarvisBin = Join-Path $jarvisRoot 'target\release'
 $jarvisApp = Join-Path $jarvisBin 'jarvis-app-sync-v2-lab.exe'
-$jarvisGui = Join-Path $jarvisBin 'JARVIS-Sync-v2-LAB.exe'
+$jarvisGui = Join-Path $jarvisBin 'jarvis-gui-sync-v2-lab.exe'
+$jarvisGuiProcessName = [System.IO.Path]::GetFileNameWithoutExtension($jarvisGui)
 $logFile = Join-Path $env:APPDATA 'com.priler.jarvis\startup.log'
 
 function Start-IfNotRunning {
@@ -45,9 +46,9 @@ try {
     Start-Sleep -Seconds 20
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         # The GUI owns and starts the voice process; do not create a second core here.
-        Start-IfNotRunning -ProcessName 'JARVIS-Sync-v2-LAB' -FilePath $jarvisGui -WorkingDirectory $jarvisBin
+        Start-IfNotRunning -ProcessName $jarvisGuiProcessName -FilePath $jarvisGui -WorkingDirectory $jarvisBin
         Start-Sleep -Seconds 5
-        $gui = Get-Process -Name 'JARVIS-Sync-v2-LAB' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $jarvisGui }
+        $gui = Get-Process -Name $jarvisGuiProcessName -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $jarvisGui }
         if ($gui) { break }
         "$(Get-Date -Format o) GUI start attempt $attempt failed" | Add-Content -LiteralPath $logFile
     }

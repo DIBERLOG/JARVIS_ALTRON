@@ -185,6 +185,10 @@ fn main() {
             tauri_commands::center_translate_news,
             tauri_commands::center_get_weather,
             tauri_commands::center_get_weather_city,
+            tauri_commands::everyday_find_files,
+            tauri_commands::everyday_clipboard_text,
+            tauri_commands::everyday_work_mode,
+            tauri_commands::everyday_open_login,
             tauri_commands::chat_is_speaking,
             tauri_commands::chat_stop_speech,
         ])

@@ -51,6 +51,8 @@ mod news;
 pub use news::*;
 mod weather;
 pub use weather::*;
+mod everyday;
+pub use everyday::*;
 mod vault;
 pub use vault::*;
 mod outlook;

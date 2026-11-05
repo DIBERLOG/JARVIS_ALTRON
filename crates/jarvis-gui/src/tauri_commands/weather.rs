@@ -45,7 +45,13 @@ pub struct WeekWeather {
     timezone: String,
     updated_at: String,
     days: Vec<WeatherDay>,
+    hours: Vec<WeatherHour>,
 }
+
+#[derive(Debug, Serialize)]
+pub struct WeatherHour { time:String, temperature:f64, rain:Option<f64> }
+#[derive(Deserialize, Default)]
+struct Hourly { #[serde(default)] time:Vec<String>, #[serde(default)] temperature_2m:Vec<Option<f64>>, #[serde(default)] precipitation_probability:Vec<Option<f64>> }
 
 #[derive(Debug, Serialize)]
 pub struct WeatherDay {
@@ -68,7 +74,7 @@ struct Location {
     #[serde(default)] admin1: String,
 }
 #[derive(Deserialize)]
-struct Forecast { timezone: String, daily: Daily }
+struct Forecast { timezone: String, daily: Daily, #[serde(default)] hourly:Hourly }
 #[derive(Deserialize)]
 struct Daily {
     time: Vec<String>,
@@ -111,13 +117,19 @@ pub async fn center_get_weather(city: Option<String>, days: Option<usize>) -> Re
             ("forecast_days", length.to_string()),
         ]);
     if seasonal { forecast_url.query_pairs_mut().append_pair("models","ecmwf_seasonal_ensemble_mean_seamless"); }
+    else { forecast_url.query_pairs_mut().append_pair("hourly","temperature_2m,precipitation_probability"); }
     let forecast: Forecast = request_weather(&client, forecast_url).await?;
+    let hours=forecast.hourly.time.iter().enumerate().filter_map(|(i,time)|{
+        let temperature=forecast.hourly.temperature_2m.get(i).copied().flatten().filter(|v|v.is_finite())?;
+        let rain=forecast.hourly.precipitation_probability.get(i).copied().flatten().filter(|v|v.is_finite()&&(0.0..=100.0).contains(v));
+        Some(WeatherHour{time:time.clone(),temperature,rain})
+    }).collect();
     let days = parse_forecast_days(forecast.daily,length,seasonal)?;
     if explicit_city { jarvis_core::weather_city::set(city)?; }
     Ok(WeekWeather {
         seasonal,
         city: location.name, requested_city: city.to_owned(), region: location.admin1, timezone: forecast.timezone,
-        updated_at: chrono::Utc::now().to_rfc3339(), days,
+        updated_at: chrono::Utc::now().to_rfc3339(), days, hours,
     })
 }
 

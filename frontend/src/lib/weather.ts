@@ -3,7 +3,7 @@ import { writable } from 'svelte/store'
 export const weatherPeriod = writable(7)
 
 export type WeatherDay = { date: string; code: number; high: number; low: number; rain: number | null; wind: number | null; uv: number | null }
-export type WeekWeather = { city: string; requested_city: string; region: string; timezone: string; updated_at: string; days: WeatherDay[]; seasonal?: boolean; warning?: string }
+export type WeekWeather = { city: string; requested_city: string; region: string; timezone: string; updated_at: string; days: WeatherDay[]; hours?:{time:string;temperature:number;rain:number|null}[]; seasonal?: boolean; warning?: string }
 export type WeatherKind = "sun" | "partly" | "cloud" | "fog" | "rain" | "snow" | "storm" | "unknown"
 
 let cached: WeekWeather | null = null

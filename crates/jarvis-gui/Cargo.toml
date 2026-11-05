@@ -45,8 +45,8 @@ base64 = "0.22"
 subtle = "2.6"
 
 [target.'cfg(windows)'.dependencies]
-# Window entrance: layered-window fade and vsync-paced frames.
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm"] }
+# Window entrance (layered fade, vsync frames) and copying the selection for text commands.
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_DataExchange"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

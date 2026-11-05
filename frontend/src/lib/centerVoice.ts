@@ -8,6 +8,7 @@ import { getWeekWeather, weatherPeriod } from './weather'
 import { handleMailVoice, resetMailVoice } from './outlook'
 import {newMindMap,mapText} from './mindMap'
 import { parseReminderDate } from './reminders'
+import { handleEverydayVoice, resetEverydayVoice } from './everydayVoice'
 
 export const centerNoteToOpen = writable('')
 export const centerSection = writable('calendar')
@@ -47,7 +48,7 @@ function reply(text: string, id = '', followUp = false) {
     hintTimer=setTimeout(()=>centerVoiceHint.set(''),followUp?90000:6000)
     sendAction('center_reply', {text, reply_id:id, follow_up:followUp})
 }
-export function resetCenterVoice() { pending=null; resetMailVoice() }
+export function resetCenterVoice() { pending=null; resetMailVoice(); resetEverydayVoice() }
 export function centerVoiceError(error: unknown) {
     const message=typeof error==='string'?error:(error as Error)?.message||'Не удалось выполнить действие.'
     const id=/переводится/.test(message)?'news_translation_busy':/перевести|Ollama|перевод/.test(message)?'news_translation_error':/погод|прогноз/.test(message)?'weather_unavailable':/центр сейчас недоступен/i.test(message)?'voice_center_unavailable':'action_failed'
@@ -58,6 +59,7 @@ async function save(data: CenterData) { await saveCenterData(data); centerRevisi
 export async function handleCenterVoice(raw: string) {
     const text = clean(raw)
     if (/^(отмена|отмени|отменить|не надо|не нужно|нет|не сохраняй|передумал)$/.test(text)) {pending = null; resetMailVoice(); reply('Действие отменено, сэр.','action_cancelled'); return}
+    if (!pending && await handleEverydayVoice(raw,{reply,navigate:navigateCenter,save,editing:()=>get(remoteCenterEditing)})) return
     if(!pending && /^(открой расписание|покажи расписание|расписание)$/.test(text)) {window.dispatchEvent(new CustomEvent('jarvis-schedule-open'));reply('Открываю ваш сайт или окно настройки расписания, сэр.');return}
     if (!pending && await handleMailVoice(raw, { navigate: navigateCenter, reply, number: spokenNumber })) return
     if (pending) {
