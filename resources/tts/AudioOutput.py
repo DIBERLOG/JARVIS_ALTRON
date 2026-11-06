@@ -5,6 +5,10 @@ from pathlib import Path
 
 
 def output_mode():
+    # JARVIS passes the route of the current profile; the default is direct output.
+    mode = os.environ.get('JARVIS_AUDIO_OUTPUT')
+    if mode is not None:
+        return 'voicemod' if mode == 'voicemod' else 'direct'
     try:
         settings = Path(os.environ['APPDATA']) / 'com.priler.jarvis' / 'app.db'
         return json.loads(settings.read_text(encoding='utf-8')).get('audio_output_mode', 'direct')

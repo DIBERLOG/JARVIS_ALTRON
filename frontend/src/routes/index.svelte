@@ -6,7 +6,6 @@
     import ArcReactor from "@/components/elements/ArcReactor.svelte"
     import HDivider from "@/components/elements/HDivider.svelte"
     import Stats from "@/components/elements/Stats.svelte"
-    import VoiceHints from "@/components/elements/VoiceHints.svelte"
     import Footer from "@/components/Footer.svelte"
     
     import {
@@ -71,7 +70,6 @@
     </div>
 
     <HDivider noMargin />
-    <VoiceHints />
     <Stats />
     <Footer />
 </div>

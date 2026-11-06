@@ -589,6 +589,24 @@ fn process_text_command(text: &str, dispatcher: &CommandDispatcher) {
 
 // Execute command, returns true if chaining should continue
 fn execute_command(text: &str, rt: &tokio::runtime::Handle) -> bool {
+    // The user's own commands from Settings come first: they chose these phrases.
+    if !center_pending() && !dialogue_active() && !commands::is_negated(text) {
+        let custom = jarvis_core::custom_commands::load();
+        if let Some(command) = jarvis_core::custom_commands::find(&custom, text) {
+            let success = match jarvis_core::custom_commands::run(command) {
+                Ok(()) => { tts::speak("Открываю, сэр."); true }
+                Err(error) => {
+                    warn!("Custom command failed: {error}");
+                    ipc::send(IpcEvent::Error { message: error.clone() });
+                    voices::play_error();
+                    false
+                }
+            };
+            ipc::send(IpcEvent::CommandExecuted { id: format!("custom:{}", command.id), success });
+            ipc::send(IpcEvent::Idle);
+            return false;
+        }
+    }
     let normalized = if center_pending() { text.to_owned() } else { commands::center::normalize_phrase_with(text, !dialogue_active()) };
     let text = normalized.as_str();
     if text == "отмена" || text == "отмени" {

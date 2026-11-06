@@ -66,6 +66,8 @@ pub struct Settings {
     pub center_reminder_announcements: String,
     #[serde(default)]
     pub news_translation_cache: String,
+    #[serde(default)]
+    pub custom_commands: String,
 
     pub api_keys: ApiKeys,
 }
@@ -79,7 +81,7 @@ fn default_local_chat_model() -> String { "qwen3:8b".to_string() }
 fn default_deepseek_chat_model() -> String { "deepseek-flash".to_string() }
 fn default_openai_chat_model() -> String { "gpt-4.1-mini".to_string() }
 fn default_chat_speak_responses() -> bool { true }
-fn default_tts_mode() -> String { "xtts".to_string() }
+fn default_tts_mode() -> String { "s2".to_string() }
 fn default_audio_output_mode() -> String { "direct".to_string() }
 fn default_personality() -> String { "jarvis".to_string() }
 fn default_voice_dialogue_personality() -> String { "jarvis".to_string() }
@@ -119,6 +121,7 @@ impl Settings {
             "center_data"             => Some(self.center_data.clone()),
             "center_reminder_announcements" => Some(self.center_reminder_announcements.clone()),
             "news_translation_cache_v1" => Some(self.news_translation_cache.clone()),
+            "custom_commands_v1"        => Some(self.custom_commands.clone()),
             "api_key__picovoice"        => Some(self.api_keys.picovoice.clone()),
             "api_key__openai"           => Some(self.api_keys.openai.clone()),
             "api_key__deepseek"         => Some(self.api_keys.deepseek.clone()),
@@ -215,6 +218,7 @@ impl Settings {
                 self.chat_history = val.to_string();
             },
             "chat_speak_responses" => self.chat_speak_responses = match val { "true" => true, "false" => false, _ => return Err("expected true or false".into()) },
+            "custom_commands_v1" => { crate::custom_commands::parse(val)?; self.custom_commands = val.to_string(); }
             "tts_mode" => { if !matches!(val, "silero" | "xtts" | "s2") { return Err("tts mode must be silero, xtts or s2".into()) }; self.tts_mode = val.to_string(); }
             "monitor_self" => self.monitor_self = match val { "true" => true, "false" => false, _ => return Err("expected true or false".into()) },
             "audio_output_mode" => { if !matches!(val,"direct"|"voicemod") { return Err("unsupported audio output mode".into()) }; self.audio_output_mode=val.into(); },
@@ -280,6 +284,7 @@ impl Settings {
             "voice_dialogue_personality",
             "center_data",
             "center_reminder_announcements",
+            "custom_commands_v1",
             "api_key__picovoice",
             "api_key__openai",
             "api_key__deepseek",
@@ -327,6 +332,7 @@ impl Default for Settings {
             center_data: String::new(),
             center_reminder_announcements: String::new(),
             news_translation_cache: String::new(),
+            custom_commands: String::new(),
 
             api_keys: ApiKeys {
                 picovoice: String::from(""),
@@ -387,11 +393,11 @@ mod tts_mode_tests {
     }
 
     #[test]
-    fn old_settings_default_to_xtts() {
+    fn old_settings_default_to_s2() {
         let mut value = serde_json::to_value(Settings::default()).unwrap();
         value.as_object_mut().unwrap().remove("tts_mode");
         let settings: Settings = serde_json::from_value(value).unwrap();
-        assert_eq!(settings.get("tts_mode").as_deref(), Some("xtts"));
+        assert_eq!(settings.get("tts_mode").as_deref(), Some("s2"));
     }
 
     #[test]

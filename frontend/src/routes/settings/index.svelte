@@ -14,6 +14,7 @@
     import LanSync from '@/components/LanSync.svelte'
     import ChatProviderSettings from '@/components/ChatProviderSettings.svelte'
     import ScheduleWebsite from '@/components/ScheduleWebsite.svelte'
+    import CustomCommands from '@/components/CustomCommands.svelte'
     import {recordingShortcut} from '@/lib/listeningShortcut'
 
     import {
@@ -80,7 +81,7 @@
         {id:'models',title:'Нейросеть',description:'Модель для общения и ключи доступа.',icon:Cube,group:'Ассистент'},
         {id:'devices',title:'Устройства',description:'Подключение телефона и обмен данными.',icon:Link2,group:'Ваши данные'},
         {id:'data',title:'Данные и копии',description:'Перенос записей и резервное копирование.',icon:Archive,group:'Ваши данные'},
-        {id:'automation',title:'Сайты и команды',description:'Ваши ссылки для голосовых команд.',icon:Globe,group:'Ещё'},
+        {id:'automation',title:'Сайты и команды',description:'Свои голосовые команды: приложения и сайты.',icon:Globe,group:'Ещё'},
         {id:'advanced',title:'Дополнительно',description:'Распознавание речи и обработка микрофона.',icon:MixerHorizontal,group:'Ещё'},
         {id:'about',title:'О приложении',description:'Версия JARVIS, поддержка и диагностика.',icon:InfoCircled,group:'Ещё'}
     ]
@@ -106,7 +107,7 @@
     let selectedVad = ""
     let gainNormalizerEnabled = false
     let voiceDialoguePersonality = "jarvis"
-    let ttsMode = "xtts"
+    let ttsMode = "s2"
     let audioOutputMode = "direct"
     let monitorSelf = false
     let apiKeyPicovoice = ""
@@ -248,7 +249,7 @@
             selectedVad = vad
             gainNormalizerEnabled = gainNormalizer === "true"
             voiceDialoguePersonality = dialoguePersonality === "altron" ? "altron" : "jarvis"
-            ttsMode = ["s2", "xtts", "silero"].includes(savedTtsMode) ? savedTtsMode : "xtts"
+            ttsMode = ["s2", "xtts", "silero"].includes(savedTtsMode) ? savedTtsMode : "s2"
             monitorSelf = savedMonitorSelf === "true"
             audioOutputMode = await invoke<string>("db_read", { key: "audio_output_mode" }) === "voicemod" ? "voicemod" : "direct"
             apiKeyPicovoice = pico
@@ -374,7 +375,7 @@
             <section id="settings-models" hidden={active!=='models'} aria-label="Нейросеть"><ChatProviderSettings /></section>
             <section id="settings-devices" hidden={active!=='devices'} aria-label="Устройства"><LanSync /></section>
             <section id="settings-data" hidden={active!=='data'} aria-label="Данные и копии"><CenterDataTransfer /><p class="hint">Беседы можно сохранить в разделе «Чат» через меню экспорта.</p></section>
-            <section id="settings-automation" hidden={active!=='automation'} aria-label="Сайты и команды"><ScheduleWebsite /></section>
+            <section id="settings-automation" hidden={active!=='automation'} aria-label="Сайты и команды"><CustomCommands /><ScheduleWebsite /></section>
             <section id="settings-advanced" hidden={active!=='advanced'} aria-label="Дополнительно"><article class="settings-card"><h3>Распознавание и обработка речи</h3><p class="hint">Если ассистент слышит вас правильно, эти параметры можно оставить без изменений.</p><fieldset disabled={!loaded||saveButtonDisabled}>
         <Space h="sm" />
         <NativeSelect

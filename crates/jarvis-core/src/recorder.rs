@@ -131,11 +131,41 @@ pub fn get_selected_microphone_index() -> i32 {
         if (idx as usize) >= devices.len() {
             warn!("Microphone index {} not found ({} available), falling back to default", 
                 idx, devices.len());
-            return -1;
+            return default_physical_microphone(&get_audio_devices());
         }
     }
-    
+    if idx < 0 { return default_physical_microphone(&get_audio_devices()); }
+
     idx
+}
+
+/// Voice changers and audio cables register themselves as the Windows default
+/// microphone (Voicemod does on every start). They carry no speech when nothing
+/// is routed into them, so "System Default" would leave the wake word deaf.
+fn is_virtual_microphone(name: &str) -> bool {
+    let name = name.to_lowercase();
+    ["voicemod", "vb-audio", "cable output", "virtual", "voicemeeter", "steam streaming", "nvidia broadcast"]
+        .iter().any(|marker| name.contains(marker))
+}
+
+/// "System Default" resolved to the first real microphone, or -1 when every
+/// device is virtual (then the user has routed audio on purpose).
+fn default_physical_microphone(devices: &[String]) -> i32 {
+    devices.iter().position(|name| !is_virtual_microphone(name)).map_or(-1, |index| index as i32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_default_skips_voice_changers_and_cables() {
+        let devices = ["Микрофон (Voicemod Virtual Audio Device (WDM))", "CABLE Output (VB-Audio Virtual Cable)", "Микрофон (JBL Quantum350 Wireless)"]
+            .map(String::from);
+        assert_eq!(default_physical_microphone(&devices), 2);
+        assert_eq!(default_physical_microphone(&devices[..2]), -1);
+        assert_eq!(default_physical_microphone(&[]), -1);
+    }
 }
 
 pub fn get_audio_devices() -> Vec<String> {

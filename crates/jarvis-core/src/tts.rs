@@ -94,7 +94,7 @@ impl SileroWorker {
         } else if mode == "xtts" {
             xtts_speaker_command(tts_dir, "") .ok_or("XTTS unavailable")?
         } else {
-            let mut command = Command::new(python);
+            let mut command = python_command(python);
             command.arg(script);
             command
         };
@@ -295,11 +295,11 @@ fn speaker_command(text: &str) -> Option<Command> {
         warn!("XTTS voice is unavailable; falling back to Silero.");
     }
     if let Some(command) = silero_speaker_command(&tts_dir, text) {
-        info!("Using Silero TTS (Voicemod cable).");
+        info!("Using Silero TTS.");
         return Some(command);
     }
     if let Some((python, script, model, config)) = neural_speaker_paths() {
-        let mut command = Command::new(python);
+        let mut command = python_command(python);
         command
             .arg(script)
             .arg("--model")
@@ -323,9 +323,9 @@ fn speaker_command(text: &str) -> Option<Command> {
 }
 
 fn selected_tts_mode() -> String {
-    if APP_CONFIG_DIR.get().is_none() { return "xtts".into(); }
+    if APP_CONFIG_DIR.get().is_none() { return "s2".into(); }
     crate::db::latest_settings().map(|settings| settings.tts_mode)
-        .unwrap_or_else(|| "xtts".to_string())
+        .unwrap_or_else(|| "s2".to_string())
 }
 
 pub fn mode_status() -> (String, bool) {
@@ -375,7 +375,7 @@ fn xtts_speaker_command(tts_dir: &std::path::Path, text: &str) -> Option<Command
         || !cache.join("vocab.json").is_file() || !cache.join("speakers_xtts.pth").is_file() {
         return None;
     }
-    let mut command = Command::new(python);
+    let mut command = python_command(python);
     command.arg(script).arg("--checkpoint").arg(checkpoint)
         .arg("--config").arg(config).arg("--text").arg(text);
     Some(command)
@@ -391,7 +391,7 @@ fn s2_speaker_command(tts_dir: &std::path::Path, text: &str) -> Option<Command> 
         || !root.join("models/Fish-Audio-S2-Pro-GGUF/fish-audio-s2-pro-q4_k-preserved-v2.gguf").is_file() {
         return None;
     }
-    let mut command = Command::new(python);
+    let mut command = python_command(python);
     command.arg(script).arg("--text").arg(text);
     Some(command)
 }
@@ -402,7 +402,7 @@ fn silero_speaker_command(tts_dir: &std::path::Path, text: &str) -> Option<Comma
     if !script.is_file() {
         return None;
     }
-    let mut command = Command::new(python);
+    let mut command = python_command(python);
     command.arg(script).arg("--text").arg(text);
     Some(command)
 }
@@ -428,4 +428,15 @@ fn neural_speaker_paths() -> Option<(PathBuf, PathBuf, PathBuf, PathBuf)> {
     runs.sort_by_key(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok());
     let run = runs.pop()?;
     Some((python, script, run.join("best_model.pth"), run.join("config.json")))
+}
+
+/// Python voices read the output route from here: the profile on disk is
+/// encrypted, so they cannot read it themselves. Direct output unless the user
+/// explicitly chose Voicemod.
+fn python_command(python: PathBuf) -> Command {
+    let mode = crate::db::latest_settings().map(|settings| settings.audio_output_mode)
+        .filter(|mode| mode == "voicemod").unwrap_or_else(|| "direct".into());
+    let mut command = Command::new(python);
+    command.env("JARVIS_AUDIO_OUTPUT", mode);
+    command
 }
