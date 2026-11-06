@@ -17,7 +17,7 @@ async function main(){
  const filename=path.resolve('src/routes/center/index.svelte')
  const processed=await preprocess(fs.readFileSync(filename,'utf8'),{script:({content})=>({code:ts.transpileModule(content,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022,verbatimModuleSyntax:true}}).outputText})},{filename})
  const empty=load(filename+'.stub',compile('<div></div>',{generate:'dom'}).js.code,{svelte})
- const stubs={svelte,'@/lib/center':center,'@/lib/centerVoice':{centerSection:store.writable('birthdays'),centerRevision:store.writable(0),centerVoiceHint:store.writable('')},'@/lib/ipc':{sendAction(){}}}
+ const stubs={svelte,'@/lib/center':center,'@/lib/centerVoice':{centerSection:store.writable('birthdays'),centerRevision:store.writable(0)},'@/lib/ipc':{sendAction(){}}}
  const mod=new Module(filename,module);mod.paths=module.paths;mod.require=name=>name.endsWith('.svelte')?empty:name.endsWith('.css')?{}:stubs[name]||require(name)
  mod._compile(ts.transpileModule(compile(processed.code,{filename,generate:'dom',css:'external'}).js.code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename)
  const component=new mod.exports.default({target:document.body}),user=userEvent.setup({document})

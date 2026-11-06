@@ -14,8 +14,6 @@ export const centerNoteToOpen = writable('')
 export const centerSection = writable('calendar')
 export const remoteCenterEditing = writable(false)
 export const trainingVoiceTab = writable('today')
-export const centerVoiceHint = writable('')
-let hintTimer: ReturnType<typeof setTimeout>
 export const centerRevision = writable(0)
 export type VoiceNews = { title: string; url: string }
 export const voiceNews = writable<VoiceNews[]>([])
@@ -42,10 +40,8 @@ export function spokenNumber(text: string): number | undefined {
     const index = words.findIndex(word => tokens.includes(word)); if (index >= 0) return index + 1
     const order = ordinal.findIndex(word => tokens.some(token => new RegExp(`^${word}(ый|ая|ое|ую|ого|ий|ья|ье|ью|ой|ому|ым|ом|его)$`).test(token))); return order >= 0 ? order + 1 : undefined
 }
+// Replies are spoken only; the text is never shown over the Center.
 function reply(text: string, id = '', followUp = false) {
-    clearTimeout(hintTimer)
-    centerVoiceHint.set(text)
-    hintTimer=setTimeout(()=>centerVoiceHint.set(''),followUp?90000:6000)
     sendAction('center_reply', {text, reply_id:id, follow_up:followUp})
 }
 export function resetCenterVoice() { pending=null; resetMailVoice(); resetEverydayVoice() }
