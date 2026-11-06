@@ -24,10 +24,10 @@ export async function handleEverydayVoice(raw:string, bridge:Bridge):Promise<boo
         const data=await loadCenterData(),today=dayKey(new Date())
         const plans=data.reminders.filter(x=>!x.done&&dayKey(new Date(x.dueAt))===today).sort((a,b)=>a.dueAt.localeCompare(b.dueAt))
         const tasks=(data.tasks||[]).filter(x=>!x.done)
-        const parts=[plans.length?'Напоминания: '+plans.map(x=>new Date(x.dueAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})+' — '+x.title).join('; '):'На сегодня нет напоминаний.',tasks.length?'Дела: '+tasks.slice(0,5).map(x=>x.text).join('; '):'']
-        try {const w=await getWeekWeather();const d=w.days[0];parts.push(`${w.city}: от ${d.low} до ${d.high} градусов. ${clothingFor(d).map(x=>x.text).join('. ')}${w.warning?' Использован ранее полученный прогноз.':''}`)} catch {parts.push('Погода сейчас недоступна.')}
-        try {lastNews=await news('сегодня');parts.push(lastNews.length?'Новости: '+lastNews.slice(0,3).map(x=>`${x.title}. Источник: ${x.source}`).join('. '):'Свежих новостей за сегодня не найдено.')}catch{parts.push('Новости сейчас недоступны.')}
-        navigate('calendar');reply(parts.filter(Boolean).join('\n'));return true
+        // Only today's plans: weather and news have their own commands.
+        const time=(x:{dueAt:string})=>new Date(x.dueAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})
+        const parts=[plans.length?'Напоминания: '+plans.map(x=>time(x)+' — '+x.title).join('; ')+'.':'',tasks.length?'Дела: '+tasks.slice(0,5).map(x=>x.text).join('; ')+'.':'']
+        navigate('calendar');reply(parts.filter(Boolean).join('\n')||'На сегодня планов нет, сэр.');return true
     }
     if(/зонт|как одеться|что надеть|похолодает/.test(text)) {
         const w=await getWeekWeather(),d=w.days[text.includes('завтра')?1:0]

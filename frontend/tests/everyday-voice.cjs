@@ -20,7 +20,7 @@ async function main(){
  await say('Что нового в технологиях за сегодня?');assert.equal(calls.at(-1).args.topic,'tech');assert.match(last,/https:\/\/example.com/)
  await say('Подробнее о первой новости');assert.match(last,/Детали процессора/)
  await say('Вечером нужен зонт?');assert.match(last,/зонт/);assert.match(last,/18:00/);assert.match(last,/от 4 до 7/)
- failWeather=true;await say('Что у меня сегодня?');assert.match(last,/Погода сейчас недоступна/);assert.match(last,/выключить духовку/)
+ failWeather=true;const newsCalls=calls.length;await say('Что у меня сегодня?');assert.match(last,/выключить духовку/);assert.doesNotMatch(last,/Погода|Новости|градус/);assert.equal(calls.length,newsCalls)
  await say('Найди документ с курсовой, который я вчера редактировал');assert.equal(calls.at(-1).args.yesterday,true);assert.equal(calls.at(-1).args.query,'курсов')
  await say('Покажи файл номер один');assert.equal(calls.at(-1).name,'show_in_folder')
  await say('Переведи это');assert.match(last,/Привет/);assert.match(last,/выделенного/)
