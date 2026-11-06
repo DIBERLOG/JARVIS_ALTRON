@@ -588,7 +588,24 @@ fn process_text_command(text: &str, dispatcher: &CommandDispatcher) {
 
 
 // Execute command, returns true if chaining should continue
+/// "Стоп", "хватит", "замолчи": interrupt speech and drop a pending question.
+fn stop_phrase(text: &str) -> bool {
+    let text = text.to_lowercase().replace('ё', "е");
+    let words: Vec<&str> = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty() && *w != "джарвис").collect();
+    !words.is_empty() && words.len() <= 3 && words.iter().all(|w| matches!(*w,
+        "стоп" | "хватит" | "замолчи" | "замолчать" | "помолчи" | "тихо" | "тише" | "остановись" | "прекрати" | "заткнись" | "все" | "достаточно" | "стой"))
+        && !words.iter().all(|w| *w == "все")
+}
+
 fn execute_command(text: &str, rt: &tokio::runtime::Handle) -> bool {
+    if stop_phrase(text) {
+        tts::stop();
+        CENTER_PENDING.store(false, Ordering::SeqCst);
+        // Silent reset of a pending Center question (no "cancelled" reply).
+        if ipc::has_clients() { ipc::send(IpcEvent::CenterCommand { text: "стоп".into() }); }
+        ipc::send(IpcEvent::Idle);
+        return false;
+    }
     // The user's own commands from Settings come first: they chose these phrases.
     if !center_pending() && !dialogue_active() && !commands::is_negated(text) {
         let custom = jarvis_core::custom_commands::load();

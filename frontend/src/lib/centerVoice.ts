@@ -54,6 +54,7 @@ export function navigateCenter(section: string) { centerSection.set(section); wi
 async function save(data: CenterData) { await saveCenterData(data); centerRevision.update(value => value + 1) }
 export async function handleCenterVoice(raw: string) {
     const text = clean(raw)
+    if (text==='стоп') {resetCenterVoice(); return}
     if (/^(отмена|отмени|отменить|не надо|не нужно|нет|не сохраняй|передумал)$/.test(text)) {pending = null; resetMailVoice(); reply('Действие отменено, сэр.','action_cancelled'); return}
     if (!pending && await handleEverydayVoice(raw,{reply,navigate:navigateCenter,save,editing:()=>get(remoteCenterEditing)})) return
     if(!pending && /^(открой расписание|покажи расписание|расписание)$/.test(text)) {window.dispatchEvent(new CustomEvent('jarvis-schedule-open'));reply('Открываю ваш сайт или окно настройки расписания, сэр.');return}

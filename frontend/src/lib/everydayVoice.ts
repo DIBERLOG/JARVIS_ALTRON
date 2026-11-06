@@ -8,6 +8,18 @@ type Bridge = { reply:(text:string,id?:string,followUp?:boolean)=>void; navigate
 let lastNews: News[] = []
 let lastFiles: {name:string;path:string}[] = []
 const plain = (s:string) => s.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim()
+// News is read aloud: no HTML entities, no links, no "Title - Source" suffix and no
+// summary that only repeats the title.
+const entities:Record<string,string>={nbsp:' ',amp:'&',quot:'"',laquo:'«',raquo:'»',mdash:'—',ndash:'–',hellip:'…',apos:"'",lt:'<',gt:'>'}
+const speakable=(s:string)=>plain((s||'').replace(/&(#\d+|[a-z]+);/gi,(_m,e:string)=>e[0]==='#'?String.fromCharCode(Number(e.slice(1))):entities[e.toLowerCase()]??' ')).replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim()
+const newsTitle=(x:News)=>{const t=speakable(x.title),cut=t.lastIndexOf(' - ');return cut>20&&t.length-cut<=45?t.slice(0,cut).trim():t}
+function newsSummary(x:News){
+    const title=newsTitle(x).toLowerCase().slice(0,40),source=speakable(x.source)
+    let text=speakable(x.summary)
+    if(source&&text.endsWith(source))text=text.slice(0,-source.length).trim()
+    return !text||text.toLowerCase().startsWith(title)?'':text
+}
+const ORDER=['Первая','Вторая','Третья','Четвёртая','Пятая']
 const clean = (s:string) => s.toLowerCase().replace(/ё/g,'е').trim().replace(/[.!?]+$/,'')
 export function resetEverydayVoice() { lastNews=[];lastFiles=[] }
 export function newsTopic(text:string) {
@@ -42,11 +54,11 @@ export async function handleEverydayVoice(raw:string, bridge:Bridge):Promise<boo
     if(/^(что нового|расскажи новости|прочитай новости|новости по теме)/.test(text)) {
         if(/по теме/.test(text)&&!newsTopic(text)){reply('Назовите тему: технологии, нейросети, игры, наука, спорт или космос.');return true}
         lastNews=await news(text);navigate('news')
-        reply(lastNews.length?lastNews.map((x,i)=>`${i+1}. ${x.title}. ${plain(x.summary).slice(0,350)} Источник: ${x.source}. ${x.url}`).join('\n'):'За указанный период новости не найдены.');return true
+        reply(lastNews.length?lastNews.map((x,i)=>`${ORDER[i]??`${i+1}-я`}: ${newsTitle(x)}.`).join('\n')+'\nСкажите «подробнее о второй новости», чтобы услышать детали.':'За указанный период новости не найдены.');return true
     }
     if(/^подробнее (?:о |про )?(?:новост|перв|втор|трет|\d)/.test(text)) {
         const index=text.match(/\d+/)?.[0];const n=index?Number(index):/перв/.test(text)?1:/втор/.test(text)?2:/трет/.test(text)?3:0
-        const item=lastNews[n-1];reply(item?`${item.title}. ${plain(item.summary)} Источник: ${item.source}. Полная статья: ${item.url}`:'Сначала запросите новости, затем скажите, например: подробнее о второй новости.');return true
+        const item=lastNews[n-1];reply(item?[newsTitle(item)+'.',newsSummary(item).slice(0,600),`Источник: ${speakable(item.source)}.`].filter(Boolean).join(' '):'Сначала запросите новости, затем скажите, например: подробнее о второй новости.');return true
     }
     const idea=raw.match(/^(?:запомни|запиши)\s+идею\s*:?\s*(.+)$/i)
     if(idea){if(bridge.editing())throw new Error('Сначала сохраните открытую заметку.')

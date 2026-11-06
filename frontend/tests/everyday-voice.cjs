@@ -17,7 +17,7 @@ async function main(){
  const before=Date.now();await say('Через сорок минут напомни выключить духовку');assert.equal(db.reminders[0].title,'выключить духовку');assert.ok(Math.abs(Date.parse(db.reminders[0].dueAt)-before-40*60000)<1000)
  assert.equal(reminders.parseReminderDate('через двадцать пять минут',new Date(0)).getTime(),25*60000)
  assert.equal(reminders.parseReminderDate('через неизвестно минут'),null)
- await say('Что нового в технологиях за сегодня?');assert.equal(calls.at(-1).args.topic,'tech');assert.match(last,/https:\/\/example.com/)
+ await say('Что нового в технологиях за сегодня?');assert.equal(calls.at(-1).args.topic,'tech');assert.match(last,/Новый процессор/);assert.doesNotMatch(last,/https?:|&nbsp;/)
  await say('Подробнее о первой новости');assert.match(last,/Детали процессора/)
  await say('Вечером нужен зонт?');assert.match(last,/зонт/);assert.match(last,/18:00/);assert.match(last,/от 4 до 7/)
  failWeather=true;const newsCalls=calls.length;await say('Что у меня сегодня?');assert.match(last,/выключить духовку/);assert.doesNotMatch(last,/Погода|Новости|градус/);assert.equal(calls.length,newsCalls)

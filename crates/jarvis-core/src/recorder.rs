@@ -150,7 +150,7 @@ fn is_virtual_microphone(name: &str) -> bool {
 
 /// "System Default" resolved to the first real microphone, or -1 when every
 /// device is virtual (then the user has routed audio on purpose).
-fn default_physical_microphone(devices: &[String]) -> i32 {
+pub fn default_physical_microphone(devices: &[String]) -> i32 {
     devices.iter().position(|name| !is_virtual_microphone(name)).map_or(-1, |index| index as i32)
 }
 

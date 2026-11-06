@@ -245,6 +245,8 @@ pub fn get_health_status(state: tauri::State<'_, AppState>) -> HealthStatus {
     let devices = jarvis_core::recorder::get_audio_devices();
     let mic_index = state.settings.read("selected_microphone")
         .and_then(|value| value.parse::<i32>().ok()).unwrap_or(-1);
+    // "System Default" resolves to the real microphone the voice core listens to.
+    let mic_index = if mic_index < 0 { jarvis_core::recorder::default_physical_microphone(&devices) } else { mic_index };
     let microphone_name = if mic_index < 0 { "Системный микрофон".to_string() }
         else { devices.get(mic_index as usize).cloned().unwrap_or_else(|| "Микрофон не найден".into()) };
     let microphone_ready = assistant_running && (mic_index < 0 || (mic_index as usize) < devices.len());

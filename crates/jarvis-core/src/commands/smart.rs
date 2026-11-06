@@ -330,10 +330,31 @@ fn news_details(text: &str) -> Option<String> {
     Some(format!("подробнее о {} новости", ordinal.1))
 }
 
+/// Words including the short ones `tokens` drops ("что", "про").
+fn all_words(text: &str) -> Vec<String> {
+    text.to_lowercase().replace('ё', "е").split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_owned).collect()
+}
+
 fn ideas_about(text: &str) -> Option<String> {
-    let rest = after(text, &["покажи мои идеи", "покажи идеи", "прочитай идеи", "найди идеи", "какие идеи", "мои идеи"])?;
-    let topic = after(rest, &["про ", "о ", "об ", "по теме "])?;
-    Some(format!("какие идеи про {topic}"))
+    // Any form of "идея" with a topic: "покажи идею про помощника", "найди мою идею о музыке".
+    // Saving an idea is matched earlier by `idea`, so this only reads.
+    if has(text, &["запомни", "запиши", "сохрани", "добавь", "удали"]) { return None; }
+    let words = all_words(text);
+    let at = words.iter().position(|w| w.starts_with("иде"))?;
+    let marker = words.iter().skip(at + 1).position(|w| matches!(w.as_str(), "про" | "о" | "об" | "насчет" | "по"))? + at + 1;
+    let topic: Vec<&str> = words[marker + 1..].iter().map(String::as_str).filter(|w| *w != "теме").collect();
+    if topic.is_empty() { return None; }
+    Some(format!("какие идеи про {}", topic.join(" ")))
+}
+
+/// Recognition often breaks "что нового" ("что но о в технология"), but the topic word
+/// survives: a short question with a news topic is a news request.
+fn news_topic_question(text: &str) -> Option<String> {
+    let words = all_words(text);
+    if words.len() > 7 || has(text, &["такое", "значит", "это", "расскажи о себе"]) { return None; }
+    if !(words.first().is_some_and(|w| w == "что") || has(text, &["нов", "слышно"])) { return None; }
+    let topic = TOPICS.iter().any(|(stems, _)| words.iter().any(|w| stems.iter().any(|s| w.starts_with(s))));
+    topic.then(|| news_phrase(text))
 }
 
 /// Login pages by spoken name. Fixed URLs only: recognized speech is never put into a URL.
@@ -374,7 +395,7 @@ pub fn canonicalize(text: &str) -> Option<String> {
     // Explicit patterns first: they keep parameters and are the only way to write data.
     let explicit = login(text).or_else(|| idea(text)).or_else(|| reminder(text)).or_else(|| list_done(text))
         .or_else(|| list_item(text)).or_else(|| file_search(text)).or_else(|| news_details(text)).or_else(|| ideas_about(text));
-    if let Some(phrase) = explicit { return Some(phrase); }
+    if let Some(phrase) = explicit.or_else(|| news_topic_question(text)) { return Some(phrase); }
     // Opening, closing and switching off belong to the command packs.
     if ["открой ", "открыть ", "закрой ", "выключи ", "покажи ленту"].iter().any(|verb| text.starts_with(verb)) { return None; }
     closest_intent(text).map(|id| intent_phrase(id, text))
@@ -473,6 +494,9 @@ mod tests {
     fn speech_recognition_slips_still_match() {
         check(&[
             ("какие планы на севодня", "что у меня сегодня"),
+            ("что но о в технология", "что нового в технологиях"),
+            ("покажи идею про голосового помощника", "какие идеи про голосового помощника"),
+            ("найди мою идею о музыке", "какие идеи про музыке"),
             ("нужен зондик вечером", "вечером нужен зонт"),
             ("включи рабочий рижим", "включи режим работы"),
         ]);

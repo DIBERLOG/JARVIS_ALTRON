@@ -57,7 +57,7 @@
     $: items = [
         { icon: icons.mic, title: "Микрофон", text: short(health.microphone_name), hint: health.microphone_name, on: checked && health.microphone_ready },
         { icon: icons.neural, title: "Нейросеть", text: checked && health.neural_ready && $ipcConnected ? "Связь с Jarvis" : "Нет связи", on: checked && health.neural_ready && $ipcConnected },
-        { icon: icons.voice, title: "Озвучка", text: `${health.tts_mode === "xtts" ? "XTTS" : "Silero"} · ${checked && health.tts_ready ? "готова" : "недоступна"}`, on: checked && health.tts_ready },
+        { icon: icons.voice, title: "Озвучка", text: `${({s2:"Fish S2",xtts:"XTTS",silero:"Silero",system:"Системный голос"} as Record<string,string>)[health.tts_mode] ?? "Голос"} · ${checked && health.tts_ready ? "готова" : "недоступна"}`, on: checked && health.tts_ready },
         { icon: icons.voicemod, title: "Voicemod", text: checked && health.voicemod_running ? "Запущен" : "Не запущен", on: checked && health.voicemod_running },
         { icon: icons.globe, title: "Интернет", text: checked && health.internet_available ? "Доступен" : "Нет доступа", on: checked && health.internet_available },
         { icon: icons.chip, title: "Ресурсы", text: `RAM ${$jarvisRamUsage || "—"} МБ`, on: $jarvisRamUsage > 0, ram: true },

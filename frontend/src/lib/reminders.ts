@@ -2,12 +2,15 @@ import type { Reminder } from './center'
 
 export function parseReminderDate(raw: string, now = new Date(), allowPast=false): Date | null {
     let text = raw.toLowerCase().replace(/ё/g, 'е')
+        // Everyday spoken amounts: "через полчаса", "через час", "через минуту".
+        .replace(/через\s+полчаса/g,'через 30 минут').replace(/через\s+полтора\s+часа/g,'через 90 минут')
+        .replace(/через\s+(час|минуту|день|неделю)(?=\s|$)/g,'через 1 $1')
     const numbers: Record<string, number> = {один:1,одну:1,одна:1,два:2,две:2,три:3,четыре:4,пять:5,шесть:6,семь:7,восемь:8,девять:9,десять:10,пятнадцать:15,двадцать:20,тридцать:30}
     const clockNumbers:Record<string,number>={...numbers,ноль:0,одиннадцать:11,двенадцать:12,тринадцать:13,четырнадцать:14,шестнадцать:16,семнадцать:17,восемнадцать:18,девятнадцать:19,сорок:40,пятьдесят:50}
     const number=(s:string)=>{if(/^\d+$/.test(s))return Number(s);const parts=s.trim().split(/\s+/);const values=parts.map(p=>clockNumbers[p]);return values.every(n=>n!==undefined)?values.reduce((a,b)=>a+b,0):NaN}
     // Speech recognition often returns words, rather than a colon-separated clock.
     if(!text.includes('через')&&!/\d{1,2}[:.]\d{2}/.test(text)) {
-        const spoken=text.match(/\sв\s+(.+?)(?:\s+(утра|вечера|дня|ночи))?$/)
+        const spoken=text.match(/(?:^|\s)в\s+((?:(?!\sв\s).)+?)(?:\s+(утра|вечера|дня|ночи))?$/)
         if(spoken){
             const chunks=spoken[1].replace(/\s+(часа|часов|час|минуты|минут|минута)/g,'').trim().split(/\s+/)
             let hour=number(chunks[0]),used=1
@@ -24,6 +27,9 @@ export function parseReminderDate(raw: string, now = new Date(), allowPast=false
         const unit = relative[2], scale = unit.startsWith('секунд') ? 1000 : unit.startsWith('минут') ? 60000 : unit.startsWith('час') ? 3600000 : unit.startsWith('недел') ? 604800000 : 86400000
         return amount > 0 && amount <= 365 ? new Date(now.getTime() + amount * scale) : null
     }
+    // "в шесть вечера" without a day: today, or tomorrow if that time has passed.
+    const implicitDay=!/(\d{1,2})[.\/-](\d{1,2})|послезавтра|завтра|сегодня|вчера/.test(text)&&/(?:^|\s)в\s*\d{1,2}[:.]\d{2}/.test(text)
+    if(implicitDay)text='сегодня в '+(text.match(/(?:^|\s)в\s*(\d{1,2}[:.]\d{2})/) as RegExpMatchArray)[1]
     const match = text.match(/(?:(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{4}))?|(послезавтра|завтра|сегодня|вчера))\s*(?:в\s*)?(\d{1,2})[:.](\d{2})/)
     if (!match) return null
     const due = new Date(now)
@@ -36,6 +42,7 @@ export function parseReminderDate(raw: string, now = new Date(), allowPast=false
     const hour=Number(match[5]),minute=Number(match[6])
     if (hour>23 || minute>59) return null
     due.setHours(hour,minute,0,0)
+    if(implicitDay&&due.getTime()<=now.getTime())due.setDate(due.getDate()+1)
     return allowPast || due.getTime()>now.getTime() ? due : null
 }
 
