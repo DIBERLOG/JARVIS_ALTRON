@@ -7,13 +7,16 @@ The selected XTTS checkpoint remains unchanged. The legacy local-engine.txt flag
 is no longer used. Release/debug runtime resources must be kept in sync.
 
 S2Speak starts or reuses audio.cpp 0.9.0 at **127.0.0.1:29871**. It never uses a
-proxy for localhost requests. The model stays resident; GUI and the voice module
-share one server. A Windows file lock prevents duplicate simultaneous startup.
+proxy for localhost requests. GUI and the voice module share one server. The model
+loads on the first request (`lazy_load`) and is released after 10 idle minutes
+(`idle_unload_ms: 600000`): about 8.3 GB of RAM and 4.4 GB of VRAM while loaded,
+about 0.2 GB of RAM once released. The next reply after a release takes about 11 s
+longer. A Windows file lock prevents duplicate simultaneous startup.
 The server has no browser UI and listens only on loopback. Generated audio and
 reference recordings are not sent to an external service.
 
 Model: S2 Pro Q4_K with the fast audio decoder and codec preserved at their input
-precision. Runtime: Vulkan, device 1 (RTX 5060 on this machine). Reference:
+precision. Runtime: Vulkan, device 0 (RTX 5060 on this machine). Reference:
 jarvis_ru_012.wav. Seed 28, temperature .7, top_p .8, top_k 30. No voice filters or
 postprocessing; playback alone adds 80 ms silence to let the sound device drain.
 
@@ -29,7 +32,9 @@ This engine path is offline synthesis: playback starts after a full WAV is ready
 CUDA and streaming are not enabled or claimed as tested improvements.
 
 Server config/logs and the isolated model live in
-`tools/voice_training/s2_local_test` (ignored by Git). The resident process may
-outlive a client so both JARVIS clients can reuse it. If explicitly stopped it is
-started again on the next local-voice request. Cancellation stops client playback
+`tools/voice_training/s2_local_test` (ignored by Git). The server may outlive one
+client so both JARVIS clients can reuse it. `S2Watchdog.py` stops it about 10 s
+after the last JARVIS process exits, including after a crash. A server started by a
+standalone voice tool is left running. If stopped, it is started again when a new
+speech worker starts. Cancellation stops client playback
 immediately, but an in-flight server generation may finish in the background.

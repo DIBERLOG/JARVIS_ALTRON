@@ -35,6 +35,14 @@ def paths():
                 return root, model, reference
     raise FileNotFoundError("Local S2 runtime/model/reference is missing")
 
+def watch_server(pid, root):
+    """Starts the helper that stops the server once JARVIS has closed."""
+    script = Path(__file__).resolve().with_name("S2Watchdog.py")
+    python = getattr(sys, "_base_executable", sys.executable)
+    subprocess.Popen([python, "-I", "-S", str(script), str(pid)], cwd=root,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW)
+
 def ensure_server(session, root):
     def ready():
         try:
@@ -72,6 +80,7 @@ def ensure_server(session, root):
                     str(root / "resident-server.json"), "--no-ui", "--log"],
                     cwd=root, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                     creationflags=subprocess.CREATE_NO_WINDOW)
+            watch_server(process.pid, root)
             while not ready():
                 if process.poll() is not None:
                     raise RuntimeError("S2 server exited; see resident-server.log")

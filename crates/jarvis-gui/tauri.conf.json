@@ -46,6 +46,7 @@
       "../../resources/tts/trained-checkpoint.txt": "resources/tts/trained-checkpoint.txt",
       "../../resources/tts/xtts-references/jarvis_ru_012.wav": "resources/tts/xtts-references/jarvis_ru_012.wav",
       "../../resources/tts/S2Speak.py": "resources/tts/S2Speak.py",
+      "../../resources/tts/S2Watchdog.py": "resources/tts/S2Watchdog.py",
       "../../resources/rustpotter": "resources/rustpotter",
       "../../resources/vosk": "resources/vosk",
       "../../resources/keywords": "resources/keywords"
