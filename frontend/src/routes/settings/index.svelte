@@ -15,6 +15,7 @@
     import ChatProviderSettings from '@/components/ChatProviderSettings.svelte'
     import ScheduleWebsite from '@/components/ScheduleWebsite.svelte'
     import CustomCommands from '@/components/CustomCommands.svelte'
+    import OptionalComponents from '@/components/OptionalComponents.svelte'
     import {recordingShortcut} from '@/lib/listeningShortcut'
 
     import {
@@ -293,7 +294,7 @@
         />
     </div></fieldset></article>
             </section>
-            <section id="settings-voice" hidden={active!=='voice'} aria-label="Голос и звук"><fieldset disabled={!loaded||saveButtonDisabled}><article class="settings-card">
+            <section id="settings-voice" hidden={active!=='voice'} aria-label="Голос и звук"><OptionalComponents /><fieldset disabled={!loaded||saveButtonDisabled}><article class="settings-card">
         <section class="tts-mode" aria-labelledby="tts-mode-title">
             <p class="module-label">ОЗВУЧКА ОТВЕТОВ</p>
             <h3 id="tts-mode-title">Как будет говорить ассистент</h3>

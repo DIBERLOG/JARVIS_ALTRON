@@ -59,6 +59,8 @@ regex = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "=3.6.3", features = ["windows-native"] }
+# Job object: the S2 voice server ends with the JARVIS process that started it.
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 winrt-notification = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]

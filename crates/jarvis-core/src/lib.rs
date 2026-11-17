@@ -54,6 +54,8 @@ pub mod ipc;
 
 pub mod voices;
 pub mod tts;
+pub mod components;
+pub mod s2;
 
 pub mod chat;
 

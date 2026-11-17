@@ -1,6 +1,6 @@
 # JARVIS Mobile 1.1.18
 
-Обычный выпуск для Android 8 и новее. [Скачать APK](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.18).
+Обычный выпуск для Android 8 и новее. [Скачать APK](https://github.com/DIBERLOG/JARVIS_ALTRON/releases/tag/v1.1.19).
 
 ## Установка
 

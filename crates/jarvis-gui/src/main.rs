@@ -8,6 +8,7 @@ extern crate simple_log;
 
 mod events;
 mod ollama;
+mod components;
 
 mod tauri_commands;
 mod window_motion;
@@ -60,6 +61,8 @@ fn main() {
             if let Err(error) = tauri_commands::run_jarvis_app() {
                 eprintln!("Не удалось автоматически запустить голосовое ядро: {error}");
             }
+            // Voice and local AI download in the background; JARVIS already works without them.
+            components::start_in_background(std::time::Duration::from_secs(15));
             if let Some(window) = app.get_webview_window("main") {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(15));
@@ -106,6 +109,8 @@ fn main() {
             tauri_commands::lan_sync_vault_enabled,
             tauri_commands::lan_sync_resolve,
             window_motion::animate_window_in,
+            components::components_status,
+            components::components_start,
             listening_shortcut::set_listening_shortcut,
             // audio
             tauri_commands::pv_get_audio_devices,

@@ -90,7 +90,7 @@ impl SileroWorker {
         if !script.is_file() { return Err("SileroSpeak.py is unavailable".into()); }
         let mode = selected_tts_mode();
         let mut command = if mode == "s2" {
-            s2_speaker_command(tts_dir, "").ok_or("S2 Pro unavailable")?
+            return Err("S2 uses the native client".into());
         } else if mode == "xtts" {
             xtts_speaker_command(tts_dir, "") .ok_or("XTTS unavailable")?
         } else {
@@ -146,7 +146,7 @@ pub fn speak(text: &str) -> bool {
 
     let tts_dir = APP_DIR.join("resources").join("tts");
     let use_silero = (selected_tts_mode() == "silero" && silero_speaker_command(&tts_dir, text).is_some())
-        || (selected_tts_mode() == "s2" && s2_speaker_command(&tts_dir, text).is_some())
+        || (selected_tts_mode() == "s2" && crate::s2::available())
         || (selected_tts_mode() == "xtts" && xtts_speaker_command(&tts_dir, text).is_some());
     let command = if use_silero { None } else { speaker_command(text) };
     if !use_silero && command.is_none() {
@@ -202,6 +202,16 @@ fn speech_queue() -> &'static mpsc::Sender<(String, Option<Command>, usize, Opti
                 if let Some(command) = command {
                     if let Err(error) = run_speech_command(command, generation) {
                         warn!("TTS process failed: {error}");
+                    }
+                } else if selected_tts_mode() == "s2" && crate::s2::available() {
+                    let cancelled = move || generation != SPEECH_GENERATION.load(Ordering::SeqCst);
+                    if let Err(error) = crate::s2::speak(&spoken_text, cancelled) {
+                        warn!("{error}; using the fallback voice for this reply");
+                        if let Some(fallback) = speaker_command(&spoken_text) {
+                            if let Err(error) = run_speech_command(fallback, generation) {
+                                warn!("Fallback voice failed: {error}");
+                            }
+                        }
                     }
                 } else {
                     if let Some(receiver) = warming.take() { silero = receiver.recv().ok().flatten(); }
@@ -283,8 +293,7 @@ pub fn prewarm_silero() {
 fn speaker_command(text: &str) -> Option<Command> {
     let tts_dir = APP_DIR.join("resources").join("tts");
     if selected_tts_mode() == "s2" {
-        if let Some(command) = s2_speaker_command(&tts_dir, text) { return Some(command); }
-        warn!("S2 Pro unavailable; falling back to XTTS.");
+        // Native S2 is handled by the speech queue; this is its fallback.
         if let Some(command) = xtts_speaker_command(&tts_dir, text) { return Some(command); }
     }
     if selected_tts_mode() == "xtts" {
@@ -332,7 +341,7 @@ pub fn mode_status() -> (String, bool) {
     let mode = selected_tts_mode();
     let tts_dir = APP_DIR.join("resources").join("tts");
     let available = if mode == "s2" {
-        s2_speaker_command(&tts_dir, "check").is_some()
+        crate::s2::available()
     } else if mode == "xtts" {
         xtts_speaker_command(&tts_dir, "check").is_some()
     } else {
@@ -378,21 +387,6 @@ fn xtts_speaker_command(tts_dir: &std::path::Path, text: &str) -> Option<Command
     let mut command = python_command(python);
     command.arg(script).arg("--checkpoint").arg(checkpoint)
         .arg("--config").arg(config).arg("--text").arg(text);
-    Some(command)
-}
-
-fn s2_speaker_command(tts_dir: &std::path::Path, text: &str) -> Option<Command> {
-    if !cfg!(windows) { return None; }
-    let python = training_python()?;
-    let script = tts_dir.join("S2Speak.py");
-    let workspace = APP_DIR.parent()?.parent()?;
-    let root = workspace.join("tools/voice_training/s2_local_test");
-    if !script.is_file() || !root.join("runtime/audiocpp_server.exe").is_file()
-        || !root.join("models/Fish-Audio-S2-Pro-GGUF/fish-audio-s2-pro-q4_k-preserved-v2.gguf").is_file() {
-        return None;
-    }
-    let mut command = python_command(python);
-    command.arg(script).arg("--text").arg(text);
     Some(command)
 }
 
